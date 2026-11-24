@@ -71,12 +71,13 @@ fn piece_entries(r: &TapeReader<&[u8]>, i: usize, p: &PieceInfo, data: &[u8]) {
                     && e.number == c.track_number.get()
                     && e.first_item == c.first_item
                     && e.count == u64::from(c.count);
-                match named {
-                    true => assert_eq!(head.ok(), Some(c), "a good chunk's head reads alone"),
-                    false => assert!(
+                if named {
+                    assert_eq!(head.ok(), Some(c), "a good chunk's head reads alone")
+                } else {
+                    assert!(
                         matches!(head, Err(ReadError::Index(IndexError::BadEntries))),
                         "a chunk other than its entry names is refused"
-                    ),
+                    );
                 }
             }
             if e.kind == BlockKind::Series && !series.contains(&e.track_id) {

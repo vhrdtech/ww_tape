@@ -96,7 +96,7 @@ fn the_pieces_around_a_kept_one_are_kept() {
         "the analyser hears of each kept piece in order"
     );
     assert_eq!(kept.keys().expect("the keys"), t.kept);
-    assert!(t.overrun.is_empty());
+    assert_eq!(t.overrun, [] as [u64; 0]);
     assert_eq!(t.looked, t.pieces);
 }
 

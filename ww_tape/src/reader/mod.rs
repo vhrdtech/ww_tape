@@ -1785,13 +1785,14 @@ impl<S: ByteSource> TapeReader<S> {
                             });
                         }
                         pos = pos.saturating_add(wide(block.len()));
-                        let chunk = match hashed {
-                            true => crate::piece::hash_block(&mut h, block, None)
-                                .map(|(c, payload)| (c, Some(payload))),
-                            false => Block::read_trusted(block)
+                        let chunk = if hashed {
+                            crate::piece::hash_block(&mut h, block, None)
+                                .map(|(c, payload)| (c, Some(payload)))
+                        } else {
+                            Block::read_trusted(block)
                                 .ok()
                                 .and_then(|b| b.chunk())
-                                .map(|c| (c, None)),
+                                .map(|c| (c, None))
                         };
                         replay.block(block, chunk);
                     }

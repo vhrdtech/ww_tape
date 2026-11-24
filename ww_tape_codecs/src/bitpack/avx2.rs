@@ -12,7 +12,12 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 use super::{GROUP, mask32};
-use core::arch::x86_64::*;
+use core::arch::x86_64::{
+    __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_si128, _mm256_cvtepu32_epi64,
+    _mm256_extracti128_si256, _mm256_loadu_si256, _mm256_loadu2_m128i, _mm256_or_si256,
+    _mm256_set1_epi32, _mm256_set1_epi64x, _mm256_setr_epi64x, _mm256_shuffle_epi8,
+    _mm256_sllv_epi32, _mm256_srli_epi64, _mm256_srlv_epi32, _mm256_storeu_si256,
+};
 
 /// Blocks of 8 values in a group.
 const BLOCKS: usize = GROUP / 8;
@@ -102,9 +107,9 @@ pub(super) fn unpack(src: &[u8], w: u8, out: &mut [u32; GROUP]) {
     // SAFETY: the CPU has AVX2 (checked above), and src holds reach(w) bytes, every byte the kernel loads.
     unsafe {
         if w <= WIDTH_ONE_SHUFFLE_MAX {
-            unpack_k::<false>(src, w, out)
+            unpack_k::<false>(src, w, out);
         } else {
-            unpack_k::<true>(src, w, out)
+            unpack_k::<true>(src, w, out);
         }
     }
 }
@@ -124,9 +129,9 @@ pub(super) fn decode(src: &[u8], w: u8, base: i64, slope: i64, out: &mut [i64; G
     // SAFETY: as in unpack.
     unsafe {
         if w <= WIDTH_ONE_SHUFFLE_MAX {
-            decode_k::<false>(src, w, base, slope, out)
+            decode_k::<false>(src, w, base, slope, out);
         } else {
-            decode_k::<true>(src, w, base, slope, out)
+            decode_k::<true>(src, w, base, slope, out);
         }
     }
 }

@@ -101,7 +101,7 @@ where
     [V; 2]: for<'i> shrink_wrap::series::SeriesColumns<'i>,
 {
     let s = Series::<[V; 2]>::from_ww_bytes(bytes).unwrap();
-    for item in s.iter() {
+    for item in &s {
         for v in item {
             let mut n = [0i32; 1];
             assert_eq!(v.write_parts(&mut n), 1);

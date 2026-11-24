@@ -541,11 +541,7 @@ impl ClockTime {
 const fn slot_bits(n: usize) -> u32 {
     match n.checked_sub(1) {
         None | Some(0) => 0,
-        #[expect(
-            clippy::arithmetic_side_effects,
-            reason = "m is nonzero: at most usize::BITS - 1 leading zeros"
-        )]
-        Some(m) => usize::BITS - m.leading_zeros(),
+        Some(m) => m.bit_width(),
     }
 }
 
@@ -1003,9 +999,10 @@ impl Checked {
     /// How far the chunk `c` was checked, read as `as_read`: [Checked::Unprotected] when its writer computed no
     /// payload CRCs, whatever the read asked for.
     fn of_chunk(c: &Chunk<'_>, as_read: Self) -> Self {
-        match c.is_unchecked() {
-            true => Self::Unprotected,
-            false => as_read,
+        if c.is_unchecked() {
+            Self::Unprotected
+        } else {
+            as_read
         }
     }
 }
@@ -1181,9 +1178,10 @@ impl<'b> Block<'b> {
         let (mut block, chunk) = Self::read_unchecked(bytes)?;
         match chunk {
             Some(c) => {
-                block.checked = match c.check_payload() {
-                    true => Checked::of_chunk(&c, Checked::Verified),
-                    false => Checked::Damaged,
+                block.checked = if c.check_payload() {
+                    Checked::of_chunk(&c, Checked::Verified)
+                } else {
+                    Checked::Damaged
                 };
                 Ok(block)
             }
@@ -1199,15 +1197,14 @@ impl<'b> Block<'b> {
     /// would catch there is a fault of the memory itself. The checks that keep hostile bytes from being misread stay.
     pub fn read_unverified(bytes: &'b [u8]) -> Result<Self, BlockError> {
         let (mut block, chunk) = Self::read_unchecked(bytes)?;
-        block.checked = match &chunk {
-            Some(c) => Checked::of_chunk(c, Checked::Unverified),
-            None => {
-                block.check_records()?;
-                if block.is_summary() {
-                    SummaryHead::read(block.bytes).map_err(BlockError::Summary)?;
-                }
-                Checked::Unverified
+        block.checked = if let Some(c) = &chunk {
+            Checked::of_chunk(c, Checked::Unverified)
+        } else {
+            block.check_records()?;
+            if block.is_summary() {
+                SummaryHead::read(block.bytes).map_err(BlockError::Summary)?;
             }
+            Checked::Unverified
         };
         Ok(block)
     }
@@ -1532,12 +1529,11 @@ impl<'b> Iterator for Records<'b> {
         if self.body.is_empty() || self.failed {
             return None;
         }
-        match self.read_one() {
-            Some(r) => Some(Ok(r)),
-            None => {
-                self.failed = true;
-                Some(Err(BlockError::BadRecords))
-            }
+        if let Some(r) = self.read_one() {
+            Some(Ok(r))
+        } else {
+            self.failed = true;
+            Some(Err(BlockError::BadRecords))
         }
     }
 }

@@ -257,48 +257,41 @@ impl<T: PieceStore> PieceChain<T> {
                 )))?;
             read_listed(&src, done.piece.start, e, buf)
         })?;
-        let (mut writer, resumed) = match reopened {
-            Some((mut w, resumed)) => {
-                headed(&w)?;
-                reserve_piece(&mut w, options.cut);
-                if w.bytes() == 0 {
-                    // cut off inside its head: the piece starts again (a first piece without carried-over tracks),
-                    // unless the piece before it is gone
-                    let after_gap = gaps.last().is_some_and(|g| g.1 == seq);
-                    match closed.last() {
-                        _ if after_gap => {
-                            return Err(WriteError::Resume(ResumeError::HeadLost {
-                                seq: Some(seq),
-                            }));
-                        }
-                        None if seq != 0 => {
-                            return Err(WriteError::Resume(ResumeError::HeadLost {
-                                seq: Some(seq),
-                            }));
-                        }
-                        None => {
-                            w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
-                        }
-                        Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
+        let (mut writer, resumed) = if let Some((mut w, resumed)) = reopened {
+            headed(&w)?;
+            reserve_piece(&mut w, options.cut);
+            if w.bytes() == 0 {
+                // cut off inside its head: the piece starts again (a first piece without carried-over tracks),
+                // unless the piece before it is gone
+                let after_gap = gaps.last().is_some_and(|g| g.1 == seq);
+                match closed.last() {
+                    _ if after_gap => {
+                        return Err(WriteError::Resume(ResumeError::HeadLost { seq: Some(seq) }));
                     }
-                } else if let Some((_, last)) = closed.last() {
-                    w.keep_after(last.kept.clone());
+                    None if seq != 0 => {
+                        return Err(WriteError::Resume(ResumeError::HeadLost { seq: Some(seq) }));
+                    }
+                    None => {
+                        w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?;
+                    }
+                    Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                 }
-                (w, resumed)
+            } else if let Some((_, last)) = closed.last() {
+                w.keep_after(last.kept.clone());
             }
-            None => {
-                let Some((done, last)) = closed.last() else {
-                    return Err(WriteError::Resume(ResumeError::NoPiece));
-                };
-                let next = next_piece(&done.piece, last)?;
-                let sink = store
-                    .create(&key)
-                    .map_err(sink_err("creating the next piece"))?;
-                let mut w = TapeWriter::start_next(sink, &options.writer, next)?;
-                reserve_piece(&mut w, options.cut);
-                let resumed = Resumed::started(w.bytes());
-                (w, resumed)
-            }
+            (w, resumed)
+        } else {
+            let Some((done, last)) = closed.last() else {
+                return Err(WriteError::Resume(ResumeError::NoPiece));
+            };
+            let next = next_piece(&done.piece, last)?;
+            let sink = store
+                .create(&key)
+                .map_err(sink_err("creating the next piece"))?;
+            let mut w = TapeWriter::start_next(sink, &options.writer, next)?;
+            reserve_piece(&mut w, options.cut);
+            let resumed = Resumed::started(w.bytes());
+            (w, resumed)
         };
         writer.take_newest(&newest);
         let resumed = numbers.under(resumed);
@@ -365,7 +358,7 @@ impl<T: PieceStore> PieceChain<T> {
                         return Err(WriteError::Resume(ResumeError::HeadLost { seq: None }));
                     }
                     None => {
-                        w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
+                        w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?;
                     }
                     Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                 }

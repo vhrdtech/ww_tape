@@ -134,21 +134,18 @@ impl EventTree {
             flags: if self.fields.flags { run.flags } else { 0 },
             latest_end: run.latest_end,
         };
-        match &mut self.acc {
-            Some(acc) => {
-                if run.first_tick < acc.last_tick {
-                    return Err(BuildError::Invalid("items out of order of start"));
-                }
-                acc.merge(&node);
+        if let Some(acc) = &mut self.acc {
+            if run.first_tick < acc.last_tick {
+                return Err(BuildError::Invalid("items out of order of start"));
             }
-            None => {
-                if let Some(prev) = self.last_tick
-                    && run.first_tick < prev
-                {
-                    return Err(BuildError::Invalid("items out of order of start"));
-                }
-                self.acc = Some(node);
+            acc.merge(&node);
+        } else {
+            if let Some(prev) = self.last_tick
+                && run.first_tick < prev
+            {
+                return Err(BuildError::Invalid("items out of order of start"));
             }
+            self.acc = Some(node);
         }
         self.next_item = end;
         if end.is_multiple_of(1 << shift) {

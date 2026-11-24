@@ -116,7 +116,7 @@ fn a_callers_block_with_flags_its_kind_does_not_take_is_refused() {
             };
             for call in calls {
                 let r = match call {
-                    0 => w.write_block(&b).map(|_| ()),
+                    0 => w.write_block(&b).map(|()| ()),
                     1 => w.w.adopt_block(&w.defs, &b).map(|_| ()),
                     _ => w.defer_block(b.clone()),
                 };

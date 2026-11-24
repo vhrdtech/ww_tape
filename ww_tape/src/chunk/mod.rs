@@ -949,9 +949,10 @@ pub(crate) fn encode_chunk(
             .ok_or(ChunkError::Invalid("a column the writer was not made with"))?
             .copy_from_slice(bytes);
     }
-    Ok(match payload_crcs {
-        true => w.finish(),
-        false => w.finish_unchecked(),
+    Ok(if payload_crcs {
+        w.finish()
+    } else {
+        w.finish_unchecked()
     })
 }
 

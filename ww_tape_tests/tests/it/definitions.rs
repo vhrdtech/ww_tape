@@ -801,7 +801,10 @@ fn a_put_writes_only_what_is_not_close_behind() {
     assert_eq!(by_hash.item.unwrap().item, b"B");
     // a state entry's item number and count stay 0, kept for numbering every record
     let entries = r.state_entries(0).unwrap();
-    assert!(!entries.is_empty());
+    assert_ne!(
+        entries,
+        [] as [(ww_tape::IndexEntry, ww_tape::StateEntry); 0]
+    );
     assert!(
         entries
             .iter()

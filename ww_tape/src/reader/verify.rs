@@ -162,9 +162,10 @@ where
     G: Fn(&IndexEntry) -> bool,
 {
     fn peek(&self) -> Option<u64> {
-        match self.bad {
-            true => None,
-            false => self.heap.peek().map(|Reverse((at, _))| *at),
+        if self.bad {
+            None
+        } else {
+            self.heap.peek().map(|Reverse((at, _))| *at)
         }
     }
 
@@ -307,9 +308,10 @@ impl<L: Listed> Replay<L> {
             let Some(e) = self.listed.take() else {
                 break;
             };
-            match group.len() < max {
-                true => group.push(e),
-                false => self.same = false,
+            if group.len() < max {
+                group.push(e)
+            } else {
+                self.same = false
             }
         }
         self.group_max = self.group_max.max(group.len());
@@ -508,12 +510,11 @@ impl<L: Listed> Replay<L> {
                         && let Some(key) = self.key_of(track, Some(e.track_id))
                     {
                         self.order_of_damaged(e, key);
-                        match e.unit == UnitHash::NONE {
-                            true => {
-                                self.touched.insert(key);
-                                self.incomplete.insert(key);
-                            }
-                            false => self.fold(key, |h| h.then(&e.unit)),
+                        if e.unit == UnitHash::NONE {
+                            self.touched.insert(key);
+                            self.incomplete.insert(key);
+                        } else {
+                            self.fold(key, |h| h.then(&e.unit))
                         }
                     }
                 }

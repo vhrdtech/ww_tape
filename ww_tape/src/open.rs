@@ -1211,8 +1211,8 @@ impl<'a> RecordRef<'a> {
 
 /// Write `records` as record blocks of at most `block_len_max` bytes (a longer record gets a block of its own) with
 /// header flags `flags`, each numbered by `next_id`, each handed to `out` as it is made.
-pub fn write_records<'a, E: From<DescribeError>>(
-    records: &[RecordRef<'a>],
+pub fn write_records<E: From<DescribeError>>(
+    records: &[RecordRef<'_>],
     block_len_max: usize,
     flags: u16,
     mut next_id: impl FnMut() -> BlockId,

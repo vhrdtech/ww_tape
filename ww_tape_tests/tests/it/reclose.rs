@@ -505,7 +505,7 @@ fn a_damaged_append_head_keeps_the_close_before_it() {
     let tape = sink.tape();
     match TapeWriter::resume_on(sink, options(0)) {
         Err(ww_tape::WriteError::Resume(ww_tape::ResumeError::Damaged { offset })) => {
-            assert_eq!(offset, old.len() as u64)
+            assert_eq!(offset, old.len() as u64);
         }
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
@@ -593,7 +593,7 @@ fn refused_after(old: &[u8], torn: &[u8]) {
     let tape = sink.tape();
     match TapeWriter::resume_on(sink, options(0)) {
         Err(ww_tape::WriteError::Resume(ww_tape::ResumeError::GoodBlockAfterCut { offset })) => {
-            assert!(offset > old.len() as u64, "{offset}")
+            assert!(offset > old.len() as u64, "{offset}");
         }
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
@@ -937,7 +937,7 @@ fn a_summary_past_its_cap_refuses_and_a_torn_close_drops_it() {
     let body = vec![1; ww_tape::piece::CLOSE_SUMMARY_MAX + 1];
     match w.close_with_summary(ww_tape::piece::CloseReason::Closed, &body) {
         Err(WriteError::Input(ww_tape::InputError::SummaryTooLong { len, max })) => {
-            assert_eq!((len, max), (body.len(), ww_tape::piece::CLOSE_SUMMARY_MAX))
+            assert_eq!((len, max), (body.len(), ww_tape::piece::CLOSE_SUMMARY_MAX));
         }
         other => panic!("{other:?}"),
     }

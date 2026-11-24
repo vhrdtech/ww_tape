@@ -242,9 +242,15 @@ pub fn autorange() -> anyhow::Result<String> {
             "tint-blue"
         };
         s.rect((x0, ny), (x1 - x0, 26.0), 2.0, class);
-        s.text((x0 + x1) / 2.0, ny + 17.0, "middle", "small", name(scale));
         s.text(
-            (x0 + x1) / 2.0,
+            f64::midpoint(x0, x1),
+            ny + 17.0,
+            "middle",
+            "small",
+            name(scale),
+        );
+        s.text(
+            f64::midpoint(x0, x1),
             ny + 42.0,
             "middle",
             "mono small",

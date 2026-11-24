@@ -141,7 +141,7 @@ pub fn times(data: &[u8]) -> Vec<u8> {
     let linear = enc.head.time_mode == ww_tape::times::TimeMode::Linear;
     // the chunk's columns are in the order written
     let kinds: Vec<ColumnKind> = cols.iter().map(|c| c.0.kind).collect();
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         match d.u8() % 8 {
             7 => hit_head(&mut d, &mut b),
             6 => {

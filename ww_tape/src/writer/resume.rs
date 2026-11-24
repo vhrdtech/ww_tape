@@ -813,9 +813,10 @@ impl<S: TapeSink> TapeWriter<S> {
             ended_at,
         } = walk;
         // the reason of a close record dropped with the end it belongs to: the piece was being closed
-        let ended = match write_on {
-            true => None,
-            false => close_in(&sink, &ending)?.map(|(_, c)| c.reason),
+        let ended = if write_on {
+            None
+        } else {
+            close_in(&sink, &ending)?.map(|(_, c)| c.reason)
         };
         if let Some(from) = ended_at
             && let Some(offset) = taken_after_end(&sink, &layout, from, &sessions)?
@@ -1024,9 +1025,10 @@ impl<S: TapeSink> TapeWriter<S> {
         let (head, tracks) = &b.head;
         self.session = b.id.session;
         // the close's seq is that of the last counted block, 0 before the first of a first piece
-        self.next_seq = match b.id.seq == 0 && head.prev.is_none() && !b.counted {
-            true => 0,
-            false => b.id.seq.wrapping_add(1),
+        self.next_seq = if b.id.seq == 0 && head.prev.is_none() && !b.counted {
+            0
+        } else {
+            b.id.seq.wrapping_add(1)
         };
         self.set_level(head.integrity);
         self.indexer.start(tracks);
@@ -1130,9 +1132,10 @@ impl<S: TapeSink> TapeWriter<S> {
             if !e.repeat {
                 self.indexer.begin_block();
                 if let Some(track) = e.track() {
-                    match e.unit == crate::piece::UnitHash::NONE {
-                        true => self.indexer.tally_unread(track, e.track_id),
-                        false => self.indexer.tally_chunk(track, e.track_id, &e.unit),
+                    if e.unit == crate::piece::UnitHash::NONE {
+                        self.indexer.tally_unread(track, e.track_id)
+                    } else {
+                        self.indexer.tally_chunk(track, e.track_id, &e.unit)
                     }
                 }
             }

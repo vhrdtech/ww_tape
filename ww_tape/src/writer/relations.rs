@@ -175,13 +175,15 @@ impl Newest {
             Some(v) => self.ranges.insert(key, v),
             None => self.ranges.remove(&key),
         };
-        match state.unread {
-            true => self.unread.insert(key),
-            false => self.unread.remove(&key),
+        if state.unread {
+            self.unread.insert(key)
+        } else {
+            self.unread.remove(&key)
         };
-        match state.restarted {
-            true => self.restarted.insert(key),
-            false => self.restarted.remove(&key),
+        if state.restarted {
+            self.restarted.insert(key)
+        } else {
+            self.restarted.remove(&key)
         };
     }
 }

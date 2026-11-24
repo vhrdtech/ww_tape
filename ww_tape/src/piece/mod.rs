@@ -359,23 +359,20 @@ pub(crate) fn hash_block<'b>(
     };
     let at = c.payload_offset();
     let end = at.saturating_add(c.payload().len());
-    match (block.get(..at), block.get(end..)) {
-        (Some(before), Some(after)) => {
-            let p = given.unwrap_or_else(|| payload_hash(c.payload()));
-            debug_assert_eq!(
-                p,
-                payload_hash(c.payload()),
-                "a payload hash given is the payload's"
-            );
-            h.update(before);
-            h.update(&p);
-            h.update(after);
-            Some((c, p))
-        }
-        _ => {
-            h.update(block);
-            None
-        }
+    if let (Some(before), Some(after)) = (block.get(..at), block.get(end..)) {
+        let p = given.unwrap_or_else(|| payload_hash(c.payload()));
+        debug_assert_eq!(
+            p,
+            payload_hash(c.payload()),
+            "a payload hash given is the payload's"
+        );
+        h.update(before);
+        h.update(&p);
+        h.update(after);
+        Some((c, p))
+    } else {
+        h.update(block);
+        None
     }
 }
 
@@ -496,21 +493,23 @@ impl Window {
         let usable = |w: &Self| {
             at.checked_sub(w.at)
                 .and_then(|o| usize::try_from(o).ok())
-                .filter(|o| match reaches_end(w) {
-                    true => *o < w.bytes.len(),
-                    false => o.saturating_add(MAGIC_TAIL) < w.bytes.len(),
+                .filter(|o| {
+                    if reaches_end(w) {
+                        *o < w.bytes.len()
+                    } else {
+                        o.saturating_add(MAGIC_TAIL) < w.bytes.len()
+                    }
                 })
         };
-        let from = match usable(self) {
-            Some(o) => o,
-            None => {
-                let left = end.saturating_sub(at);
-                let n = usize::try_from(left).map_or(HASH_STEP, |left| left.min(HASH_STEP));
-                self.bytes.resize(n, 0);
-                read(at, &mut self.bytes)?;
-                self.at = at;
-                0
-            }
+        let from = if let Some(o) = usable(self) {
+            o
+        } else {
+            let left = end.saturating_sub(at);
+            let n = usize::try_from(left).map_or(HASH_STEP, |left| left.min(HASH_STEP));
+            self.bytes.resize(n, 0);
+            read(at, &mut self.bytes)?;
+            self.at = at;
+            0
         };
         let rest = self.bytes.get(from..).unwrap_or_default();
         let next = rest
@@ -562,9 +561,10 @@ fn try_block<E>(
     }
     buf.resize(n, 0);
     read(at, buf)?;
-    Ok(match Block::read(buf).is_ok_and(|b| b.len() == n) {
-        true => Tried::Block(n),
-        false => Tried::Missed(n),
+    Ok(if Block::read(buf).is_ok_and(|b| b.len() == n) {
+        Tried::Block(n)
+    } else {
+        Tried::Missed(n)
     })
 }
 

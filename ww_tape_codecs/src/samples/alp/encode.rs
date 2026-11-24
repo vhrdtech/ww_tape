@@ -97,16 +97,13 @@ fn decimal_cost<F: Float>(sample: &[u64], c: Combo, bound: u64) -> u64 {
     let exception_bits = u64::from(F::BITS).saturating_add(8);
     let (mut lo, mut hi, mut exceptions) = (i64::MAX, i64::MIN, 0u64);
     for &bits in sample {
-        match encode_value::<F>(bits, c, m) {
-            Some(d) => {
-                lo = lo.min(d);
-                hi = hi.max(d);
-            }
-            None => {
-                exceptions = exceptions.saturating_add(exception_bits);
-                if exceptions >= bound {
-                    return u64::MAX;
-                }
+        if let Some(d) = encode_value::<F>(bits, c, m) {
+            lo = lo.min(d);
+            hi = hi.max(d);
+        } else {
+            exceptions = exceptions.saturating_add(exception_bits);
+            if exceptions >= bound {
+                return u64::MAX;
             }
         }
     }

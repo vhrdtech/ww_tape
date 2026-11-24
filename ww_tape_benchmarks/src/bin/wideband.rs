@@ -112,7 +112,9 @@ where
     Ok(Run {
         samples: recorded.samples.iter().sum(),
         wall: start.elapsed(),
-        cpu: cpu_time().zip(cpu_start).map(|(end, start)| end - start),
+        cpu: cpu_time()
+            .zip(cpu_start)
+            .and_then(|(end, start)| end.checked_sub(start)),
         written,
         waits,
         pieces: Vec::new(),
@@ -288,33 +290,30 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
         wb: full.wb.ms(args.live_ms),
         ..full
     };
-    match &args.dir {
-        Some(dir) => {
-            anyhow::ensure!(
-                !dir.exists() || std::fs::read_dir(dir)?.next().is_none(),
-                "{} is not empty",
-                dir.display()
-            );
-            let (kept_dir, results_dir) = (dir.join("kept"), dir.join("results"));
-            std::fs::create_dir_all(&kept_dir)?;
-            std::fs::create_dir_all(&results_dir)?;
-            let results = ww_tape_fs::mux::create(
-                &results_dir,
-                RESULTS_OWNER,
-                0,
-                &[],
-                chain_options(),
-                MuxOptions::default(),
-            )
-            .map_err(err)?;
-            let r = window_run(&live, Source::Live, FilePieces::new(&kept_dir), results)?;
-            rows("piece files", "live", args.live_ms, &r);
-            std::fs::remove_dir_all(dir)?;
-        }
-        None => {
-            let r = window_run(&live, Source::Live, MemPieces::new(), mem_results()?)?;
-            rows("memory", "live", args.live_ms, &r);
-        }
+    if let Some(dir) = &args.dir {
+        anyhow::ensure!(
+            !dir.exists() || std::fs::read_dir(dir)?.next().is_none(),
+            "{} is not empty",
+            dir.display()
+        );
+        let (kept_dir, results_dir) = (dir.join("kept"), dir.join("results"));
+        std::fs::create_dir_all(&kept_dir)?;
+        std::fs::create_dir_all(&results_dir)?;
+        let results = ww_tape_fs::mux::create(
+            &results_dir,
+            RESULTS_OWNER,
+            0,
+            &[],
+            chain_options(),
+            MuxOptions::default(),
+        )
+        .map_err(err)?;
+        let r = window_run(&live, Source::Live, FilePieces::new(&kept_dir), results)?;
+        rows("piece files", "live", args.live_ms, &r);
+        std::fs::remove_dir_all(dir)?;
+    } else {
+        let r = window_run(&live, Source::Live, MemPieces::new(), mem_results()?)?;
+        rows("memory", "live", args.live_ms, &r);
     }
     println!("{}", bench.push(window));
     println!("{}", bench.push(triage));

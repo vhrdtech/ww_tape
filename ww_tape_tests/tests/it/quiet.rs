@@ -518,7 +518,7 @@ fn a_damaged_carried_block_costs_only_its_own_tracks() {
     damaged[at + second.len() / 2] ^= 0xff;
     let r = TapeReader::open(&damaged[..]).unwrap();
     let defs_at = r.definitions_at(0, u64::MAX).unwrap();
-    assert!(!defs_at.lost.is_empty());
+    assert_ne!(defs_at.lost, [] as [ww_tape::reader::Lost; 0]);
     assert!(defs_at.items.contains_key(&clock));
     let tracks = defs_at
         .items

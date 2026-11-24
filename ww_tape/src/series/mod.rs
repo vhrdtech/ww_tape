@@ -431,7 +431,7 @@ fn check_def(channels: u32, summaries: Option<SeriesSummarySpec>) -> Result<(), 
     Ok(())
 }
 
-impl<'i> GridDef<'i> {
+impl GridDef<'_> {
     /// A series of `channels` channels of `V`, whose scale `V` gives, one sample per `period` ticks. The track's
     /// items are [Items::numbers](crate::Items::numbers) of `V`.
     pub fn of<V: SeriesValue>(channels: u32, period: Ratio64) -> Self {

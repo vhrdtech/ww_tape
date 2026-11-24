@@ -306,7 +306,7 @@ fn a_whole_grid_reads_back_as_its_boxes_written_one_by_one() {
     };
     let whole = run(false);
     assert_eq!(whole.len(), 3 * 4 * 5 * STEPS as usize);
-    assert!(whole == run(true));
+    assert_eq!(whole, run(true));
 }
 
 /// The bytes a series of [grid_track] with no fixed axes writes through a chain directly, in chunks of `chunk`

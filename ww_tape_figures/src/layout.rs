@@ -124,7 +124,7 @@ impl Grid {
                 let shown = field.end().min(to) - start;
                 let x0 = self.left + self.cell * (start - from) as f64 + 2.0;
                 let x1 = x0 + self.cell * shown as f64 - 4.0;
-                let cx = (x0 + x1) / 2.0;
+                let cx = f64::midpoint(x0, x1);
                 if label_row(field, rows) != Some(r) {
                     s.bracket_under(x0, x1, y + self.ch + 6.0, field.class);
                     continue;

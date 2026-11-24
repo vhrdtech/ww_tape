@@ -293,7 +293,9 @@ fn place<T: PieceStore>(
             summary,
             overviews,
         } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let c = Placing {
                     head: &head,
                     columns: &columns,
@@ -306,8 +308,6 @@ fn place<T: PieceStore>(
                 if ok {
                     shared.watch.publish(chain, Some(&head));
                 }
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
             for (_, buf) in columns
                 .into_iter()
@@ -321,11 +321,11 @@ fn place<T: PieceStore>(
             how,
             mut block,
         } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let r = place_block(chain, defs, how, &mut block);
                 placed(chain, shared, &from, r, bytes);
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
             from.give_back(block);
         }
@@ -335,11 +335,11 @@ fn place<T: PieceStore>(
             ticks,
             item,
         } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let r = chain.put(defs, track, ticks, &item).map(|_| ());
                 placed(chain, shared, &from, r, bytes);
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
             from.give_back(item);
         }

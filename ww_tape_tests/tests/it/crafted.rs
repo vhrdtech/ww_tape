@@ -352,7 +352,7 @@ fn a_resume_refuses_a_crafted_last_tail() {
     let tails = starts(bytes, BlockKind::Tail);
     let older = tail_at(bytes, tails[0]).hash;
     let crafts: [&dyn Fn(&mut Tail); 3] = [&|t| t.hash = older, &|t| t.piece_len += 1, &|t| {
-        t.close_len -= 1
+        t.close_len -= 1;
     }];
     for (k, craft) in crafts.iter().enumerate() {
         let mut tail = tail_at(bytes, tails[1]);
@@ -364,7 +364,7 @@ fn a_resume_refuses_a_crafted_last_tail() {
         let tape = sink.tape();
         match TapeWriter::resume_on(sink, options(0)) {
             Err(ww_tape::WriteError::Resume(ww_tape::ResumeError::Damaged { offset })) => {
-                assert_eq!(offset, tails[1] as u64, "craft {k}")
+                assert_eq!(offset, tails[1] as u64, "craft {k}");
             }
             other => panic!("craft {k}: {:?}", other.map(|(_, r)| r)),
         }

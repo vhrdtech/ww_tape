@@ -1921,10 +1921,10 @@ impl<S: TapeSink> TapeWriter<S> {
             loop {
                 let gap = crate::chunk::chunk_padding(self.at()?, head_len, self.alignment())
                     .ok_or(WriteError::Input(InputError::Alignment(self.alignment())))?;
-                if !self
+                if self
                     .deferred
                     .first()
-                    .is_some_and(|next| next.block.len() <= gap)
+                    .is_none_or(|next| next.block.len() > gap)
                 {
                     break;
                 }

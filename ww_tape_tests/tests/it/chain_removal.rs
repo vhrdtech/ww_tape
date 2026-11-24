@@ -633,9 +633,10 @@ impl Durable {
         for key in self.mem.keys().unwrap() {
             let tape = self.mem.get(&key).unwrap().unwrap();
             let bytes = tape.to_vec().unwrap();
-            let len = match written {
-                true => bytes.len(),
-                false => synced.get(&key).copied().unwrap_or(0) as usize,
+            let len = if written {
+                bytes.len()
+            } else {
+                synced.get(&key).copied().unwrap_or(0) as usize
             };
             let mut sink = after.create(&key).unwrap();
             sink.write_all(&bytes[..len.min(bytes.len())]).unwrap();
@@ -936,18 +937,19 @@ fn a_damaged_lowest_piece_is_refused_with_its_own_error() {
         let e = ww_tape_fs::chain::resume(&dir, OWNER, 0, each.clone())
             .err()
             .unwrap();
-        match whole {
-            true => assert!(
+        if whole {
+            assert!(
                 matches!(
                     own,
                     WriteError::Resume(ResumeError::GoodBlockAfterCut { .. })
                 ),
                 "{own:?}"
-            ),
-            false => assert!(
+            )
+        } else {
+            assert!(
                 matches!(own, WriteError::Resume(ResumeError::Damaged { .. })),
                 "{own:?}"
-            ),
+            )
         }
         assert_eq!(format!("{e:?}"), format!("{own:?}"));
         assert!(snapshot(&dir) == before, "a refused resume wrote");

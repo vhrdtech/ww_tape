@@ -883,7 +883,7 @@ fn event_tree_at_the_top_of_the_item_numbers() {
     }
     t.finish().unwrap();
     let blocks = t.take_blocks();
-    assert!(!blocks.is_empty());
+    assert_ne!(blocks, [] as [std::vec::Vec<u8>; 0]);
     for b in &blocks {
         let h = Summary::read(b).unwrap().head();
         assert_eq!((h.first_item.get(), h.items), (first, 50));

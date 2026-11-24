@@ -194,7 +194,13 @@ pub fn tape_map() -> anyhow::Result<String> {
         let text = String::from_utf8_lossy(item);
         let word = text.split([',', ':']).next().unwrap_or_default();
         if x1 - x0 > 6.6 * word.len() as f64 + 8.0 {
-            s.text((x0 + x1) / 2.0, mode_y + 13.0, "middle", "small", word);
+            s.text(
+                f64::midpoint(x0, x1),
+                mode_y + 13.0,
+                "middle",
+                "small",
+                word,
+            );
         } else {
             s.text(x0, mode_y - 4.0, "start", "small", word);
         }

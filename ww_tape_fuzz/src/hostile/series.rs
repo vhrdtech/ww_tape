@@ -82,7 +82,7 @@ pub fn series(data: &[u8]) -> Vec<u8> {
     let mut heads: Vec<ChunkHead> = vec![];
     let mut first = u64::from(d.u16());
     let mut grid = SeriesGrid::start(first, i64::from(d.u32() as i32), magnitude(&mut d));
-    for k in 0..1 + d.below(5) {
+    for k in 0..=d.below(5) {
         if k % 3 == 2 {
             grid = grid.rescaled(magnitude(&mut d));
         } else if k > 0 {
@@ -114,7 +114,7 @@ pub fn series(data: &[u8]) -> Vec<u8> {
         first = first.saturating_add(u64::from(count) + u64::from(d.u8() % 3));
     }
     let caps = &[u64::MAX / 2, i64::MAX as u64, 1 << 53];
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         let i = d.below(heads.len());
         let h = &mut heads[i];
         let Some(g) = h.grid.as_mut() else { continue };

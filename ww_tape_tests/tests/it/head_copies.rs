@@ -182,16 +182,17 @@ fn the_gap_rules_come_from_the_layouts_copy() {
             "{:?}",
             p.found
         );
-        match gap {
-            true => assert_eq!(
+        if gap {
+            assert_eq!(
                 (p.gaps.as_slice(), p.cut, p.end),
                 (&[(offset, len)][..], None, file.len() as u64),
                 "spacing {spacing}"
-            ),
-            false => assert!(
+            )
+        } else {
+            assert!(
                 p.gaps.is_empty() && p.end == offset,
                 "spacing {spacing}: {p:?}"
-            ),
+            )
         }
     }
 }

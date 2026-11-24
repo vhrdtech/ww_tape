@@ -19,9 +19,10 @@ const ITEMS_EACH: usize = 1 << 16;
 
 /// The items [read_all] reads one by one: all of `n` up to [ITEMS_EACH], else both ends and a stride.
 fn item_sample(n: usize) -> impl Iterator<Item = usize> {
-    let (head, tail) = match n <= ITEMS_EACH {
-        true => (n, n),
-        false => (ITEMS_EACH / 2, n - ITEMS_EACH / 2),
+    let (head, tail) = if n <= ITEMS_EACH {
+        (n, n)
+    } else {
+        (ITEMS_EACH / 2, n - ITEMS_EACH / 2)
     };
     let stride = (tail - head) / ITEMS_EACH + 1;
     (0..head).chain((head..tail).step_by(stride)).chain(tail..n)
@@ -314,15 +315,14 @@ mod tests {
             let s: Vec<usize> = item_sample(n).collect();
             assert!(s.len() <= 2 * ITEMS_EACH + 1, "{n} items: {}", s.len());
             assert!(s.windows(2).all(|w| w[0] < w[1]), "{n} items: ascending");
-            match n <= ITEMS_EACH {
-                true => assert_eq!(s, (0..n).collect::<Vec<_>>()),
-                false => {
-                    assert_eq!(s[..ITEMS_EACH / 2], (0..ITEMS_EACH / 2).collect::<Vec<_>>());
-                    assert_eq!(
-                        s[s.len() - ITEMS_EACH / 2..],
-                        (n - ITEMS_EACH / 2..n).collect::<Vec<_>>()
-                    );
-                }
+            if n <= ITEMS_EACH {
+                assert_eq!(s, (0..n).collect::<Vec<_>>())
+            } else {
+                assert_eq!(s[..ITEMS_EACH / 2], (0..ITEMS_EACH / 2).collect::<Vec<_>>());
+                assert_eq!(
+                    s[s.len() - ITEMS_EACH / 2..],
+                    (n - ITEMS_EACH / 2..n).collect::<Vec<_>>()
+                );
             }
         }
     }

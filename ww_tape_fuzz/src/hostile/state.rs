@@ -294,7 +294,7 @@ pub fn attacked(data: &[u8]) -> Attacked {
         .iter()
         .filter(|(at, len, _)| with_next(&f, *at, *len))
         .collect();
-    for _ in 0..1 + d.below(4) {
+    for _ in 0..=d.below(4) {
         // 0: an index's state entry, 1: a block of state records behind a good CRC, 2: damage to one, 3: the end
         // right after puts that belong with the next block
         let attack = d.below(4);
