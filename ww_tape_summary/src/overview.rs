@@ -6,6 +6,9 @@
 //! sums are those of the cells as written, summed pairwise level by level. [OverviewCells::means] divides: an integer
 //! mean is rounded to the nearest, ties to even; a float's is summed in f64 and stored in the element's type.
 //!
+//! A level holds its statistics and nothing per source cell. An integer's sums are i64 where a whole time step's sum
+//! fits one (elements up to 32 bits), else i128.
+//!
 //! A float NaN is left out of all three, as the series summaries leave it out of their min and max: a cell's statistics
 //! are those of its other source cells, whatever their order, and NaN only where every source cell is NaN. An infinity
 //! is a value: it is the min or max it is, and the mean of a cell that holds it. A cell holding both infinities has a
@@ -49,19 +52,65 @@ pub struct OverviewCells<S: Scalar> {
     steps: usize,
     min: Vec<S>,
     max: Vec<S>,
-    /// Sums of an integer element, exact; empty for a float.
-    isum: Vec<i128>,
-    /// Sums of a float element; empty for an integer.
-    fsum: Vec<f64>,
+    sums: Sums,
     /// Source cells as written per cell, the same for every lane and time step.
     count: Vec<u32>,
     /// NaN source cells per scalar of a float element; empty until the first NaN.
     nan: Vec<u32>,
 }
 
+/// The sums of a level's scalars, NaN left out.
+#[derive(Clone, Debug, PartialEq)]
+enum Sums {
+    /// An integer element whose sum over a time step of the tile fits an i64: exact.
+    Narrow(Vec<i64>),
+    /// Any other integer element: exact, a tile step's sum under 2^90 (a u64 over 2^26 cells).
+    Wide(Vec<i128>),
+    /// A float element, summed in f64.
+    Float(Vec<f64>),
+}
+
+impl Sums {
+    /// The sums of `scalars` scalars, all 0: integer ones narrow where `narrow`.
+    fn zeros<S: Scalar>(scalars: usize, narrow: bool) -> Self {
+        match (S::INT, narrow) {
+            (true, true) => Self::Narrow(vec![0; scalars]),
+            (true, false) => Self::Wide(vec![0; scalars]),
+            (false, _) => Self::Float(vec![0.0; scalars]),
+        }
+    }
+
+    /// The sum of scalar `i`, as an integer and a float: the other 0.
+    fn get(&self, i: usize) -> Option<(i128, f64)> {
+        match self {
+            Self::Narrow(s) => Some((i128::from(*s.get(i)?), 0.0)),
+            Self::Wide(s) => Some((*s.get(i)?, 0.0)),
+            Self::Float(s) => Some((0, *s.get(i)?)),
+        }
+    }
+
+    /// Adds a source's sum to scalar `i`; None past `i` or past the narrow sum, which [Source::narrow] rules out.
+    fn add(&mut self, i: usize, isum: i128, fsum: f64) -> Option<()> {
+        match self {
+            Self::Narrow(s) => {
+                let s = s.get_mut(i)?;
+                *s = s.checked_add(i64::try_from(isum).ok()?)?;
+            }
+            Self::Wide(s) => {
+                let s = s.get_mut(i)?;
+                *s = s.checked_add(isum)?;
+            }
+            Self::Float(s) => *s.get_mut(i)? += fsum,
+        }
+        Some(())
+    }
+}
+
 /// What a level is halved from: the cells as written, or the level below.
 trait Source<S> {
     fn lanes(&self) -> usize;
+    /// Whether an integer sum over a whole time step of the tile fits an i64.
+    fn narrow(&self) -> bool;
     /// The statistics of scalar `i`; the source cells cell `c` covers.
     fn at(&self, i: usize) -> Option<Stats<S>>;
     fn count(&self, c: usize) -> Option<u32>;
@@ -74,11 +123,27 @@ type Stats<S> = (S, S, i128, f64, u32);
 struct Written<'a, S> {
     cells: &'a [S],
     lanes: usize,
+    steps: usize,
 }
 
 impl<S: Scalar> Source<S> for Written<'_, S> {
     fn lanes(&self) -> usize {
         self.lanes
+    }
+
+    fn narrow(&self) -> bool {
+        // the largest magnitude a cell holds, times the cells of a time step
+        let cells = self
+            .cells
+            .len()
+            .checked_div(self.lanes.checked_mul(self.steps).unwrap_or(0));
+        let most = S::HIGHEST
+            .to_i128()
+            .max(S::LOWEST.to_i128().saturating_neg());
+        cells
+            .and_then(|c| i128::try_from(c).ok())
+            .and_then(|c| c.checked_mul(most))
+            .is_some_and(|m| m <= i128::from(i64::MAX))
     }
 
     fn at(&self, i: usize) -> Option<Stats<S>> {
@@ -99,9 +164,13 @@ impl<S: Scalar> Source<S> for OverviewCells<S> {
         self.lanes
     }
 
+    fn narrow(&self) -> bool {
+        // a level's cells cover the same source cells as the level below
+        matches!(self.sums, Sums::Narrow(_))
+    }
+
     fn at(&self, i: usize) -> Option<Stats<S>> {
-        let isum = if S::INT { *self.isum.get(i)? } else { 0 };
-        let fsum = if S::INT { 0.0 } else { *self.fsum.get(i)? };
+        let (isum, fsum) = self.sums.get(i)?;
         // no NaN count yet: none of the scalars has a NaN source cell
         let nan = self.nan.get(i).copied().unwrap_or(0);
         Some((*self.min.get(i)?, *self.max.get(i)?, isum, fsum, nan))
@@ -176,7 +245,16 @@ impl<S: Scalar> OverviewCells<S> {
                 want,
             });
         }
-        Self::halved(&Written { cells, lanes }, steps, extents, halve)
+        Self::halved(
+            &Written {
+                cells,
+                lanes,
+                steps,
+            },
+            steps,
+            extents,
+            halve,
+        )
     }
 
     /// The next level up: each axis whose bit is set in `halve` halved again, rounded up.
@@ -206,26 +284,24 @@ impl<S: Scalar> OverviewCells<S> {
             .checked_mul(lanes)
             .and_then(|n| n.checked_mul(steps))
             .ok_or(OverviewError::Shape)?;
+        let shape = || OverviewError::Shape;
         let mut out = Self {
-            extents: to,
+            extents: to.clone(),
             lanes,
             steps,
             min: Vec::with_capacity(scalars),
             max: Vec::with_capacity(scalars),
-            isum: vec![0; if S::INT { scalars } else { 0 }],
-            fsum: vec![0.0; if S::INT { 0 } else { scalars }],
+            sums: Sums::zeros::<S>(scalars, src.narrow()),
             count: vec![0; to_cells],
             nan: Vec::new(),
         };
-        // the target cell of each source cell, by its coordinates, once for every step
-        let map =
-            target_map(extents, &out.extents, mask, from_cells).ok_or(OverviewError::Shape)?;
-        for (c, t) in map.iter().enumerate() {
-            let n = src.count(c).ok_or(OverviewError::Shape)?;
-            if let Some(d) = out.count.get_mut(*t) {
-                *d = d.saturating_add(n);
-            }
-        }
+        each_cell(extents, &to, mask, |c, t| {
+            let n = src.count(c).ok_or_else(shape)?;
+            let d = out.count.get_mut(t).ok_or_else(shape)?;
+            // at most a tile step's cells, under GRID_TILE_CELLS_MAX
+            *d = d.checked_add(n).ok_or_else(shape)?;
+            Ok(())
+        })?;
         // a float's min and max start NaN, which any value takes the place of: an all-NaN cell keeps it
         let (lowest, highest) = if S::INT {
             (S::LOWEST, S::HIGHEST)
@@ -236,32 +312,33 @@ impl<S: Scalar> OverviewCells<S> {
         out.min.resize(scalars, highest);
         out.max.resize(scalars, lowest);
         for step in 0..steps {
-            for (c, t) in map.iter().enumerate() {
-                let from = step
-                    .checked_mul(from_cells)
-                    .and_then(|s| s.checked_add(c))
+            let from_step = step.checked_mul(from_cells).ok_or_else(shape)?;
+            let into_step = step.checked_mul(to_cells).ok_or_else(shape)?;
+            each_cell(extents, &to, mask, |c, t| {
+                let from = from_step
+                    .checked_add(c)
                     .and_then(|i| i.checked_mul(lanes))
-                    .ok_or(OverviewError::Shape)?;
-                let into = step
-                    .checked_mul(to_cells)
-                    .and_then(|s| s.checked_add(*t))
+                    .ok_or_else(shape)?;
+                let into = into_step
+                    .checked_add(t)
                     .and_then(|i| i.checked_mul(lanes))
-                    .ok_or(OverviewError::Shape)?;
+                    .ok_or_else(shape)?;
                 for l in 0..lanes {
                     let stats = from
                         .checked_add(l)
                         .and_then(|i| src.at(i))
-                        .ok_or(OverviewError::Shape)?;
-                    let i = into.checked_add(l).ok_or(OverviewError::Shape)?;
-                    out.add(i, stats);
+                        .ok_or_else(shape)?;
+                    let i = into.checked_add(l).ok_or_else(shape)?;
+                    out.add(i, stats).ok_or_else(shape)?;
                 }
-            }
+                Ok(())
+            })?;
         }
         Ok(out)
     }
 
-    /// Take a source's statistics into scalar `i`, NaN left out of the min, max and sum.
-    fn add(&mut self, i: usize, (lo, hi, isum, fsum, nan): Stats<S>) {
+    /// Take a source's statistics into scalar `i`, NaN left out of the min, max and sum; None past the sums.
+    fn add(&mut self, i: usize, (lo, hi, isum, fsum, nan): Stats<S>) -> Option<()> {
         if let Some(m) = self.min.get_mut(i)
             && takes(lo, *m, true)
         {
@@ -281,13 +358,7 @@ impl<S: Scalar> OverviewCells<S> {
                 *n = n.saturating_add(nan);
             }
         }
-        // a tile step holds at most GRID_TILE_CELLS_MAX (2^26) cells of at most 64 bits: sums stay under 2^90
-        if let Some(s) = self.isum.get_mut(i) {
-            *s = s.saturating_add(isum);
-        }
-        if let Some(s) = self.fsum.get_mut(i) {
-            *s += fsum;
-        }
+        self.sums.add(i, isum, fsum)
     }
 
     /// Cells of the tile at this level along each fixed axis.
@@ -327,14 +398,18 @@ impl<S: Scalar> OverviewCells<S> {
                 .unwrap_or(1)
                 .max(1)
         };
-        if S::INT {
-            self.isum
+        match &self.sums {
+            Sums::Narrow(sums) => sums
+                .iter()
+                .enumerate()
+                .map(|(i, s)| S::from_i128(div_even(i128::from(*s), count(i))))
+                .collect(),
+            Sums::Wide(sums) => sums
                 .iter()
                 .enumerate()
                 .map(|(i, s)| S::from_i128(div_even(*s, count(i))))
-                .collect()
-        } else {
-            self.fsum
+                .collect(),
+            Sums::Float(sums) => sums
                 .iter()
                 .enumerate()
                 .map(|(i, s)| {
@@ -343,7 +418,7 @@ impl<S: Scalar> OverviewCells<S> {
                     let n = count(i).saturating_sub(nan);
                     S::from_f64(*s / f64::from(n), false)
                 })
-                .collect()
+                .collect(),
         }
     }
 }
@@ -362,28 +437,56 @@ pub fn div_even(sum: i128, n: u32) -> i128 {
     }
 }
 
-/// For each of the `cells` cells of a box of `from` extents, row-major, the cell of the box of `to` extents it falls in
-/// when the axes of `mask` are halved.
-fn target_map(from: &[u32], to: &[u32], mask: u32, cells: usize) -> Option<Vec<usize>> {
-    let mut out = Vec::with_capacity(cells);
-    let mut at = vec![0u32; from.len()];
-    for _ in 0..cells {
-        let mut t = 0usize;
-        for (a, (c, n)) in at.iter().zip(to).enumerate() {
-            let c = if halved(mask, a) { c >> 1 } else { *c };
-            t = t
-                .checked_mul(usize::try_from(*n).ok()?)?
-                .checked_add(usize::try_from(c).ok()?)?;
+/// Calls `f` with each cell of a box of `from` extents, row-major, and the cell of the box of `to` extents it falls in
+/// when the axes of `mask` are halved: the target computed a row at a time, with no table of the cells.
+fn each_cell(
+    from: &[u32],
+    to: &[u32],
+    mask: u32,
+    mut f: impl FnMut(usize, usize) -> Result<(), OverviewError>,
+) -> Result<(), OverviewError> {
+    let shape = || OverviewError::Shape;
+    let Some((&last, outer)) = from.split_last() else {
+        // no fixed axes: one cell
+        return f(0, 0);
+    };
+    let to_last = to
+        .get(outer.len())
+        .and_then(|n| usize::try_from(*n).ok())
+        .ok_or_else(shape)?;
+    let last_halved = halved(mask, outer.len());
+    let rows = cells_of(outer).ok_or_else(shape)?;
+    let mut at = vec![0u32; outer.len()];
+    let mut c = 0usize;
+    for _ in 0..rows {
+        // the target row: the outer coordinates, halved along the axes of the mask
+        let mut row = 0usize;
+        for (a, (x, n)) in at.iter().zip(to).enumerate() {
+            let x = if halved(mask, a) { x >> 1 } else { *x };
+            row = usize::try_from(*n)
+                .ok()
+                .and_then(|n| row.checked_mul(n))
+                .and_then(|r| r.checked_add(usize::try_from(x).ok()?))
+                .ok_or_else(shape)?;
         }
-        out.push(t);
-        // the next cell, the last axis fastest
-        for (c, e) in at.iter_mut().zip(from).rev() {
-            *c = c.saturating_add(1);
-            if *c < *e {
+        let row = row.checked_mul(to_last).ok_or_else(shape)?;
+        for x in 0..last {
+            let x = if last_halved { x >> 1 } else { x };
+            let t = usize::try_from(x)
+                .ok()
+                .and_then(|x| row.checked_add(x))
+                .ok_or_else(shape)?;
+            f(c, t)?;
+            c = c.checked_add(1).ok_or_else(shape)?;
+        }
+        // the next row, the last outer axis fastest
+        for (x, e) in at.iter_mut().zip(outer).rev() {
+            *x = x.saturating_add(1);
+            if *x < *e {
                 break;
             }
-            *c = 0;
+            *x = 0;
         }
     }
-    Some(out)
+    Ok(())
 }
