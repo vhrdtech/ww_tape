@@ -7,12 +7,12 @@ use ww_tape::chunk::ChunkHead;
 use ww_tape::index::{IndexEntry, IndexError};
 use ww_tape::{
     ChainPiece, ChunkPlaced, CloseReason, ColumnSpec, Definitions, PieceChain, PieceStore,
-    Slot as DefSlot, TapeSink, UnitChunk, WriteError,
+    Slot as DefSlot, TapeSink, TrackNum, UnitChunk, WriteError,
 };
 
 use crate::define;
 use crate::error::MuxError;
-use crate::items::Held;
+use crate::items::{self, Held};
 use crate::open;
 use crate::placing::{Placement, Unplaced};
 use crate::queue::Popped;
@@ -56,6 +56,8 @@ struct State<'a, T: PieceStore> {
     rebuild: Option<Vec<IndexEntry>>,
     /// Typed items put again in each piece a cut starts
     items: Held,
+    /// The data tracks the unit placed last wrote on, for the items of their owners
+    wrote: Vec<TrackNum>,
 }
 
 /// The thread: place every unit until a close or a stop, ticking every `tick`.
@@ -73,6 +75,7 @@ pub(crate) fn run<T: PieceStore>(
         late: Vec::new(),
         rebuild,
         items: Held::new(chain.seq()),
+        wrote: Vec::new(),
     };
     let mut next_tick = Instant::now().checked_add(tick);
     let exit = loop {
@@ -184,7 +187,9 @@ fn carry_items<T: PieceStore>(
     if shared.failure.get().is_some() {
         return;
     }
-    match st.items.carry(chain, defs) {
+    let r = st.items.carry(chain, defs, &st.wrote);
+    st.wrote.clear();
+    match r {
         Ok(()) => {}
         Err(e) if stops(chain, &e) => {
             shared.fail(e);
@@ -364,6 +369,9 @@ fn place<T: PieceStore>(
                 placed(chain, shared, &from, r.map(|_| ()), bytes);
                 if ok {
                     shared.watch.publish(chain, Some(&head));
+                    st.wrote.push(head.track_number);
+                    st.wrote
+                        .extend(overviews.iter().map(|o| o.head.track_number));
                 }
                 // a failure that stopped the chain lost the chunk; any other refusal is the sender's
                 let answer = match answer {
@@ -390,6 +398,9 @@ fn place<T: PieceStore>(
         } => {
             if !failed {
                 let r = place_block(chain, defs, how, &mut block);
+                if r.is_ok() && st.items.wants_tracks() {
+                    st.wrote = items::block_tracks(&block);
+                }
                 placed(chain, shared, &from, r, bytes);
             } else {
                 Counters::add(&shared.counters.lost, 1);
@@ -404,6 +415,9 @@ fn place<T: PieceStore>(
         } => {
             if !failed {
                 let r = chain.put(defs, track, ticks, &item).map(|_| ());
+                if r.is_ok() {
+                    st.wrote.push(track);
+                }
                 placed(chain, shared, &from, r, bytes);
             } else {
                 Counters::add(&shared.counters.lost, 1);

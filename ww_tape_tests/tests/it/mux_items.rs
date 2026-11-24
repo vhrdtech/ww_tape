@@ -101,3 +101,49 @@ fn a_cut_between_an_item_and_its_owners_next_chunk_carries_the_item() {
     assert!(holds(&p[2], owned), "the run's track is still carried");
     assert!(!holds(&p[2], every), "a released item is in no later piece");
 }
+
+#[test]
+fn an_owners_track_first_written_after_a_cut_brings_its_item() {
+    let mem = MemPieces::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(0),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let senders = define(&mux);
+    let Describe::Track(t) = crate::definitions::track(2, crate::definitions::CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    let mut spec = t.spec();
+    spec.owner = RUN.0;
+    let run_track = mux.define_track(spec).unwrap();
+    let run = mux.chunks(run_track).unwrap();
+    send(&senders[0], 0, 0);
+    let owned = mux.put_item(&item(b"run"), ItemCarry::Owner(RUN)).unwrap();
+    // the run's track has no data yet: the next piece's head carries no track of the run
+    mux.cut().unwrap();
+    send(&senders[0], 0, 1);
+    let (mut head, columns) = events_chunk(1, 0);
+    head.track_number = run_track;
+    run.send(head, columns).unwrap();
+    mux.cut().unwrap();
+    send(&senders[0], 0, 2);
+    drop((senders, run));
+    mux.close().unwrap();
+
+    let p = pieces(&mem);
+    assert_eq!(p.len(), 3);
+    assert!(holds(&p[0], owned), "the piece it is put in");
+    assert!(
+        holds(&p[1], owned),
+        "the piece where the run's track is first written"
+    );
+    assert!(
+        holds(&p[2], owned),
+        "the piece whose head carries the run's track"
+    );
+}
