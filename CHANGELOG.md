@@ -6,6 +6,11 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Features
+
+- `TapeMux::put_definitions` puts tracks without data into the chain, again after each cut (MUX-5).
+- `TapeWriter::put_definitions` and `PieceChain::put_definitions` put the definitions of tracks without data (MUX-5).
+
 ## [0.10.1] - 2026-11-24
 
 ### Features

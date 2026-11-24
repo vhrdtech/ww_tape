@@ -42,6 +42,7 @@ mod media;
 mod mem_pieces;
 mod mux;
 mod mux_async;
+mod mux_definitions;
 mod mux_grid_overviews;
 mod mux_grid_summaries;
 mod mux_grids;

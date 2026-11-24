@@ -562,6 +562,15 @@ impl<T: PieceStore> PieceChain<T> {
         self.with_room(defs, |w| w.put_item(defs, item))
     }
 
+    /// Put the definitions of tracks with no data ([TapeWriter::put_definitions]).
+    pub fn put_definitions(
+        &mut self,
+        defs: &Definitions,
+        tracks: &[TrackNum],
+    ) -> Result<bool, WriteError<T::Error>> {
+        self.with_room(defs, |w| w.put_definitions(defs, tracks))
+    }
+
     /// A small block placed in the next gap ([TapeWriter::defer_block]).
     /// When the piece has no room for the state entries of the definitions it needs, on a new piece.
     #[expect(

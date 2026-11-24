@@ -271,6 +271,14 @@ The writing thread and its handles, in the crate `ww_tape_mux`.
 
   Read more: [A producer's own chunks](docs/own_chunks.md). Tests `mux_leaves.rs`, `mux_placing.rs`, `mux_items.rs`.
 
+- ✅ **MUX-5 Definitions of tracks without data**
+
+  `TapeMux::put_definitions` puts the definitions of tracks that may never get data, behind the units sent before: their clock chains, maps, bundles and their own. The mux puts them again in each piece a later cut starts, never cutting for them. A definition that lies near behind is not written again, and a track defined twice gets its copy. `TapeWriter::put_definitions` does the put in one piece.
+
+  Open: a resumed mux holds no such track until it is put again.
+
+  Read more: [Tracks without data](docs/own_chunks.md#tracks-without-data). Tests `mux_definitions.rs`.
+
 ## Reader (`READ`)
 
 Reading by position, checks and hashes, hostile bytes and live chains, in the crates `ww_tape` and `ww_tape_fs`.

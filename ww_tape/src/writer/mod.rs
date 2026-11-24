@@ -828,6 +828,32 @@ impl<S: TapeSink> TapeWriter<S> {
         self.put_last(&cands)
     }
 
+    /// Put the definitions of `tracks` (numbers held in `defs`) with no data: each track's clock chain, maps, bundles
+    /// and its own definition ([Definitions::needs]), so a track that never gets data is still in the piece. Each is
+    /// written unless it lies within track 0's `near` and no copy is due, as before data. Gives the tracks no row in
+    /// the close: a cut carries them no further. Whether any was written.
+    pub fn put_definitions(
+        &mut self,
+        defs: &Definitions,
+        tracks: &[TrackNum],
+    ) -> Result<bool, WriteError<S::Error>> {
+        self.check()?;
+        for t in tracks {
+            defs.track(*t)
+                .ok_or(DescribeError::UnknownTrack { track: *t })?;
+        }
+        let cands = self.needed(defs, tracks);
+        if cands.is_empty() {
+            return Ok(false);
+        }
+        self.admit(entries_max(&cands))?;
+        self.room(0, !self.head_put)?;
+        self.place_deferred()?;
+        self.ensure_carried(defs)?;
+        let chosen = self.put_chosen(&cands, PutsEnd::Last)?;
+        Ok(chosen.contains(&true))
+    }
+
     /// Put `cands` ([Self::choose]); whether the last one was written.
     fn put_last(&mut self, cands: &[Candidate<'_>]) -> Result<bool, WriteError<S::Error>> {
         let chosen = self.put_chosen(cands, PutsEnd::Last)?;
