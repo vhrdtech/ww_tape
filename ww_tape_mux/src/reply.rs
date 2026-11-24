@@ -55,6 +55,14 @@ impl<T> Drop for ReplyTx<T> {
     }
 }
 
+impl<T> ReplyRx<T> {
+    /// The reply once the sending side is gone, else None; never waits. Taken once: a later call gives `Some(None)`.
+    pub(crate) fn try_take(&mut self) -> Option<Option<T>> {
+        let mut s = lock(&self.0);
+        s.done.then(|| s.value.take())
+    }
+}
+
 impl<T> Future for ReplyRx<T> {
     type Output = Option<T>;
 

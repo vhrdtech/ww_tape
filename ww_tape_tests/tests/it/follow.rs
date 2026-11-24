@@ -76,7 +76,7 @@ where
 
 /// Chunk `k` of track `t` with the items of [chunk], times encoded as a reader decodes them, each item's number
 /// as its payload.
-fn events_chunk(t: u64, k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
+pub(crate) fn events_chunk(t: u64, k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
     let (head, _) = chunk(t, k);
     let first = head.first_item.get();
     let starts: Vec<i64> = (first..first + 50)

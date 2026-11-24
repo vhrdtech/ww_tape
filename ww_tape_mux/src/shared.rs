@@ -15,6 +15,7 @@ use ww_tape::{
 use crate::MuxStats;
 use crate::error::{MuxError, Unit};
 use crate::open::Complete;
+use crate::placing::PlacedTx;
 use crate::progress::Watch;
 use crate::queue::{Queue, lock};
 use crate::reply::ReplyTx;
@@ -64,6 +65,8 @@ pub(crate) enum Work<T: PieceStore> {
         summary: Option<Box<ChunkSummary>>,
         /// A grid tile chunk's overview chunks, placed right after it in the same piece
         overviews: Vec<Follower>,
+        /// Where to say the chunk was placed ([crate::ChunkSender::send_placed])
+        placed: Option<PlacedTx>,
     },
     Block {
         from: Arc<Slot<T::Error>>,

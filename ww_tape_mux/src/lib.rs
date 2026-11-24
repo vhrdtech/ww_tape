@@ -96,6 +96,7 @@ mod grid;
 mod handle;
 mod open;
 mod overview;
+mod placing;
 mod progress;
 mod queue;
 mod reply;
@@ -122,6 +123,7 @@ pub use events::{
 };
 pub use grid::{CHUNK_STEPS_DEFAULT, GridHandle, GridOptions};
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
+pub use placing::{Placement, Placing, Unplaced};
 pub use progress::{Progress, ProgressWatch, TrackProgress, WaitPast};
 pub use shared::{RETURNED_BUFFERS_MAX, RelayMode};
 

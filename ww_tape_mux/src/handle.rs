@@ -7,6 +7,7 @@ use ww_tape::chunk::ChunkHead;
 use ww_tape::{Block, BlockKind, ColumnSpec, PieceStore, TrackFacts, TrackNum};
 
 use crate::error::{CallError, MuxError};
+use crate::placing::{PlacedTx, Placing};
 use crate::queue::Pushed;
 use crate::reply::reply;
 use crate::shared::{BlockHow, RelayMode, Shared, Slot, Work};
@@ -269,7 +270,7 @@ impl<T: PieceStore> ChunkSender<T> {
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(head, columns)?;
+        let (work, bytes) = self.unit(head, columns, None)?;
         self.s.send(work, bytes)
     }
 
@@ -279,8 +280,34 @@ impl<T: PieceStore> ChunkSender<T> {
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(head, columns)?;
+        let (work, bytes) = self.unit(head, columns, None)?;
         self.s.send_async(work, bytes).await
+    }
+
+    /// [Self::send], with a receipt that gives where the chunk was placed ([Placement](crate::Placement)) once it is; None when the
+    /// chunk was dropped for want of room ([Pressure::Drop]).
+    ///
+    /// A reader in this process reads the chunk back from its piece at the placement, before the chain is synced.
+    pub fn send_placed(
+        &self,
+        head: ChunkHead,
+        columns: Vec<(ColumnSpec, Vec<u8>)>,
+    ) -> Result<Option<Placing>, MuxError<T::Error>> {
+        block_on(self.send_placed_async(head, columns))
+    }
+
+    /// [Self::send_placed] as a future, waiting for room by waker. Dropped while it waits, the chunk is not sent.
+    pub async fn send_placed_async(
+        &self,
+        head: ChunkHead,
+        columns: Vec<(ColumnSpec, Vec<u8>)>,
+    ) -> Result<Option<Placing>, MuxError<T::Error>> {
+        let (tx, placing) = Placing::new();
+        let (work, bytes) = self.unit(head, columns, Some(tx))?;
+        Ok(match self.s.send_async(work, bytes).await? {
+            Sent::Queued => Some(placing),
+            Sent::Dropped => None,
+        })
     }
 
     /// The unit of a chunk checked as [Self::send] says, its payload hashed.
@@ -288,6 +315,7 @@ impl<T: PieceStore> ChunkSender<T> {
         &self,
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
+        placed: Option<PlacedTx>,
     ) -> Result<(Work<T>, u64), MuxError<T::Error>> {
         if head.track_number != self.track {
             return Err(CallError::WrongTrack {
@@ -315,6 +343,7 @@ impl<T: PieceStore> ChunkSender<T> {
             hash,
             summary: None,
             overviews: Vec::new(),
+            placed,
         };
         Ok((work, u64::try_from(bytes).unwrap_or(u64::MAX)))
     }

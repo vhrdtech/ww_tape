@@ -4,15 +4,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ww_tape::chunk::ChunkHead;
-use ww_tape::index::IndexEntry;
+use ww_tape::index::{IndexEntry, IndexError};
 use ww_tape::{
-    ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, PieceStore, Slot as DefSlot,
-    UnitChunk, WriteError,
+    ChainPiece, ChunkPlaced, CloseReason, ColumnSpec, Definitions, PieceChain, PieceStore,
+    Slot as DefSlot, TapeSink, UnitChunk, WriteError,
 };
 
 use crate::define;
 use crate::error::MuxError;
 use crate::open;
+use crate::placing::{Placement, Unplaced};
 use crate::queue::Popped;
 use crate::shared::{BlockHow, ClosedTx, Counters, Follower, RelayMode, Shared, Slot, Work};
 use crate::summaries::{Added, ChunkSummary, Trees};
@@ -218,7 +219,7 @@ fn place_chunk<T: PieceStore>(
     st: &mut State<'_, T>,
     c: &Placing<'_>,
     summary: Option<Box<ChunkSummary>>,
-) -> Result<(), WriteError<T::Error>> {
+) -> Result<ChunkPlaced, WriteError<T::Error>> {
     let Placing {
         head,
         columns,
@@ -230,11 +231,11 @@ fn place_chunk<T: PieceStore>(
         end_trees(chain, defs, st)?;
     }
     let refs: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
-    if overviews.is_empty() {
+    let first = if overviews.is_empty() {
         match hash {
             Some(hash) => chain.write_chunk_hashed(defs, head, &refs, hash)?,
             None => chain.write_chunk(defs, head, &refs)?,
-        };
+        }
     } else {
         let follower_refs: Vec<Vec<(ColumnSpec, &[u8])>> = overviews
             .iter()
@@ -257,8 +258,15 @@ fn place_chunk<T: PieceStore>(
                 }),
         )
         .collect();
-        chain.write_unit(defs, &unit)?;
-    }
+        // a unit of one chunk and its overviews places that chunk first
+        let placed = chain.write_unit(defs, &unit)?;
+        placed
+            .first()
+            .copied()
+            .ok_or(WriteError::Index(IndexError::Invalid(
+                "a unit placed no chunk",
+            )))?
+    };
     // a summary block is placed after the unit, never inside it
     match summary {
         Some(s) => {
@@ -268,7 +276,27 @@ fn place_chunk<T: PieceStore>(
         }
         None => st.trees.plain(head.track_number),
     }
-    Ok(())
+    Ok(first)
+}
+
+/// The receipt of a chunk of `head` placed at `p`, in the piece the chain writes now.
+fn placement<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    head: &ChunkHead,
+    p: &ChunkPlaced,
+) -> Placement {
+    // the piece the chunk went into is the one written: a cut comes before a chunk, never after it
+    let piece_start = chain.writer().map_or(0, |w| w.sink().base());
+    Placement {
+        track: head.track_number,
+        first_item: head.first_item,
+        count: head.count,
+        piece: p.seq,
+        piece_start,
+        offset: p.offset,
+        len: p.len,
+        unit: p.unit,
+    }
 }
 
 /// Place `work` of `bytes`; the exit when it ends the thread.
@@ -292,6 +320,7 @@ fn place<T: PieceStore>(
             hash,
             summary,
             overviews,
+            placed: receipt,
         } => {
             if !failed {
                 let c = Placing {
@@ -301,10 +330,22 @@ fn place<T: PieceStore>(
                     overviews: &overviews,
                 };
                 let r = place_chunk(chain, defs, st, &c, summary);
+                let answer = match &r {
+                    Ok(p) => Ok(placement(chain, &head, p)),
+                    Err(_) => Err(Unplaced::Refused),
+                };
                 let ok = r.is_ok();
-                placed(chain, shared, &from, r, bytes);
+                placed(chain, shared, &from, r.map(|_| ()), bytes);
                 if ok {
                     shared.watch.publish(chain, Some(&head));
+                }
+                // a failure that stopped the chain lost the chunk; any other refusal is the sender's
+                let answer = match answer {
+                    Err(_) if shared.failure.get().is_some() => Err(Unplaced::Lost),
+                    a => a,
+                };
+                if let Some(tx) = receipt {
+                    tx.send(answer);
                 }
             } else {
                 Counters::add(&shared.counters.lost, 1);
