@@ -160,3 +160,52 @@ fn cells_not_the_tiles_are_refused() {
         Err(OverviewError::Shape)
     );
 }
+
+/// NaN is left out of the min, max and mean in any order of the source cells, and stays only where every one is NaN.
+#[test]
+fn nan_is_left_out_in_any_order() {
+    let nan = f32::NAN;
+    for cells in [
+        [nan, 1.0, 3.0, nan],
+        [1.0, nan, nan, 3.0],
+        [3.0, nan, 1.0, nan],
+    ] {
+        // two cells of two along one axis, then the level above: one cell of four
+        let l1 = OverviewCells::of_cells(&cells, 1, &[4], 1, 1).unwrap();
+        let l2 = l1.halve(1).unwrap();
+        assert_eq!((l2.min()[0], l2.max()[0]), (1.0, 3.0), "{cells:?}");
+        assert_eq!(l2.means(), [2.0], "{cells:?}");
+        for (m, pair) in l1.means().iter().zip(cells.chunks(2)) {
+            let vals: Vec<f32> = pair.iter().copied().filter(|v| !v.is_nan()).collect();
+            let want = vals.iter().sum::<f32>() / vals.len() as f32;
+            assert_eq!(m.to_bits(), want.to_bits(), "{cells:?} {pair:?}");
+        }
+    }
+    let all = OverviewCells::of_cells(&[nan, nan, 2.0, nan], 1, &[4], 1, 1).unwrap();
+    assert!(all.min()[0].is_nan(), "an all-NaN cell's min is NaN");
+    assert!(all.max()[0].is_nan(), "an all-NaN cell's max is NaN");
+    assert!(all.means()[0].is_nan(), "an all-NaN cell's mean is NaN");
+    assert_eq!(
+        (all.min()[1], all.max()[1], all.means()[1]),
+        (2.0, 2.0, 2.0)
+    );
+    let up = all.halve(1).unwrap();
+    assert_eq!((up.min()[0], up.max()[0], up.means()[0]), (2.0, 2.0, 2.0));
+}
+
+/// An infinity is a value: the min, max or mean it is; both infinities make a NaN mean. -0 is below +0 in any order.
+#[test]
+fn infinities_and_zeros_are_values() {
+    let (inf, ninf) = (f64::INFINITY, f64::NEG_INFINITY);
+    let l = OverviewCells::of_cells(&[inf, 1.0, ninf, 1.0, inf, ninf], 1, &[6], 1, 1).unwrap();
+    assert_eq!(l.min(), [1.0, ninf, ninf]);
+    assert_eq!(l.max(), [inf, 1.0, inf]);
+    let means = l.means();
+    assert_eq!(means[..2], [inf, ninf]);
+    assert!(means[2].is_nan(), "both infinities: NaN mean");
+    for cells in [[-0.0f32, 0.0], [0.0, -0.0]] {
+        let l = OverviewCells::of_cells(&cells, 1, &[2], 1, 1).unwrap();
+        assert!(l.min()[0].is_sign_negative(), "{cells:?}: min -0");
+        assert!(l.max()[0].is_sign_positive(), "{cells:?}: max +0");
+    }
+}

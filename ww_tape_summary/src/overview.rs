@@ -6,6 +6,11 @@
 //! sums are those of the cells as written, summed pairwise level by level. [OverviewCells::means] divides: an integer
 //! mean is rounded to the nearest, ties to even; a float's is summed in f64 and stored in the element's type.
 //!
+//! A float NaN is left out of all three, as the series summaries leave it out of their min and max: a cell's statistics
+//! are those of its other source cells, whatever their order, and NaN only where every source cell is NaN. An infinity
+//! is a value: it is the min or max it is, and the mean of a cell that holds it. A cell holding both infinities has a
+//! NaN mean. Of two zeros, -0 is the smaller.
+//!
 //! Cells run time outermost, then the fixed axes in definition order, row-major, `lanes` scalars each (a cell's
 //! channels and components interleaved): a tile's order ([ww_tape::grid#tiles]).
 
@@ -50,15 +55,20 @@ pub struct OverviewCells<S: Scalar> {
     fsum: Vec<f64>,
     /// Source cells as written per cell, the same for every lane and time step.
     count: Vec<u32>,
+    /// NaN source cells per scalar of a float element; empty until the first NaN.
+    nan: Vec<u32>,
 }
 
 /// What a level is halved from: the cells as written, or the level below.
 trait Source<S> {
     fn lanes(&self) -> usize;
-    /// The smallest, largest and sum (integer, float) of scalar `i`; the source cells cell `c` covers.
-    fn at(&self, i: usize) -> Option<(S, S, i128, f64)>;
+    /// The statistics of scalar `i`; the source cells cell `c` covers.
+    fn at(&self, i: usize) -> Option<Stats<S>>;
     fn count(&self, c: usize) -> Option<u32>;
 }
+
+/// The smallest, largest and sum (integer, float) of a scalar's source cells, NaN left out, and its NaN source cells.
+type Stats<S> = (S, S, i128, f64, u32);
 
 /// The cells of a tile as written.
 struct Written<'a, S> {
@@ -71,9 +81,12 @@ impl<S: Scalar> Source<S> for Written<'_, S> {
         self.lanes
     }
 
-    fn at(&self, i: usize) -> Option<(S, S, i128, f64)> {
+    fn at(&self, i: usize) -> Option<Stats<S>> {
         let v = *self.cells.get(i)?;
-        Some((v, v, v.to_i128(), v.to_f64()))
+        if is_nan(v) {
+            return Some((v, v, 0, 0.0, 1));
+        }
+        Some((v, v, v.to_i128(), v.to_f64(), 0))
     }
 
     fn count(&self, _c: usize) -> Option<u32> {
@@ -86,10 +99,12 @@ impl<S: Scalar> Source<S> for OverviewCells<S> {
         self.lanes
     }
 
-    fn at(&self, i: usize) -> Option<(S, S, i128, f64)> {
+    fn at(&self, i: usize) -> Option<Stats<S>> {
         let isum = if S::INT { *self.isum.get(i)? } else { 0 };
         let fsum = if S::INT { 0.0 } else { *self.fsum.get(i)? };
-        Some((*self.min.get(i)?, *self.max.get(i)?, isum, fsum))
+        // no NaN count yet: none of the scalars has a NaN source cell
+        let nan = self.nan.get(i).copied().unwrap_or(0);
+        Some((*self.min.get(i)?, *self.max.get(i)?, isum, fsum, nan))
     }
 
     fn count(&self, c: usize) -> Option<u32> {
@@ -102,6 +117,36 @@ fn cells_of(extents: &[u32]) -> Option<usize> {
     extents
         .iter()
         .try_fold(1usize, |n, e| n.checked_mul(usize::try_from(*e).ok()?))
+}
+
+/// Whether `v` is a float NaN: NaN compares with nothing, itself included.
+fn is_nan<S: Scalar>(v: S) -> bool {
+    v.partial_cmp(&v).is_none()
+}
+
+/// Whether `v` takes the place of the running smallest (`smaller`) or largest `m`: a NaN `v` never does, and anything
+/// takes the place of a NaN `m`; of two zeros, -0 is the smaller. So the result is the same in any order.
+fn takes<S: Scalar>(v: S, m: S, smaller: bool) -> bool {
+    use core::cmp::Ordering;
+    if is_nan(v) {
+        return false;
+    }
+    if is_nan(m) {
+        return true;
+    }
+    match v.partial_cmp(&m) {
+        Some(Ordering::Less) => smaller,
+        Some(Ordering::Greater) => !smaller,
+        Some(Ordering::Equal) => {
+            let (v_neg, m_neg) = (v.to_f64().is_sign_negative(), m.to_f64().is_sign_negative());
+            if smaller {
+                v_neg && !m_neg
+            } else {
+                m_neg && !v_neg
+            }
+        }
+        None => false,
+    }
 }
 
 /// Whether bit `axis` of `mask` is set.
@@ -170,6 +215,7 @@ impl<S: Scalar> OverviewCells<S> {
             isum: vec![0; if S::INT { scalars } else { 0 }],
             fsum: vec![0.0; if S::INT { 0 } else { scalars }],
             count: vec![0; to_cells],
+            nan: Vec::new(),
         };
         // the target cell of each source cell, by its coordinates, once for every step
         let map =
@@ -180,9 +226,15 @@ impl<S: Scalar> OverviewCells<S> {
                 *d = d.saturating_add(n);
             }
         }
-        out.min.resize(scalars, S::HIGHEST);
-        out.max.resize(scalars, S::LOWEST);
-        let mut seen = vec![false; scalars];
+        // a float's min and max start NaN, which any value takes the place of: an all-NaN cell keeps it
+        let (lowest, highest) = if S::INT {
+            (S::LOWEST, S::HIGHEST)
+        } else {
+            let nan = S::from_f64(f64::NAN, false);
+            (nan, nan)
+        };
+        out.min.resize(scalars, highest);
+        out.max.resize(scalars, lowest);
         for step in 0..steps {
             for (c, t) in map.iter().enumerate() {
                 let from = step
@@ -196,32 +248,38 @@ impl<S: Scalar> OverviewCells<S> {
                     .and_then(|i| i.checked_mul(lanes))
                     .ok_or(OverviewError::Shape)?;
                 for l in 0..lanes {
-                    let (lo, hi, isum, fsum) = from
+                    let stats = from
                         .checked_add(l)
                         .and_then(|i| src.at(i))
                         .ok_or(OverviewError::Shape)?;
                     let i = into.checked_add(l).ok_or(OverviewError::Shape)?;
-                    out.add(i, &mut seen, (lo, hi, isum, fsum));
+                    out.add(i, stats);
                 }
             }
         }
         Ok(out)
     }
 
-    /// Take a source's statistics into scalar `i`; the first sets them, so a float NaN of the first source stays.
-    fn add(&mut self, i: usize, seen: &mut [bool], (lo, hi, isum, fsum): (S, S, i128, f64)) {
-        let first = seen
-            .get_mut(i)
-            .is_some_and(|s| !core::mem::replace(s, true));
+    /// Take a source's statistics into scalar `i`, NaN left out of the min, max and sum.
+    fn add(&mut self, i: usize, (lo, hi, isum, fsum, nan): Stats<S>) {
         if let Some(m) = self.min.get_mut(i)
-            && (first || lo < *m)
+            && takes(lo, *m, true)
         {
             *m = lo;
         }
         if let Some(m) = self.max.get_mut(i)
-            && (first || hi > *m)
+            && takes(hi, *m, false)
         {
             *m = hi;
+        }
+        if nan > 0 {
+            if self.nan.is_empty() {
+                self.nan = vec![0; self.min.len()];
+            }
+            // at most the source cells the cell covers, a u32
+            if let Some(n) = self.nan.get_mut(i) {
+                *n = n.saturating_add(nan);
+            }
         }
         // a tile step holds at most GRID_TILE_CELLS_MAX (2^26) cells of at most 64 bits: sums stay under 2^90
         if let Some(s) = self.isum.get_mut(i) {
@@ -258,7 +316,7 @@ impl<S: Scalar> OverviewCells<S> {
     }
 
     /// The mean of each cell's source cells, as [Self::min]: an integer's rounded to the nearest, ties to even; a
-    /// float's divided in f64.
+    /// float's divided in f64, NaN left out, and NaN where every source cell is NaN.
     pub fn means(&self) -> Vec<S> {
         let cells = self.count.len().max(1);
         let lanes = self.lanes.max(1);
@@ -279,7 +337,12 @@ impl<S: Scalar> OverviewCells<S> {
             self.fsum
                 .iter()
                 .enumerate()
-                .map(|(i, s)| S::from_f64(*s / f64::from(count(i)), false))
+                .map(|(i, s)| {
+                    // no NaN count yet: no NaN source cell; at most the cell's count, all of them for 0 / 0, NaN
+                    let nan = self.nan.get(i).copied().unwrap_or(0);
+                    let n = count(i).saturating_sub(nan);
+                    S::from_f64(*s / f64::from(n), false)
+                })
                 .collect()
         }
     }

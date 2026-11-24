@@ -2032,6 +2032,14 @@ A cell of level k covers `2^k` cells as written along each downsampled axis, few
 three statistics per channel and time step: the smallest value of its source cells, the largest and the mean. The
 mean of an integer element is rounded to the nearest integer, ties to even; a float's mean is summed in f64.
 
+Float cells, in any order of their source cells:
+
+- A NaN is left out of all three statistics, as a summary leaves it out of its min and max.
+- A cell is NaN only where every source cell is NaN.
+- An infinity is a value: a cell holding one has it as its min or max and as its mean.
+- A cell holding both infinities has a NaN mean.
+- Of two zeros, -0 is the smaller.
+
 Each tile as written has its own overview tile per level, with the same tile coordinates and tile number. Its tile
 extent along a downsampled axis is the tile extent over `2^k` (`TileLayout::overview`). The levels go on as long as
 every downsampled tile extent halves evenly (`TileLayout::overview_levels`), so a cell has one size across the whole
