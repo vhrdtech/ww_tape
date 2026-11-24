@@ -1178,12 +1178,7 @@ impl<S: ByteSource> TapeReader<S> {
             let block = ob.block();
             walk.take(&block);
             if replaces && let Some(gone) = last_counted {
-                if let Some(list) = piece.entries.as_mut() {
-                    list.retain(|e| e.offset != gone);
-                }
-                if let Some(r) = run.as_mut() {
-                    r.entries.retain(|e| e.offset != gone);
-                }
+                forget_replaced(&mut piece, run.as_mut(), gone);
             }
             // the piece starts at or before every block of it the scan takes
             let in_piece = at.checked_sub(piece.start);
@@ -1227,28 +1222,7 @@ impl<S: ByteSource> TapeReader<S> {
                     at = end;
                     continue;
                 }
-                _ if block.flags & crate::FLAG_WITH_NEXT != 0 => {
-                    let r = run.get_or_insert_with(|| HeldRun {
-                        at,
-                        end,
-                        entries: Vec::new(),
-                    });
-                    r.end = end;
-                    if let Some(off) = in_piece {
-                        r.entries.extend(IndexEntry::all_of_block(off, &block));
-                    }
-                }
-                _ => {
-                    let held = run.take();
-                    if let Some(off) = in_piece
-                        && let Some(list) = piece.entries.as_mut()
-                    {
-                        if let Some(h) = held {
-                            list.extend(h.entries);
-                        }
-                        list.extend(IndexEntry::all_of_block(off, &block));
-                    }
-                }
+                _ => list_or_hold(&mut piece, &mut run, (at, end), in_piece, &block),
             }
             // a piece of a level this build refuses is read no further, as one of another version
             if block.kind == BlockKind::PieceHead && piece.refused().is_some() {
@@ -2314,6 +2288,48 @@ struct HeldRun {
 fn drop_run(piece: &mut PieceInfo, run: &mut Option<HeldRun>) {
     if let Some(r) = run.take() {
         piece.dropped_runs.push((r.at, r.end.saturating_sub(r.at)));
+    }
+}
+
+/// The entries of the block at `gone` in the piece, which a later copy replaces, taken out of `piece` and `run`.
+fn forget_replaced(piece: &mut PieceInfo, run: Option<&mut HeldRun>, gone: u64) {
+    if let Some(list) = piece.entries.as_mut() {
+        list.retain(|e| e.offset != gone);
+    }
+    if let Some(r) = run {
+        r.entries.retain(|e| e.offset != gone);
+    }
+}
+
+/// Take `block` of data, from `place.0` to `place.1` in the source and at `in_piece` in the piece: held in `run` when
+/// marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), else listed with the run it ends.
+fn list_or_hold(
+    piece: &mut PieceInfo,
+    run: &mut Option<HeldRun>,
+    (at, end): (u64, u64),
+    in_piece: Option<u64>,
+    block: &crate::Block<'_>,
+) {
+    if block.flags & crate::FLAG_WITH_NEXT != 0 {
+        let r = run.get_or_insert_with(|| HeldRun {
+            at,
+            end,
+            entries: Vec::new(),
+        });
+        r.end = end;
+        if let Some(off) = in_piece {
+            r.entries.extend(IndexEntry::all_of_block(off, block));
+        }
+        return;
+    }
+    let held = run.take();
+    if let Some(off) = in_piece
+        && let Some(list) = piece.entries.as_mut()
+    {
+        if let Some(h) = held {
+            list.extend(h.entries);
+        }
+        list.extend(IndexEntry::all_of_block(off, block));
     }
 }
 
