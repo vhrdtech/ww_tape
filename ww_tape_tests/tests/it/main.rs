@@ -26,6 +26,7 @@ mod clock;
 mod crafted;
 mod crashes;
 mod definitions;
+mod definitions_twice;
 mod durable;
 mod files;
 mod follow;

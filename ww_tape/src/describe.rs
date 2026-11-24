@@ -463,6 +463,11 @@ pub struct TrackDef<'i> {
     /// writer's (eventfull's `source`, `parent`, `context`, an entity key).
     #[default = Default::default()]
     pub relations: RefVec<'i, RelationDef<'i>>,
+    /// Whether every definition the track needs (its own, its clock chain, its bundles) is written twice at once: a
+    /// record in a block of puts and again in the next block, so one damaged block loses none of them, also in a
+    /// piece too small for the copies spaced apart.
+    #[default = false]
+    pub defined_twice: bool,
 }
 
 /// A track as an application defines it: a [TrackDef] without its number, which
@@ -491,6 +496,8 @@ pub struct TrackSpec<'i> {
     pub owner: [u8; 32],
     /// What the track's items relate to, see [TrackDef::relations].
     pub relations: RefVec<'i, RelationDef<'i>>,
+    /// Whether the definitions the track needs are written twice at once, see [TrackDef::defined_twice].
+    pub defined_twice: bool,
 }
 
 impl<'i> TrackSpec<'i> {
@@ -507,6 +514,7 @@ impl<'i> TrackSpec<'i> {
             kind: self.kind,
             owner: self.owner,
             relations: self.relations,
+            defined_twice: self.defined_twice,
         }
     }
 
@@ -529,6 +537,7 @@ impl<'i> TrackDef<'i> {
             kind: self.kind.clone(),
             owner: self.owner,
             relations: self.relations.clone(),
+            defined_twice: self.defined_twice,
         }
     }
 }

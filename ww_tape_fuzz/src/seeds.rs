@@ -377,6 +377,7 @@ fn encoding_seeds() -> Vec<Seed> {
                 kind: TrackKind::Events(ww_tape::EventsDef::INSTANTS),
                 relations: RefVec::Slice { slice: &[] },
                 owner: [0; 32],
+                defined_twice: false,
             };
             seed(
                 "tape-series",

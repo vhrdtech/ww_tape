@@ -8,9 +8,10 @@ use std::path::Path;
 
 use ww_tape::index::IndexPolicy;
 use ww_tape::{
-    Block, ChainOptions, CutPolicy, DescribeError, FLAG_GROUP, FLAG_GROUP_START, FLAG_WITH_NEXT,
-    GROUP_BYTES_MAX, GroupPut, GroupRefusal, InputError, MemSink, PieceChain, PieceTapes, Slot,
-    TapeReader, TapeSink, TapeWriter, TrackNum, WriteError,
+    Block, ChainOptions, CutPolicy, Describe, DescribeError, FLAG_GROUP, FLAG_GROUP_START,
+    FLAG_TWICE, FLAG_WITH_NEXT, FileBlocks, GROUP_BYTES_MAX, GroupPut, GroupRefusal, InputError,
+    MemSink, PieceChain, PieceTapes, Recovery, Slot, TapeReader, TapeSink, TapeWriter, TrackDef,
+    TrackNum, WriteError,
 };
 use ww_tape_fs::follow::{ChainFollower, FollowOptions};
 
@@ -832,4 +833,153 @@ fn a_relayed_group_held_over_a_cut_is_whole_in_the_next_piece() {
         .collect();
     let new: Vec<_> = w.new.iter().cloned().map(Some).collect();
     assert_eq!(pieces, vec![vec![None; TRACKS.len()], new]);
+}
+
+/// A piece whose first group, of 8-byte items on [TRACKS] defined twice at once, writes their definitions; closed on
+/// an SD card layout after a block of data when `closed`, else left open on the layout a resume takes ([options]).
+struct TwiceGroup {
+    bytes: Vec<u8>,
+    /// The group's blocks, then the copy after it: offset, length, header flags
+    blocks: Vec<(usize, usize, u16)>,
+    items: Vec<Vec<u8>>,
+}
+
+/// A writer on `layout` with [TRACKS] defined, each defined twice at once.
+fn twice_rig(layout: ww_tape::Layout) -> Rig {
+    let tracks = TRACKS.map(|t| {
+        let Describe::Track(d) = state(t) else {
+            unreachable!("a track")
+        };
+        Describe::Track(TrackDef {
+            defined_twice: true,
+            ..d
+        })
+    });
+    let mut w = begin_numbered(options(u64::MAX), layout, &tracks);
+    for d in &tracks {
+        w.define(d).unwrap();
+    }
+    w
+}
+
+fn twice_group(closed: bool) -> TwiceGroup {
+    let mut w = twice_rig(if closed {
+        ww_tape::Layout::UNALIGNED.on_sd_card()
+    } else {
+        ww_tape::Layout::UNALIGNED
+    });
+    let tape = w.sink().tape();
+    let items = items(1, 8);
+    assert_eq!(put_group(&mut w, &items).unwrap(), vec![true; 3]);
+    if closed {
+        crate::definitions::write_records(&mut w, 50, 1);
+        w.w.close().unwrap();
+    }
+    let bytes = tape.to_vec().unwrap();
+    let mut rd = FileBlocks::with_recovery(&bytes[..], Recovery::Prefix);
+    let mut blocks = Vec::new();
+    while let Some(Ok(b)) = rd.next_block() {
+        let (flags, len) = (b.flags, b.bytes().len());
+        if flags & (FLAG_GROUP | FLAG_TWICE) != 0 {
+            blocks.push((rd.offset() as usize, len, flags));
+        }
+    }
+    TwiceGroup {
+        bytes,
+        blocks,
+        items,
+    }
+}
+
+/// A group on tracks defined twice at once opens with its block marked [FLAG_TWICE]: that block is the group's
+/// first, and the copy after the group's last block is none of the group's. A crash anywhere inside the group leaves
+/// none of it, and the group given again after a resume writes the same bytes; a crash before the copy keeps it.
+#[test]
+fn a_group_on_tracks_defined_twice_holds_its_twice_block() {
+    let g = twice_group(false);
+    let r = ww_tape::FLAG_REPEAT;
+    assert_eq!(
+        g.blocks.iter().map(|b| b.2).collect::<Vec<_>>(),
+        vec![
+            r | FLAG_TWICE | FLAG_GROUP | FLAG_GROUP_START | FLAG_WITH_NEXT,
+            r | FLAG_GROUP,
+            r | FLAG_TWICE,
+        ],
+        "the twice block opens the group, its copy follows it unmarked"
+    );
+    let (start, end) = (g.blocks[0].0, g.blocks[1].0 + g.blocks[1].1);
+    let whole: Vec<_> = g.items.iter().cloned().map(Some).collect();
+    let none = vec![None; TRACKS.len()];
+    let defs = twice_rig(ww_tape::Layout::UNALIGNED).defs;
+    let mut at: Vec<usize> = g
+        .blocks
+        .iter()
+        .flat_map(|(o, l, _)| [*o, o + 1, o + l - 1, o + l])
+        .collect();
+    at.dedup();
+    for cut in at {
+        let want = if cut >= end { &whole } else { &none };
+        assert_eq!(&in_force(&g.bytes[..cut]), want, "cut at {cut}");
+        if cut == g.bytes.len() {
+            continue;
+        }
+        let mut sink = MemSink::new();
+        sink.write_all(&g.bytes[..cut]).unwrap();
+        let tape = sink.tape();
+        let (resumed, r) = TapeWriter::resume_on(sink, options(u64::MAX)).unwrap();
+        if cut < end {
+            assert!(r.kept_bytes <= start as u64, "cut at {cut}");
+        }
+        let mut again = Rig {
+            w: resumed,
+            defs: defs.clone(),
+        };
+        put_group(&mut again, &g.items).unwrap();
+        assert_eq!(tape.to_vec().unwrap(), g.bytes, "cut at {cut}");
+    }
+}
+
+/// Damage to a block of a group on tracks defined twice at once, its twice block included, drops the group in the
+/// index, a scan and a follower alike; damage to the copy after it leaves the group whole in all three.
+#[test]
+fn a_group_on_tracks_defined_twice_is_dropped_or_kept_at_each_block() {
+    let g = twice_group(true);
+    assert_eq!(g.blocks.len(), 3, "two blocks of the group and the copy");
+    for (k, (at, len, _)) in g.blocks.iter().enumerate() {
+        let block = (*at, *len);
+        let copy = k == 2;
+        let want = |item: Option<Vec<u8>>, t: usize| {
+            if copy {
+                assert_eq!(
+                    item.as_ref(),
+                    Some(&g.items[t]),
+                    "block {k} damaged: track {t}"
+                );
+            } else {
+                assert_eq!(item, None, "block {k} damaged: track {t}");
+            }
+        };
+        let bad = flipped(&g.bytes, block);
+        for (t, (item, _)) in in_force_of(&TapeReader::open(&bad[..]).unwrap())
+            .into_iter()
+            .enumerate()
+        {
+            want(item, t);
+        }
+        let gap = blanked(&g.bytes, block);
+        for (t, (item, _)) in in_force_of(&TapeReader::open_with(&gap[..], raw()).unwrap())
+            .into_iter()
+            .enumerate()
+        {
+            want(item, t);
+        }
+        let got = followed(&gap);
+        for (o, _, _) in &g.blocks[..2] {
+            assert_eq!(
+                got.contains(o),
+                copy,
+                "block {k} damaged: the follower and the group's block at {o}"
+            );
+        }
+    }
 }

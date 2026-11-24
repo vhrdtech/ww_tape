@@ -79,6 +79,7 @@ fn track(k: u32, clock: ww_tape::ClockNum) -> TrackSpec<'static> {
         repeat: TrackRepeat::State(StatePolicy::DEFAULT),
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
+        defined_twice: false,
         owner: [0; 32],
     }
 }

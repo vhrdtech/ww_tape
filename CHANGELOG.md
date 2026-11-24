@@ -12,6 +12,8 @@ benchmarks, golden files and book pages.
 - `FollowError::RunTooLong`: a follower stops at a run of more than `RUN_BLOCKS_MAX` blocks (WRITE-17).
 - Format: header bit 8 `FLAG_GROUP` marks a group's blocks; readers drop a damaged group whole (WRITE-17).
 - Format: header bit 9 `FLAG_GROUP_START` marks a group's first block; a group after damage stays whole (WRITE-17).
+- `TrackDef` gains `defined_twice`, written after `relations`; every track definition's bytes change, old files read false (TRACK-9).
+- `TrackSpec` and `TrackFacts` gain `defined_twice`: a struct literal adds `defined_twice: false` (TRACK-9).
 
 ### Features
 
@@ -21,6 +23,8 @@ benchmarks, golden files and book pages.
 - A follower keeps a run's block places, not bytes, and takes definitions as it hands blocks out (WRITE-17).
 - `GroupHandle::put_group` refuses a track twice or items past `GROUP_BYTES_MAX` at the call (`CallError::Group`) (WRITE-17).
 - A relay holds a producer's group of puts until its last block and writes it whole (WRITE-17).
+- A track with `defined_twice` has each definition it needs written in two blocks at once (TRACK-9).
+- Header bit 7 `FLAG_TWICE` marks such blocks; each copy follows its run, and a resume writes missing copies (TRACK-9).
 - The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
 
 ## [0.9.0] - 2026-11-24

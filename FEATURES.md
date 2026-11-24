@@ -163,6 +163,12 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds), `ww_tape_tests/tests/it/chain_numbers.rs`.
 
+- ✅ **TRACK-9 Definitions written twice at once**
+
+  A track whose definition says `defined_twice` has every definition it needs written twice: its clock chain, its bundles and its own. The first record goes into a block marked `FLAG_TWICE` inside its run. Its copy follows right after the block that ends the run and belongs with no other block. In a piece under 1 MiB each definition so reads after any one damaged block. A resume writes the copies a crash cut off, so the bytes equal those written without the crash.
+
+  Read more: [Definitions written twice at once](docs/format.md#definitions-written-twice-at-once). Tests `definitions_twice.rs`.
+
 ## Writer (`WRITE`)
 
 Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_tape`.
@@ -229,7 +235,7 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   Each of its blocks carries `FLAG_GROUP` and its first `FLAG_GROUP_START`. A scan and a lookup through the index so drop a damaged group whole and keep one that starts after damage.
 
-  A chain cuts before a group, never inside it, and `GroupHandle` sends one through the mux. A relay holds a producer's group until its last block and writes it whole. Followers hold the places of a run's blocks, at most `RUN_BLOCKS_MAX`, not their bytes.
+  A chain cuts before a group, never inside it, and `GroupHandle` sends one through the mux. A relay holds a producer's group until its last block and writes it whole. A group's block of definitions written twice at once is one of its blocks; the copy follows the group. Followers hold the places of a run's blocks, at most `RUN_BLOCKS_MAX`, not their bytes.
 
   Read more: [Groups of puts](docs/format.md#groups-of-puts), [A torn group of puts](docs/crashes.md#a-torn-group-of-puts). Tests `ww_tape_tests/tests/it/groups.rs`, `ww_tape_fs/tests/follow_heap.rs`.
 

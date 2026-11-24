@@ -144,6 +144,7 @@ fn track(load: Load, k: u32, clock: ClockNum, rf: &Rf) -> anyhow::Result<TrackSp
         kind,
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     })
 }
 
