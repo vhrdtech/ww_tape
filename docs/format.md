@@ -817,8 +817,8 @@ Readers take a run whole or not at all:
 | a resume | drops a run at the end of what it keeps (`Resumed::dropped_run`) |
 | the index of a closed piece | every block: only a resume closes a crashed piece, and it drops the torn run first |
 
-So no reader shows part of a run that a crash tore. Damage inside a run of a closed piece is damage to its blocks
-only: a lookup lists the block it lost, as for any other block.
+So no reader shows part of a run that a crash tore. Damage inside a run of a closed piece hurts its blocks
+only. A lookup lists the block it lost, as for any other block.
 
 `TapeWriter::put_block` puts a producer's block of puts by the writer's own rule. `relay_block` passes a live producer's
 stream on.

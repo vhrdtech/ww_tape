@@ -116,10 +116,10 @@ The recorder then gives the call for the block again, and the writer writes the 
 that finds its [[item]] close behind writes nothing, so the recorder never needs to know which puts reached the disk. It
 simply puts again what it uses, as it did before the crash.
 
-### A group of puts, whole or not at all
+### A torn group of puts
 
 Some puts only mean something together. An application that keeps its settings on [[state tracks]] changes a limit
-and its unit in one step: a reader that saw the new limit with the old unit would read a wrong setting.
+and its unit in one step. A reader that saw the new limit with the old unit would read a wrong setting.
 `TapeWriter::put_group` puts such items as one group. Its blocks but the last are marked `FLAG_WITH_NEXT`, as puts
 before a block of data are, and the last block of puts ends the group.
 

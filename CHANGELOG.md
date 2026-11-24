@@ -8,7 +8,7 @@ benchmarks, golden files and book pages.
 
 ### Breaking
 
-- A scan holds a run's records until its last block: a torn group or unit reads as none of it (WRITE-17).
+- A scan drops a run torn before its last block: no record of a torn group or unit (WRITE-17).
 - `FollowError::RunTooLong`: a follower stops at a run of more than `RUN_BLOCKS_MAX` blocks (WRITE-17).
 
 ### Features

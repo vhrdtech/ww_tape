@@ -225,9 +225,11 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
 - ✅ **WRITE-17 Groups of puts taken whole**
 
-  `TapeWriter::put_group` puts items on several state tracks as one group, and every reader takes all of it or none. The group is a run of blocks of puts marked `FLAG_WITH_NEXT`, so a crash inside it leaves a run without its last block. A scan lists such a run in `PieceInfo::dropped_runs` and none of its records, a follower hands out none of it, and a resume drops it and names it in `Resumed::dropped_run`. A chain cuts before a group, never inside it, and `GroupHandle` sends one through the mux. Followers hold the places of a run's blocks, at most `RUN_BLOCKS_MAX`, not their bytes.
+  `TapeWriter::put_group` puts items on several state tracks as one group, and every reader takes all of it or none. The group is a run of blocks of puts marked `FLAG_WITH_NEXT`, so a crash inside it leaves a run without its last block. A scan lists such a run in `PieceInfo::dropped_runs` and none of its records. A follower hands out none of it, and a resume drops it and names it in `Resumed::dropped_run`.
 
-  Read more: [Groups of puts](docs/format.md#groups-of-puts), [A group of puts, whole or not at all](docs/crashes.md#a-group-of-puts-whole-or-not-at-all). Tests `ww_tape_tests/tests/it/groups.rs`, `ww_tape_fs/tests/follow_heap.rs`.
+  A chain cuts before a group, never inside it, and `GroupHandle` sends one through the mux. Followers hold the places of a run's blocks, at most `RUN_BLOCKS_MAX`, not their bytes.
+
+  Read more: [Groups of puts](docs/format.md#groups-of-puts), [A torn group of puts](docs/crashes.md#a-torn-group-of-puts). Tests `ww_tape_tests/tests/it/groups.rs`, `ww_tape_fs/tests/follow_heap.rs`.
 
 ## Writing from many threads (`MUX`)
 
