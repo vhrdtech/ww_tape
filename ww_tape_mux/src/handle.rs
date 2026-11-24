@@ -124,7 +124,9 @@ impl<T: PieceStore> Sender<T> {
             Some(Work::Block { block, .. }) => self.slot.give_back(block),
             Some(Work::Put { item, .. }) => self.slot.give_back(item),
             Some(Work::PutGroup { puts, .. }) => {
-                puts.into_iter().for_each(|p| self.slot.give_back(p.item))
+                for p in puts {
+                    self.slot.give_back(p.item);
+                }
             }
             _ => {}
         }
@@ -632,9 +634,11 @@ impl<T: PieceStore> StateHandle<T> {
     }
 }
 
-/// Puts groups of items of some state tracks, and of keys' values and deletions of keyed ones, each group taken whole
-/// or not at all ([TapeWriter::put_group](ww_tape::TapeWriter::put_group)): a crash inside a group leaves none of it
-/// after a resume, and readers show all of it or none.
+/// Puts groups of items and keys on some state tracks, each group taken whole or not at all.
+///
+/// A group holds items of state tracks, and keys' values and deletions of keyed ones
+/// ([TapeWriter::put_group](ww_tape::TapeWriter::put_group)): a crash inside a group leaves none of it after a resume,
+/// and readers show all of it or none.
 ///
 /// Any number of these handles may put on the same tracks, and [StateHandle]s too.
 pub struct GroupHandle<T: PieceStore> {

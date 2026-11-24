@@ -376,10 +376,10 @@ fn a_mux_group_puts_keys_and_deletions() {
     for d in batch {
         match d {
             ww_tape::Describe::Clock(c) => {
-                assert_eq!(mux.define_clock(c.spec()).unwrap(), c.number)
+                assert_eq!(mux.define_clock(c.spec()).unwrap(), c.number);
             }
             ww_tape::Describe::Track(t) => {
-                assert_eq!(mux.define_track(t.spec()).unwrap(), t.number)
+                assert_eq!(mux.define_track(t.spec()).unwrap(), t.number);
             }
             _ => unreachable!("base holds clocks and tracks past its first two"),
         }
