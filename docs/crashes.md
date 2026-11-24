@@ -116,6 +116,19 @@ The recorder then gives the call for the block again, and the writer writes the 
 that finds its [[item]] close behind writes nothing, so the recorder never needs to know which puts reached the disk. It
 simply puts again what it uses, as it did before the crash.
 
+### A torn group of puts
+
+Some puts only mean something together. An application that keeps its settings on [[state tracks]] changes a limit
+and its unit in one step. A reader that saw the new limit with the old unit would read a wrong setting.
+`TapeWriter::put_group` puts such items as one group. Its blocks but the last are marked `FLAG_WITH_NEXT`, as puts
+before a block of data are, and the last block of puts ends the group.
+
+A crash inside the group leaves marked blocks at the end of the piece and no last one. A reader of the piece before
+the [[resume]] takes none of them, and a follower hands out none. The resume drops them and says so in
+`Resumed::dropped_run`, so the application knows the group is lost and gives it again. Every reader then shows either
+the settings before the group or all of the group, never a mix. The [format reference](format.md#groups-of-puts)
+lists what a writer checks before it writes a group.
+
 ## When a resume refuses
 
 A [[resume]] cuts off what a crash leaves and nothing more. A crash leaves a [[block]] that stops short, or zeros from a

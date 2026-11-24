@@ -47,6 +47,7 @@ pub fn pings_track(clock: ClockNum, name: &'static str) -> TrackSpec<'static> {
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 
@@ -66,6 +67,7 @@ pub fn levels_track(clock: ClockNum) -> TrackSpec<'static> {
         kind: TrackKind::Series(GridDef::of::<i16>(1, Ratio64::int(1).expect("1 is not 0"))),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

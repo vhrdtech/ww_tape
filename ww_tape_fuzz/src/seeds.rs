@@ -399,6 +399,7 @@ fn encoding_seeds() -> Vec<Seed> {
                 kind: TrackKind::Events(ww_tape::EventsDef::INSTANTS),
                 relations: RefVec::Slice { slice: &[] },
                 owner: [0; 32],
+                defined_twice: false,
             };
             seed(
                 "tape-series",
@@ -990,6 +991,7 @@ pub fn all() -> Vec<Seed> {
     out.extend(golden_blocks("tape-times", "v1-times", GOLDEN_TIMES));
     out.extend(times_fixes());
     out.extend(grid_files());
+    out.extend(stream("tape-runs", 0x5275_6e73_0000_0001));
     for (i, (name, _)) in crate::targets::ALL.iter().enumerate() {
         if name.ends_with("-hostile") {
             out.extend(stream(name, 0x5eed_0000_0000_0001 + i as u64 * 0x9e37_79b9));

@@ -85,6 +85,12 @@ pub enum InputError {
     /// [TapeWriter::write_chunk_unit](super::TapeWriter::write_chunk_unit), that would make a unit longer than `max`
     /// chunks ([UNIT_CHUNKS_MAX](super::UNIT_CHUNKS_MAX)). Nothing is written.
     UnitTooLong { max: usize },
+    /// A group of puts ([TapeWriter::put_group](super::TapeWriter::put_group)) the writer refuses: see
+    /// [GroupRefusal].
+    Group(GroupRefusal),
+    /// A call that would make a run of blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) and the block they
+    /// belong with longer than `max` blocks ([RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX)). Nothing is written.
+    RunTooLong { max: usize },
     /// A put by key that would make the keys every cut carries take `needed` of `limit`'s `max`: a piece could not
     /// hold them with the layout, the producer and one put more. Nothing is written; a deletion makes room.
     CarryFull {
@@ -114,6 +120,37 @@ impl core::fmt::Display for CarryLimit {
             Self::KeptBytes => "the near policy's kept_bytes_max",
         })
     }
+}
+
+/// Why [TapeWriter::put_group](super::TapeWriter::put_group) refuses a group, or a relay drops a producer's group it
+/// holds ([TapeWriter::put_block](super::TapeWriter::put_block)): [InputError::Group]. None of the group is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GroupRefusal {
+    /// The group's items take `len` bytes, more than [GROUP_BYTES_MAX](super::GROUP_BYTES_MAX) (`max`).
+    TooLong { len: usize, max: usize },
+    /// The group puts on track `track` twice: a slot takes one item per group, relayed or not.
+    SlotTwice { track: crate::TrackNum },
+    /// The producer of session `session` tore the group a relay held of it after `blocks` blocks: its block was the
+    /// first of another group or none of a group's. That block is put; the group held is dropped.
+    Torn { session: SessionTag, blocks: usize },
+    /// A block of a group of the producer of session `session` whose group the relay doesn't hold: its first block
+    /// never came, or the group was dropped. The block is passed over.
+    NoStart { session: SessionTag },
+    /// A block of keyed state records ([FLAG_KEYED](crate::FLAG_KEYED)) of a group of the producer of session
+    /// `session`: a group holds no keyed records. The group is dropped.
+    Keyed { session: SessionTag },
+    /// The first block of a group of the producer of session `session` while the relay holds groups of `max`
+    /// producers ([RELAY_GROUPS_MAX](super::RELAY_GROUPS_MAX)). The group is passed over.
+    TooManyHeld { session: SessionTag, max: usize },
+    /// A block that would bring what the groups a relay holds cost to `len` bytes, each record its bytes and
+    /// [RELAY_RECORD_OVERHEAD](super::RELAY_RECORD_OVERHEAD), more than
+    /// [RELAY_HELD_BYTES_MAX](super::RELAY_HELD_BYTES_MAX) (`max`). The group of session `session` is dropped.
+    HeldTooLong {
+        session: SessionTag,
+        len: usize,
+        max: usize,
+    },
 }
 
 /// Why [TapeWriter::record_removed](super::TapeWriter::record_removed) refuses removed pieces ([InputError::Removed]).
@@ -308,6 +345,37 @@ impl core::fmt::Display for InputError {
             ),
             Self::UnitTracks => f.write_str("a unit of chunks of more than one track"),
             Self::UnitTooLong { max } => write!(f, "a unit of more than {max} chunks"),
+            Self::RunTooLong { max } => write!(
+                f,
+                "a run of blocks belonging with the next of more than {max} blocks"
+            ),
+            Self::Group(GroupRefusal::TooLong { len, max }) => write!(
+                f,
+                "a group of puts of {len} bytes of items: a group holds at most {max}"
+            ),
+            Self::Group(GroupRefusal::SlotTwice { track }) => {
+                write!(f, "a group of puts names track {track:?} twice")
+            }
+            Self::Group(GroupRefusal::Torn { session, blocks }) => write!(
+                f,
+                "producer {session:?} tore the group of puts relayed after {blocks} blocks: the group is dropped"
+            ),
+            Self::Group(GroupRefusal::NoStart { session }) => write!(
+                f,
+                "a block of a group of puts of producer {session:?} whose group no relay holds: passed over"
+            ),
+            Self::Group(GroupRefusal::Keyed { session }) => write!(
+                f,
+                "a block of keyed records in a group of puts of producer {session:?}: a group holds none, dropped"
+            ),
+            Self::Group(GroupRefusal::TooManyHeld { session, max }) => write!(
+                f,
+                "a group of puts of producer {session:?} while groups of {max} producers are held: passed over"
+            ),
+            Self::Group(GroupRefusal::HeldTooLong { session, len, max }) => write!(
+                f,
+                "the group of puts of producer {session:?} would bring the groups held to {len} bytes, more than {max}: dropped"
+            ),
             Self::SummaryTooLong { len, max } => write!(
                 f,
                 "a close's summary of {len} bytes: it holds at most {max}"

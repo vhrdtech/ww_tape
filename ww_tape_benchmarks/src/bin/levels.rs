@@ -76,6 +76,7 @@ fn shapes() -> anyhow::Result<(Definitions, Vec<Shape>)> {
             kind: TrackKind::Events(ww_tape::EventsDef::INSTANTS),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
+            defined_twice: false,
         })
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let samples = |kib: usize| (0..kib * 1024).map(|i| (i * 31 % 251) as u8).collect();

@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::{IndexEntry, IndexError};
 use ww_tape::{
-    ChainPiece, ChunkPlaced, CloseReason, ColumnSpec, Definitions, DescribeError, KeyedItem,
-    PieceChain, PieceStore, Slot as DefSlot, TapeSink, TrackNum, UnitChunk, WriteError,
+    ChainPiece, ChunkPlaced, CloseReason, ColumnSpec, Definitions, DescribeError, GroupPut,
+    KeyedItem, PieceChain, PieceStore, Slot as DefSlot, TapeSink, TrackNum, UnitChunk, WriteError,
 };
 
 use crate::define;
@@ -205,6 +205,7 @@ fn writes<T: PieceStore>(work: &Work<T>) -> bool {
         Work::Chunk { .. }
             | Work::Block { .. }
             | Work::Put { .. }
+            | Work::PutGroup { .. }
             | Work::PutItem { .. }
             | Work::Cut { .. }
             | Work::Flush { sync: true, .. }
@@ -429,6 +430,24 @@ fn place<T: PieceStore>(
                 Counters::add(&shared.counters.lost, 1);
             }
             from.give_back(item);
+        }
+        Work::PutGroup { from, puts } => {
+            if !failed {
+                let group: Vec<GroupPut<'_>> = puts
+                    .iter()
+                    .map(|(track, ticks, item)| GroupPut {
+                        track: *track,
+                        ticks: *ticks,
+                        item,
+                    })
+                    .collect();
+                let r = chain.put_group(defs, &group).map(drop);
+                placed(chain, shared, &from, r, bytes);
+            } else {
+                Counters::add(&shared.counters.lost, 1);
+            }
+            puts.into_iter()
+                .for_each(|(_, _, item)| from.give_back(item));
         }
         Work::PutItem { item, carry, reply } => {
             let r = match shared.failure.get() {

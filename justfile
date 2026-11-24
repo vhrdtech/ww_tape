@@ -15,7 +15,7 @@ rf_gib := "100"
 # The WireWeaver command line that checks the API snapshot: `ww` from PATH, or the binary `WW` names
 ww := env_var_or_default('WW', 'ww')
 
-fuzz_targets := "reader resume reclose stores seal chunk summary index times samples series grid grid-hostile payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile flags flags-hostile keyed keyed-hostile"
+fuzz_targets := "reader resume reclose stores seal chunk summary index times samples series grid grid-hostile payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile flags flags-hostile runs runs-hostile keyed keyed-hostile"
 # cargo-fuzz defaults its fuzz target to the triple its own binary was built for; a
 # prebuilt cargo-fuzz release (taiki-e/install-action's cargo-binstall fallback uses
 # one) is a static musl build, so that default becomes a musl target this host never
@@ -27,7 +27,7 @@ fuzz_host_triple := `rustc -vV | sed -n 's/^host: //p'`
 nightly := "nightly-2026-11-19"
 # The book kit: cards, glossary, abbreviations, lexers, the footer stamp and the `vz` command, with its tested
 # Zensical pinned as an extra, so this one pin covers both
-kit := "vhrd-zensical[zensical] @ git+https://github.com/vhrdtech/vhrd_zensical@v0.1.0"
+kit := "vhrd-zensical[zensical]==0.2.1"
 # The prose lints book-check runs: at deny in spirit_level.toml
 prose_lints := "--only prose-run-words --only page-reading-time --only heading-words --only code-wall --only code-block-language --only passive-voice --only reading-ease --only orphan-pages --only page-title --only abbreviation-first-use --only term-before-definition --only paragraph-sentences --only sentence-words --only emoji --only page-links --only nav-entries"
 
@@ -457,6 +457,16 @@ deploy:
     if [ -n "$dirty" ]; then echo "local changes, not deploying:"; echo "$dirty"; exit 1; fi
     git pull --ff-only
     just install
+
+# Fuzz groups of puts cut at any byte: a scan, a follower and a resume take each whole or not at all (WRITE-17)
+[working-directory('fuzz')]
+fuzz-tape-runs:
+    cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-runs -- -max_len=64 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
+
+# Fuzz runs of blocks marked FLAG_WITH_NEXT that gain or lose marks, take damage or are cut (WRITE-17)
+[working-directory('fuzz')]
+fuzz-tape-runs-hostile:
+    cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-runs-hostile -- -max_len=64 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
 # Fuzz ww_tape state records and their index entries lying behind good CRCs: lookups and resume (TRACK-3)
 [working-directory('fuzz')]

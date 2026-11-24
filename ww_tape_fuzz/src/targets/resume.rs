@@ -23,10 +23,10 @@ use ww_tape::reader::Found;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ClockOrigin, ClockSpec, ClockTime, Codec,
-    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, EventsDef, FullVersion, Layout,
-    Magnitude, MemPieces, MemSink, PieceChain, PieceTapes, Segment, SessionTag, SyncPolicy,
-    TapeReader, TapeSink, TapeWriter, TrackKind, TrackSpec, Version, WriterOptions, clock_key,
-    track_key,
+    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, EventsDef, FileBlocks, FullVersion,
+    Layout, Magnitude, MemPieces, MemSink, PieceChain, PieceTapes, Recovery, Segment, SessionTag,
+    Slot, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackKind, TrackSpec, Version,
+    WriterOptions, clock_key, track_key,
 };
 
 /// Rounds of blocks in a template piece.
@@ -309,7 +309,8 @@ pub(crate) fn removed_chain() -> Vec<u8> {
     out
 }
 
-/// Events track `index` on clock `clock`: its key is the index's, the number its template gives it.
+/// Events track `index` on clock `clock`: its key is the index's, the number its template gives it. Track 9, of the
+/// records blocks, has its definitions written twice at once (TRACK-9), so a cut may fall between the two.
 pub(crate) fn track(index: u32, clock: ClockNum) -> TrackSpec<'static> {
     TrackSpec {
         key: track_key(0xf2, &[Segment::Index(index)]),
@@ -329,6 +330,7 @@ pub(crate) fn track(index: u32, clock: ClockNum) -> TrackSpec<'static> {
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: index == 9,
     }
 }
 
@@ -471,6 +473,16 @@ pub fn resume(data: &[u8]) {
         r.verify(last).map(|v| v.holds).expect("a closed piece"),
         "the content hash verifies"
     );
+    // track 9's definitions are written twice at once: each lies in two good blocks of the closed piece
+    for slot in [
+        Slot::Clock { number: on.clock },
+        Slot::Track { number: on.records },
+    ] {
+        assert!(
+            good_blocks_holding(&out, slot) >= 2,
+            "{slot:?} is written twice"
+        );
+    }
     folds_alike(
         &out,
         r.pieces()[last]
@@ -478,6 +490,29 @@ pub fn resume(data: &[u8]) {
             .as_ref()
             .and_then(|f| f.0.final_index),
     );
+}
+
+/// The good records blocks of `out` holding a record of `slot`.
+fn good_blocks_holding(out: &[u8], slot: Slot) -> usize {
+    // past a damaged block: the good blocks after it count too
+    let mut rd = FileBlocks::with_recovery(out, Recovery::Resync);
+    let mut n = 0;
+    while let Some(next) = rd.next_block() {
+        let Ok(b) = next else { continue };
+        if b.kind != BlockKind::Records {
+            continue;
+        }
+        let mut buf = Vec::new();
+        let Ok(b) = b.decode(&mut buf) else { continue };
+        let keyed = b.is_keyed();
+        if b.records()
+            .flatten()
+            .any(|r| Slot::of(r.track, r.item, keyed) == Some(slot))
+        {
+            n += 1;
+        }
+    }
+    n
 }
 
 /// Track 0's range hash folded from the index of the closed piece `out` and walked from its chunks with the final

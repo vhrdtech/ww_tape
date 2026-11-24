@@ -179,6 +179,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "tape-runs"
+path = "src/tape_runs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-runs-hostile"
+path = "src/tape_runs_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "tape-state-hostile"
 path = "src/tape_state_hostile.rs"
 test = false

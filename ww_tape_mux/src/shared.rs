@@ -82,6 +82,11 @@ pub(crate) enum Work<T: PieceStore> {
         /// The item is a [KeyedItem](ww_tape::KeyedItem): put by key
         keyed: bool,
     },
+    /// A group of puts, taken whole or not at all ([ww_tape::TapeWriter::put_group]): track, time and item each.
+    PutGroup {
+        from: Arc<Slot<T::Error>>,
+        puts: Vec<(TrackNum, i64, Vec<u8>)>,
+    },
     /// A typed item, encoded as its definition ([ww_tape::Describe::Item]), to put and hold as `carry` says.
     PutItem {
         item: Vec<u8>,
@@ -158,6 +163,7 @@ impl<T: PieceStore> Work<T> {
             Self::Put {
                 ticks, item, keyed, ..
             } => Some(Unit::Put { ticks, item, keyed }),
+            Self::PutGroup { puts, .. } => Some(Unit::Group(puts)),
             _ => None,
         }
     }

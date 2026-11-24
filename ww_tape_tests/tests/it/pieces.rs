@@ -13,8 +13,8 @@ use ww_tape::piece::{ChainEnd, ChainLink, PieceId, check_chain};
 use ww_tape::reader::{Found, OpenOptions};
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ClockTime, CloseReason, Codec, ColumnKind, ColumnSpec,
-    EndMode, FileBlocks, OwnerId, PieceChain, Recovery, SessionTag, Slot, SyncPolicy, TapeReader,
-    TapeWriter,
+    EndMode, FLAG_WITH_NEXT, FileBlocks, OwnerId, PieceChain, Recovery, SessionTag, Slot,
+    SyncPolicy, TapeReader, TapeWriter,
 };
 
 /// A fresh scratch directory.
@@ -278,8 +278,9 @@ fn index_lists_every_block(r: &TapeReader<&[u8]>, bytes: &[u8]) -> Vec<ww_tape::
     t1
 }
 
-/// A writer that stopped anywhere: every block up to the cut is found, from the newest checkpoint and a scan of
-/// at most the checkpoint interval (plus the blocks that straddle it).
+/// A writer that stopped anywhere: every block up to the cut is found, but the puts marked to go with a block of
+/// data the cut tore, from the newest checkpoint and a scan of at most the checkpoint interval (plus the blocks that
+/// straddle it).
 #[test]
 fn crash_anywhere_loses_only_the_cut_block() {
     let dir = scratch("crash");
@@ -291,13 +292,29 @@ fn crash_anywhere_loses_only_the_cut_block() {
     let bytes = std::fs::read(dir.join("t.wwt")).unwrap();
     let blocks = walk(&bytes);
     assert!(blocks.iter().filter(|b| b.2 == BlockKind::Index).count() >= 3);
+    // where each block's run ends: the end of the first block from it not marked to go with the next
+    let marked: Vec<bool> = blocks
+        .iter()
+        .map(|b| ww_tape::Block::read(&bytes[b.0 as usize..]).unwrap().flags & FLAG_WITH_NEXT != 0)
+        .collect();
+    let run_ends: Vec<u64> = (0..blocks.len())
+        .map(|i| {
+            let j = (i..blocks.len()).find(|j| !marked[*j]).unwrap();
+            blocks[j].0 + u64::from(blocks[j].1)
+        })
+        .collect();
+    assert!(
+        marked.iter().any(|m| *m),
+        "puts go with the chunks after them"
+    );
     for at in (0..=bytes.len()).step_by(7).chain([bytes.len()]) {
         let cut = &bytes[..at];
         let r = TapeReader::open(cut).unwrap();
         let want: Vec<_> = blocks
             .iter()
-            .filter(|b| b.0 + u64::from(b.1) <= at as u64 && listed(b.2))
-            .map(|b| (b.0, b.1, b.2))
+            .zip(&run_ends)
+            .filter(|(b, end)| **end <= at as u64 && listed(b.2))
+            .map(|(b, _)| (b.0, b.1, b.2))
             .collect();
         let mut got: Vec<_> = match r.pieces() {
             [] => vec![],

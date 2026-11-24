@@ -173,6 +173,12 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Read more: [Keyed state tracks](docs/format.md#keyed-state-tracks), [State entries](docs/format.md#state-entries). Golden files `v1-keyed.hex`, `v1-keyed-carried.hex`; tests `keyed.rs`, `keyed_carry.rs`, `state::tests`, `index::tests`; fuzz targets `tape-keyed`, `tape-keyed-hostile`.
 
+- ✅ **TRACK-9 Definitions written twice at once**
+
+  A track whose definition says `defined_twice` has every definition it needs written twice: its clock chain, its bundles and its own. The first record goes into a block marked `FLAG_TWICE` inside its run. Its copy follows right after the block that ends the run and belongs with no other block. In a piece under 1 MiB each definition so reads after any one damaged block. A resume writes the copies a crash cut off, so the bytes equal those written without the crash.
+
+  Read more: [Definitions written twice at once](docs/format.md#definitions-written-twice-at-once). Tests `definitions_twice.rs`.
+
 ## Writer (`WRITE`)
 
 Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_tape`.
@@ -232,6 +238,16 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
   A chain resumes from its lowest piece at hand, so retention and a writer that restarts work together. A hole in the middle is walked over when the closes at hand name its pieces as removed on purpose. Any other hole is refused. `PieceChain::remove` removes closed pieces in one call. It names them in the piece written, closes and syncs it (`TapeWriter::close_and_go_on`), then takes the pieces out of the store.
 
   Read more: [Removing pieces while the chain is written](docs/pieces.md#removing-pieces-while-the-chain-is-written). Tests `ww_tape_tests/tests/it/chain_removal.rs`.
+
+- ✅ **WRITE-17 Groups of puts taken whole**
+
+  `TapeWriter::put_group` puts items on several state tracks as one group, and every reader takes all of it or none. The group is a run of blocks of puts marked `FLAG_WITH_NEXT`, so a crash inside it leaves a run without its last block. A scan lists such a run in `PieceInfo::dropped_runs` and none of its records. A follower hands out none of it, and a resume drops it and names it in `Resumed::dropped_run`.
+
+  Each of its blocks carries `FLAG_GROUP` and its first `FLAG_GROUP_START`. A scan and a lookup through the index so drop a damaged group whole and keep one that starts after damage.
+
+  A chain cuts before a group, never inside it, and `GroupHandle` sends one through the mux. A relay holds each producer's group until its last block and writes it whole; it drops none without an error. A group's block of definitions written twice at once is one of its blocks; the copy follows the group. Followers hold the places of a run's blocks, at most `RUN_BLOCKS_MAX`, not their bytes.
+
+  Read more: [Groups of puts](docs/format.md#groups-of-puts), [A torn group of puts](docs/crashes.md#a-torn-group-of-puts). Tests `ww_tape_tests/tests/it/groups.rs`, `ww_tape_fs/tests/follow_heap.rs`.
 
 ## Writing from many threads (`MUX`)
 
@@ -425,6 +441,11 @@ The pages in `docs/`.
   The book pins `vhrd_zensical` in the justfile; `vz prep` writes the code index, the cards and the footer stamp,
   replacing spirit_level's book extension. The lexers are now `vz-console` and `vz-rust`, and the long forms of
   `abbreviation-first-use` live in `docs/abbreviations.toml`, read by the kit, not `spirit_level.toml`.
+
+- ✅ **BOOK-7 The book kit from PyPI**
+
+  The justfile pins `vhrd-zensical[zensical]==0.2.1` from PyPI, not the git tag: `just book-check` installs a wheel
+  and compiles nothing.
 
   Read more: [For writers](docs/writers.md).
 

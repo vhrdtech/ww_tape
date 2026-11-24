@@ -122,6 +122,7 @@ pub(crate) fn definitions(resumed: Option<&ww_tape::Resumed>) -> (Definitions, K
             kind: TrackKind::Events(EventsDef::INSTANTS),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
+            defined_twice: false,
         })
         .expect("the track holds");
     (defs, KeyedTracks { clock, keyed })

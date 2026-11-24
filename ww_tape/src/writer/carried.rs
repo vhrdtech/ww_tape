@@ -14,6 +14,10 @@
 //! newest value, in key order, in blocks of at most [CARRIED_BLOCK_LEN] of their own (a track's keys may take
 //! several). Each takes a state entry.
 //!
+//! A definition written twice at once ([TrackDef::defined_twice](crate::TrackDef::defined_twice)) is carried twice:
+//! its block of carried definitions is preceded by a block of its own holding those records again, and each record
+//! takes its state entry ([weight]).
+//!
 //! A piece carries every definition while the chain's tracks fit the index policy's state entries. A cut is never
 //! refused for them: past that room, [fit] carries what fits, by priority, and the next head names each track left
 //! out, those with the oldest data. A keyed track is never left out: it comes first, with every key, and the writer
@@ -37,6 +41,19 @@ pub const CARRIED_BLOCK_LEN: usize = 4 << 10;
 /// Bytes the record of `item_len` bytes takes in a block, at most.
 fn record_len(item_len: usize) -> usize {
     item_len.saturating_add(crate::MAX_RECORD_HEAD)
+}
+
+/// The state entries the record of `slot` takes when carried: two for a definition written twice at once.
+fn weight(defs: &Definitions, slot: &Slot) -> usize {
+    if defs.defined_twice(slot) { 2 } else { 1 }
+}
+
+/// The state entries the records of `slots` take when carried ([weight]).
+fn weights<'s>(defs: &Definitions, slots: impl IntoIterator<Item = &'s Slot>) -> usize {
+    slots
+        .into_iter()
+        .map(|s| weight(defs, s))
+        .fold(0usize, usize::saturating_add)
 }
 
 /// What a track needs carried: its bundles, its clock chain and its own records ([Source::split]).
@@ -140,7 +157,7 @@ pub(crate) fn entries(defs: &Definitions, tracks: &[TrackNum]) -> usize {
     for t in tracks {
         seen.extend(defs.needs(*t));
     }
-    seen.len()
+    weights(defs, &seen)
 }
 
 /// The blocks of definitions of tracks `numbers` (held in `defs`, [numbers], in the order of the head rows) that take
@@ -167,13 +184,7 @@ pub(crate) fn fit(
 ) -> (Vec<Vec<Slot>>, Vec<TrackNum>) {
     let reserve = entries(from.defs, wanted).saturating_add(1);
     let all = blocks(from, numbers);
-    if all
-        .iter()
-        .map(Vec::len)
-        .sum::<usize>()
-        .saturating_add(reserve)
-        <= room
-    {
+    if weights(from.defs, all.iter().flatten()).saturating_add(reserve) <= room {
         return (all, Vec::new());
     }
     let needs: BTreeMap<TrackNum, Needs> = numbers
@@ -211,12 +222,11 @@ pub(crate) fn fit(
         let Some((b, chain, own)) = needs.get(n) else {
             continue;
         };
-        let new = b
-            .iter()
-            .chain(chain)
-            .filter(|s| !held.contains(*s))
-            .count()
-            .saturating_add(own.len());
+        let new = weights(
+            from.defs,
+            b.iter().chain(chain).filter(|s| !held.contains(*s)),
+        )
+        .saturating_add(weights(from.defs, own));
         if taken.contains(n) || new > left {
             continue;
         }
@@ -226,15 +236,15 @@ pub(crate) fn fit(
         left = left.saturating_sub(new);
     }
     // 2. the clocks and maps
-    for n in ranked {
-        let Some((_, chain, _)) = needs.get(n) else {
-            continue;
-        };
-        for s in chain {
-            if left > 0 && held.insert(*s) {
-                chains.push(*s);
-                left = left.saturating_sub(1);
-            }
+    let ranked_chains = ranked
+        .iter()
+        .filter_map(|n| needs.get(n))
+        .flat_map(|(_, chain, _)| chain);
+    for s in ranked_chains {
+        let w = weight(from.defs, s);
+        if left >= w && held.insert(*s) {
+            chains.push(*s);
+            left = left.saturating_sub(w);
         }
     }
     // 3. the tracks by rank, with their bundles
@@ -245,11 +255,8 @@ pub(crate) fn fit(
         if taken.contains(n) {
             continue;
         }
-        let new = b
-            .iter()
-            .filter(|s| !held.contains(*s))
-            .count()
-            .saturating_add(own.len());
+        let new = weights(from.defs, b.iter().filter(|s| !held.contains(*s)))
+            .saturating_add(weights(from.defs, own));
         if chain.iter().all(|s| held.contains(s)) && new <= left {
             held.extend(b.iter().chain(own).copied());
             taken.insert(*n);

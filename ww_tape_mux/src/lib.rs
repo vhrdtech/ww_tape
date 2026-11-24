@@ -129,7 +129,9 @@ pub use events::{
     LATENCY_DEFAULT,
 };
 pub use grid::{CHUNK_STEPS_DEFAULT, GridHandle, GridOptions};
-pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
+pub use handle::{
+    ChunkSender, GroupHandle, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle,
+};
 pub use items::{HELD_ITEM_BYTES_MAX, HELD_ITEMS_MAX, ItemCarry};
 pub use leaves::{Leaves, SampleLeaves};
 pub use placing::{Placement, Placing, Unplaced};
@@ -475,6 +477,25 @@ where
             }
             _ => Err(CallError::Kind { track }.into()),
         }
+    }
+
+    /// A handle that puts groups of items on state tracks `tracks`, each group taken whole or not at all.
+    pub fn group(&self, tracks: &[TrackNum]) -> Result<GroupHandle<T>, MuxError<T::Error>> {
+        block_on(self.group_async(tracks))
+    }
+
+    /// [Self::group] as a future.
+    pub async fn group_async(
+        &self,
+        tracks: &[TrackNum],
+    ) -> Result<GroupHandle<T>, MuxError<T::Error>> {
+        for &track in tracks {
+            match self.facts(track).await? {
+                Some(f) if f.state.is_some() => {}
+                _ => return Err(CallError::Kind { track }.into()),
+            }
+        }
+        Ok(GroupHandle::new(self.shared.clone(), tracks.to_vec()))
     }
 
     /// A handle that sends records blocks.
