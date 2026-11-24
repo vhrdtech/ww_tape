@@ -11,6 +11,9 @@ use ww_tape_fs::follow::{ChainFollower, FollowError, FollowOptions};
 
 use crate::hostile::{self, runs_item as item, runs_large as LARGE};
 
+/// A group written: its start and end, and its items by state track.
+type Group = (u64, u64, Vec<(usize, Vec<u8>)>);
+
 /// A file of its own for each case of this process.
 fn scratch_file(bytes: &[u8]) -> PathBuf {
     static N: AtomicU64 = AtomicU64::new(0);
@@ -114,16 +117,19 @@ fn invariants(f: &[u8]) {
     }
 }
 
-/// `tape-runs-hostile`: the run template with its marks taken away or added behind good CRCs, damage, zeros and cuts
-/// inside runs, and a run longer than a writer makes ([hostile::runs]); every reader keeps to [invariants].
+/// `tape-runs-hostile`: every reader of a run template under attack keeps to the invariants of a run.
+///
+/// The attacks ([hostile::runs]) take marks away or add them behind good CRCs, damage, zero or cut inside runs, and
+/// make a run longer than a writer makes.
 pub fn runs_hostile(data: &[u8]) {
     invariants(&hostile::runs(data));
 }
 
-/// `tape-runs`: groups of puts the input sizes, on one or both state tracks, each perhaps with a records block
-/// after it, cut at a byte the input picks. A scan holds in force the items of the last group whole before the cut
-/// and none of a torn one; a follower hands out no block of a torn group; a resume drops a torn group, after which
-/// the group given again is in force.
+/// `tape-runs`: groups of puts the input sizes, cut at a byte the input picks, read whole or not at all.
+///
+/// The groups go on one or both state tracks, each perhaps with a records block after it. A scan holds in force the
+/// items of the last group whole before the cut and none of a torn one. A follower hands out no block of a torn
+/// group. A resume drops a torn group, after which the group given again is in force.
 pub fn runs(data: &[u8]) {
     let mut d = crate::hostile::Draw::new(data);
     let o = hostile::state_options();
@@ -136,7 +142,7 @@ pub fn runs(data: &[u8]) {
     let tape = w.sink().tape();
     let (defs, on) = hostile::state_definitions(None);
     // per group: its start and end, and its items by track
-    let mut groups: Vec<(u64, u64, Vec<(usize, Vec<u8>)>)> = Vec::new();
+    let mut groups: Vec<Group> = Vec::new();
     for k in 0..1 + d.below(5) as i64 {
         let len = [8, 300, LARGE, 50 << 10][d.below(4)];
         let tracks: &[usize] = [&[0usize][..], &[1], &[0, 1]][d.below(3)];
