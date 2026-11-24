@@ -169,7 +169,7 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Open: a cut carries no keys into the new piece; a put whose key id equals another live key's is not refused yet.
 
-  Read more: [Keyed state tracks](docs/format.md#keyed-state-tracks), [State entries](docs/format.md#state-entries). Golden file `v1-keyed.hex`; tests `keyed.rs`, `state::tests`, `index::tests`.
+  Read more: [Keyed state tracks](docs/format.md#keyed-state-tracks), [State entries](docs/format.md#state-entries). Golden file `v1-keyed.hex`; tests `keyed.rs`, `state::tests`, `index::tests`; fuzz targets `tape-keyed`, `tape-keyed-hostile`.
 
 ## Writer (`WRITE`)
 

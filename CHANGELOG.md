@@ -20,6 +20,7 @@ benchmarks, golden files and book pages.
 - `put_key` and `delete_key` on `TapeWriter`, `PieceChain` and the mux's `StateHandle` put by key (TRACK-8).
 - The index lists a keyed record by key head, length and hash: `key_entries` and `key_slots` read the index only (TRACK-8).
 - `key_at`, `key_history` and `keys_at` read a key's record at a place, its history and a prefix's live keys (TRACK-8).
+- Fuzz targets `tape-keyed` and `tape-keyed-hostile` check keyed items, entries, lookups and resume (TRACK-8).
 
 ## [0.9.0] - 2026-11-24
 

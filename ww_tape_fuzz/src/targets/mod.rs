@@ -6,6 +6,7 @@ mod flags;
 mod grid;
 mod hostile;
 mod index;
+mod keyed;
 mod payloads;
 mod reader;
 mod reclose;
@@ -26,6 +27,7 @@ pub use hostile::{
     times_hostile,
 };
 pub use index::index;
+pub use keyed::{keyed, keyed_hostile};
 pub use payloads::payloads;
 pub use reader::reader;
 pub(crate) use reclose::build as reclosed;
@@ -46,7 +48,7 @@ pub use times::times;
 pub type Target = fn(&[u8]);
 
 /// Every ww_tape fuzz target by its name in `fuzz/Cargo.toml`.
-pub const ALL: [(&str, Target); 26] = [
+pub const ALL: [(&str, Target); 28] = [
     ("tape-chunk", chunk),
     ("tape-index", index),
     ("tape-payloads", payloads),
@@ -73,6 +75,8 @@ pub const ALL: [(&str, Target); 26] = [
     ("tape-seal", seal),
     ("tape-grid", grid),
     ("tape-grid-hostile", grid_hostile),
+    ("tape-keyed", keyed),
+    ("tape-keyed-hostile", keyed_hostile),
 ];
 
 /// The target named `name`.
