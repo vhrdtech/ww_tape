@@ -353,10 +353,11 @@ pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
 ///
 /// Its index entry carries the tile number, as the tile's chunks' entries do.
 pub const FLAG_TILE: u16 = 1 << 5;
-/// Header flag on blocks of puts ([FLAG_REPEAT]): definitions written twice at once
-/// ([TrackDef::defined_twice](crate::TrackDef::defined_twice)). Such a block linked into a run of blocks belonging
-/// together has a copy right after the block that ends the run, marked the same but never [FLAG_WITH_NEXT]. A reader
-/// needs nothing from it; a writer resuming a piece finds the copies due by it.
+/// Header flag on blocks of puts ([FLAG_REPEAT]): definitions written twice at once.
+///
+/// Such definitions are those of [TrackDef::defined_twice](crate::TrackDef::defined_twice). A block linked into a run
+/// of blocks belonging together has a copy right after the block that ends the run, marked the same but never
+/// [FLAG_WITH_NEXT]. A reader needs nothing from it; a writer resuming a piece finds the copies due by it.
 pub const FLAG_TWICE: u16 = 1 << 7;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.
