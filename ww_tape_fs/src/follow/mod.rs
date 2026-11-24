@@ -6,7 +6,10 @@
 //! block the writer is still writing, or a torn end a crash left) is read again. A writer that resumes after a crash
 //! cuts back that torn end, and the blocks that wait for one after them: puts that belong with the next block, and a
 //! piece's end before its tail. The follower holds such blocks back until the block they wait for checks, then hands
-//! them out with it. So it never hands out a block that doesn't check, and never one that a resume took back.
+//! them out with it. So it never hands out a block that doesn't check, and never one that a resume took back, and a
+//! group of puts ([TapeWriter::put_group](ww_tape::TapeWriter::put_group)) or a unit of chunks reaches its reader
+//! whole. Of a held block it keeps only the place, at most [RUN_BLOCKS_MAX] of them, and reads its bytes again as it
+//! hands it out; it takes the definitions a block carries as it hands the block out.
 //!
 //! At the tail of a piece whose close names a next piece, the follower moves to the next piece's file
 //! ([crate::piece_name]); in a chain of one file ([PieceTapes::One]) the next piece follows in the same file. A piece
@@ -26,7 +29,7 @@ mod wake;
 
 use std::collections::VecDeque;
 use std::fs::File;
-use std::io::{Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -34,7 +37,7 @@ use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::piece::Tail;
 use ww_tape::{
     BlockBuf, BlockKind, Cut, Definitions, DescribeError, FLAG_WITH_NEXT, FileBlocks, FileError,
-    Medium, PieceTapes, RecordTrack, WalkPoint,
+    Medium, PieceTapes, RUN_BLOCKS_MAX, RecordTrack, WalkPoint,
 };
 
 pub use merge::{Merged, TimeMerge};
@@ -100,6 +103,9 @@ pub enum FollowError {
     Definitions { offset: u64, error: DescribeError },
     /// A chunk of the track a [TrackFollower] follows, at `offset`, didn't decode; the follower reads on after it.
     Track { offset: u64, error: TrackError },
+    /// The run of blocks belonging with a block after them ([FLAG_WITH_NEXT]) that starts at `offset` goes on past
+    /// [RUN_BLOCKS_MAX] blocks, longer than any writer makes (damage): the follower reads no further.
+    RunTooLong { offset: u64 },
 }
 
 impl core::fmt::Display for FollowError {
@@ -113,6 +119,10 @@ impl core::fmt::Display for FollowError {
                 )
             }
             Self::Track { offset, .. } => write!(f, "the chunk at byte {offset} doesn't decode"),
+            Self::RunTooLong { offset } => write!(
+                f,
+                "the run of blocks belonging with a block after them at byte {offset} is longer than {RUN_BLOCKS_MAX} blocks"
+            ),
         }
     }
 }
@@ -123,6 +133,7 @@ impl core::error::Error for FollowError {
             Self::Io(e) => Some(e),
             Self::Definitions { error, .. } => Some(error),
             Self::Track { error, .. } => Some(error),
+            Self::RunTooLong { .. } => None,
         }
     }
 }
@@ -144,8 +155,10 @@ pub struct ChainFollower {
     /// Where the walk of the piece goes on.
     point: WalkPoint,
     defs: Definitions,
-    /// Blocks read and not yet handed out, and errors met reading them, in file order.
-    ready: VecDeque<Result<Followed, FollowError>>,
+    /// Blocks read and not yet handed out, in file order.
+    ready: VecDeque<Ready>,
+    /// The piece file held blocks are read again from, by its piece
+    again: Option<(u64, File)>,
     /// The last block read is the tail of a close that names no next piece.
     closed: bool,
     /// Why the last walk stopped short of the end of its file.
@@ -168,6 +181,7 @@ impl ChainFollower {
             point: WalkPoint::start(Medium::File),
             defs: Definitions::new(),
             ready: VecDeque::new(),
+            again: None,
             closed: false,
             stopped: None,
             wake: Wake::new(watched),
@@ -178,7 +192,14 @@ impl ChainFollower {
             FollowStart::End => {
                 f.piece = f.newest()?;
                 f.read_more()?;
-                f.ready.clear();
+                // the definitions of the blocks there now are taken; definitions that don't hold are passed over
+                loop {
+                    match f.pop_ready() {
+                        Ok(Some(_)) | Err(FollowError::Definitions { .. }) => {}
+                        Ok(None) => break,
+                        Err(e) => return Err(e),
+                    }
+                }
             }
         }
         Ok(f)
@@ -189,7 +210,7 @@ impl ChainFollower {
         if self.ready.is_empty() {
             self.read_more()?;
         }
-        self.ready.pop_front().transpose()
+        self.pop_ready()
     }
 
     /// The next block, waiting for it as long as it takes; None once the chain is closed and nothing follows the
@@ -348,12 +369,13 @@ impl ChainFollower {
     /// Walk `file` of piece `piece` from the point on; the next piece's seq when a tail naming one ended the walk.
     ///
     /// A block a resume may still take back ([held_back]) is handed out with the block it waits for; until that
-    /// block checks, the point stays before it and the next walk reads it again.
+    /// block checks, the point stays before it and the next walk reads it again. Of a held block only its place is
+    /// kept, at most [RUN_BLOCKS_MAX] of them: its bytes are read again once the block it waits for checks.
     fn walk(&mut self, piece: u64, mut file: &File) -> Result<Option<u64>, FollowError> {
         file.seek(SeekFrom::Start(self.point.offset()))?;
         let mut walk = FileBlocks::resume(file, self.point);
         self.stopped = None;
-        let mut held: Vec<(u64, BlockBuf)> = Vec::new();
+        let mut held: Vec<Held> = Vec::new();
         while let Some(next) = walk.next_block() {
             let bytes = match next {
                 Ok(b) if b.is_intact() => b.bytes().to_vec(),
@@ -375,56 +397,141 @@ impl ChainFollower {
                 break;
             };
             if held_back(&block) {
-                held.push((offset, block));
+                if held.len() >= RUN_BLOCKS_MAX.saturating_sub(1) {
+                    let start = held.first().map_or(offset, |h| h.offset);
+                    return Err(FollowError::RunTooLong { offset: start });
+                }
+                held.push(Held::of(offset, &block));
                 continue;
             }
             self.point = point;
-            let mut next_piece = None;
-            for (offset, block) in held.drain(..).chain([(offset, block)]) {
-                next_piece = self.hand_out(piece, offset, block);
+            for h in held.drain(..) {
+                self.ready.push_back(Ready::Again { piece, held: h });
             }
-            if next_piece.is_some() {
-                return Ok(next_piece);
+            if let Some(next_piece) = self.queue(piece, offset, block) {
+                return Ok(Some(next_piece));
             }
         }
         Ok(None)
     }
 
-    /// Take the definitions of `block` at `offset` of `piece`, note a close, and queue it; the next piece's seq when
-    /// it is a tail naming one.
-    fn hand_out(&mut self, piece: u64, offset: u64, block: BlockBuf) -> Option<u64> {
-        let b = block.block();
+    /// Note a close or a tail of `block` at `offset` of `piece` and queue it; the next piece's seq when it is a tail
+    /// naming one. Its definitions are taken as it is handed out ([Self::pop_ready]).
+    fn queue(&mut self, piece: u64, offset: u64, block: BlockBuf) -> Option<u64> {
         self.closed = false;
         let mut next_piece = None;
-        match b.kind {
-            BlockKind::Records => {
-                let mut buf = Vec::new();
-                let held = b
-                    .decode(&mut buf)
-                    .map_err(DescribeError::Block)
-                    .and_then(|d| match d.first_track() {
-                        Some(RecordTrack::Definitions) => self.defs.take_block(&d),
-                        _ => Ok(0),
-                    });
-                if let Err(error) = held {
-                    self.ready
-                        .push_back(Err(FollowError::Definitions { offset, error }));
-                }
-            }
-            BlockKind::Tail => match Tail::read(block.bytes()).map(|t| t.next) {
+        if block.block().kind == BlockKind::Tail {
+            match Tail::read(block.bytes()).map(|t| t.next) {
                 Ok(Some(_)) => next_piece = piece.checked_add(1),
                 Ok(None) => self.closed = true,
                 Err(_) => {}
-            },
-            _ => {}
+            }
         }
-        self.ready.push_back(Ok(Followed {
+        self.ready.push_back(Ready::Block(Followed {
             piece,
             offset,
             block,
         }));
         next_piece
     }
+
+    /// The next block queued, a held one read again, its definitions taken: an error in them is returned first and
+    /// the block on the next call.
+    fn pop_ready(&mut self) -> Result<Option<Followed>, FollowError> {
+        let f = match self.ready.pop_front() {
+            None => return Ok(None),
+            Some(Ready::Taken(f)) => return Ok(Some(f)),
+            Some(Ready::Block(f)) => f,
+            Some(Ready::Again { piece, held }) => Followed {
+                piece,
+                offset: held.offset,
+                block: self.read_again(piece, held)?,
+            },
+        };
+        if let Err(error) = self.take_definitions(&f.block) {
+            let offset = f.offset;
+            self.ready.push_front(Ready::Taken(f));
+            return Err(FollowError::Definitions { offset, error });
+        }
+        Ok(Some(f))
+    }
+
+    /// Take the definitions `block` carries.
+    fn take_definitions(&mut self, block: &BlockBuf) -> Result<(), DescribeError> {
+        let b = block.block();
+        if b.kind != BlockKind::Records {
+            return Ok(());
+        }
+        let mut buf = Vec::new();
+        let d = b.decode(&mut buf).map_err(DescribeError::Block)?;
+        match d.first_track() {
+            Some(RecordTrack::Definitions) => self.defs.take_block(&d).map(drop),
+            _ => Ok(()),
+        }
+    }
+
+    /// The held block `held` of piece `piece`, read again from a handle of its own, so a walk's position stays: an
+    /// error when other bytes lie there now.
+    fn read_again(&mut self, piece: u64, held: Held) -> Result<BlockBuf, FollowError> {
+        let file = match self.again.take() {
+            Some((p, f)) if p == piece => f,
+            _ => File::open(self.path_of(piece))?,
+        };
+        let r = read_held(&file, held);
+        self.again = Some((piece, file));
+        r
+    }
+}
+
+/// What a [ChainFollower] queued to hand out.
+#[derive(Debug)]
+enum Ready {
+    /// A block read whole
+    Block(Followed),
+    /// A block whose definitions were taken already
+    Taken(Followed),
+    /// A block held back until the block it belongs with checked: its place, its bytes read again
+    Again { piece: u64, held: Held },
+}
+
+/// A block a follower holds back ([held_back]): where it lies and what it was, its bytes read again when it is handed
+/// out.
+#[derive(Copy, Clone, Debug)]
+struct Held {
+    offset: u64,
+    len: usize,
+    /// Its CRC, the last 4 bytes: bytes read again with another are not this block
+    crc: [u8; 4],
+}
+
+impl Held {
+    fn of(offset: u64, block: &BlockBuf) -> Self {
+        let bytes = block.bytes();
+        let mut crc = [0u8; 4];
+        if let Some(tail) = bytes.len().checked_sub(4).and_then(|at| bytes.get(at..)) {
+            crc.copy_from_slice(tail);
+        }
+        Self {
+            offset,
+            len: bytes.len(),
+            crc,
+        }
+    }
+}
+
+/// The block `held` of `file`, read again: an error when other bytes lie there now (damage, or a writer that wrote
+/// there since).
+fn read_held(mut file: &File, held: Held) -> Result<BlockBuf, FollowError> {
+    let invalid = |what: String| FollowError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, what));
+    file.seek(SeekFrom::Start(held.offset))?;
+    let mut bytes = vec![0u8; held.len];
+    file.read_exact(&mut bytes)?;
+    let block = BlockBuf::new(bytes)
+        .map_err(|e| invalid(format!("the block held at byte {}: {e}", held.offset)))?;
+    if Held::of(held.offset, &block).crc != held.crc {
+        return Err(invalid(format!("the block held at byte {} changed", held.offset)));
+    }
+    Ok(block)
 }
 
 /// Whether a resume after a crash right after `block` takes it back ([TapeWriter::resume_on]): puts that belong with
