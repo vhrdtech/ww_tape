@@ -123,7 +123,8 @@ off size field
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-         without it refuses the block); others 0, and a reader ignores them
+         without it refuses the block), bit 7 on a block of puts definitions written twice at once
+         (FLAG_TWICE); others 0, and a reader ignores them
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -187,6 +188,7 @@ moves the block's body behind the tile, so a reader without it refuses the block
 | 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
 | 4 | `FLAG_RELATION_BREAK` | an events chunk where a track's monotone relations start again ([below](#relation-breaks)) |
 | 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
+| 7 | `FLAG_TWICE` | a block of puts of definitions written twice at once, or its copy ([below](#definitions-written-twice-at-once)) |
 
 ### 3.3 Records blocks {#records-blocks}
 
@@ -625,6 +627,7 @@ A `TrackDef` holds:
 | `kind` | events, with or without ends and flags, or a [series](#series-tracks) |
 | `owner` | 32 opaque bytes that tell apart tracks of one identity ([below](#track-owners)) |
 | `relations` | what its items relate to (`RelationDef`) |
+| `defined_twice` | whether the definitions it needs are written twice at once ([below](#definitions-written-twice-at-once)); false when absent |
 
 A track declares at most `RELATIONS_MAX` (16) relations, with unique names of at most `RELATION_NAME_MAX` (64)
 bytes. Each `RelationDef` has a name and a target: a run's 16 opaque
@@ -705,7 +708,7 @@ a label of three letters and no dimensions or relations (test `raw.rs`):
 | `items` | Bytes |
 |---|---|
 | `WireWeaver`: `drive_api 0.1.0`, a path of one segment, no bundle hash | 73 |
-| `RawBytes` | 56 |
+| `RawBytes` | 57 |
 | `Foreign`: media type `application/vnd.tcpdump.pcap` | 90 |
 | `Foreign`: name `com.example.frame`, version `3`, a schema hash | 112 |
 | `Numbers`: 8-bit IQ with zero `255/2` | 65 |
@@ -786,6 +789,43 @@ The writer writes copies only at uses, never ahead of them.
 
 The writer remembers at most `NearPolicy::memory_max` slots and forgets the one written longest ago first. A forgotten
 slot costs one more write, never a wrong read.
+
+#### 5.1.1 Definitions written twice at once {#definitions-written-twice-at-once}
+
+Copies spaced 1 MiB apart never come in a piece smaller than that, so such a piece holds each definition once. One
+damaged block then loses a track's definition, and with it the track. A track whose `defined_twice` is true avoids
+this. The writer writes every definition the track needs twice: its clock chain, its bundles and its own definition.
+
+The first record of such a definition in a piece goes into a block of puts of its own, marked `FLAG_TWICE` (header
+bit 7) besides `FLAG_REPEAT`. That block belongs to its run of blocks like any block of puts, so it is marked
+`FLAG_WITH_NEXT` when the run goes on. Right after the block that ends the run, the writer writes the block's copy.
+The copy holds the same records and is marked `FLAG_REPEAT` and `FLAG_TWICE`, never `FLAG_WITH_NEXT`.
+
+The copy therefore never joins or ends a run. A run ends with the block of data its puts serve, a put's last block,
+or a unit's last chunk. A reader that drops a damaged run keeps the copy, and a damaged copy leaves the run whole.
+
+Take a track defined twice whose first block of records follows the head's layout and producer:
+
+| Block | Flags | Records |
+|---|---|---|
+| puts | `FLAG_REPEAT`, `FLAG_WITH_NEXT` | the layout, the producer |
+| puts | `FLAG_REPEAT`, `FLAG_TWICE`, `FLAG_WITH_NEXT` | the clock, the track |
+| data | none | the track's first records |
+| puts | `FLAG_REPEAT`, `FLAG_TWICE` | the clock, the track: the copy |
+
+Only the first record of a definition in a piece gets a copy. A clock may lie once in the piece already, put for a
+track that asked for nothing. The first use by a track that asked then writes it once more. The copies spaced apart
+come on top: `copies` counts past those two records, and each is written once.
+
+Each record takes its own state entry. A cut carries such a definition twice too. Its block of carried definitions
+belongs to the run that the piece head's puts start, and its copy follows that run.
+
+A resume that keeps a run whose copies the bytes stop before writes those copies itself, as the writer would have
+written them next. The calls given again then produce the bytes of the piece written without the crash (test
+`definitions_twice.rs`).
+
+A reader needs nothing new. The definition in force is the newest record of its slot that reads, and an older one
+stands in for a damaged block.
 
 ### 5.2 Marking blocks of puts {#marking-blocks-of-puts}
 

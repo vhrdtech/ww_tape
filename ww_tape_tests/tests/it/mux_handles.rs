@@ -109,6 +109,7 @@ pub(crate) fn events_track(k: u32, clock: ClockNum) -> TrackSpec<'static> {
         kind: TrackKind::Events(def),
         relations: RefVec::Slice { slice: relations },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 
@@ -142,6 +143,7 @@ pub(crate) fn series_track(clock: ClockNum) -> TrackSpec<'static> {
         kind: TrackKind::Series(def),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

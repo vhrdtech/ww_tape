@@ -963,6 +963,7 @@ fn series_track(clock: ClockNum) -> ww_tape::TrackSpec<'static> {
         kind: TrackKind::Series(GridDef::of::<i16>(1, Ratio64::int(1000).unwrap())),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

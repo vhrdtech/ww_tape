@@ -22,7 +22,8 @@
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
 //!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-//!          without it refuses the block); others 0, and a reader ignores them
+//!          without it refuses the block), bit 7 on a block of puts definitions written twice at once
+//!          (FLAG_TWICE); others 0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -352,6 +353,12 @@ pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
 ///
 /// Its index entry carries the tile number, as the tile's chunks' entries do.
 pub const FLAG_TILE: u16 = 1 << 5;
+/// Header flag on blocks of puts ([FLAG_REPEAT]): definitions written twice at once.
+///
+/// Such definitions are those of [TrackDef::defined_twice](crate::TrackDef::defined_twice). A block linked into a run
+/// of blocks belonging together has a copy right after the block that ends the run, marked the same but never
+/// [FLAG_WITH_NEXT]. A reader needs nothing from it; a writer resuming a piece finds the copies due by it.
+pub const FLAG_TWICE: u16 = 1 << 7;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.
 pub const RESERVED_KIND: u8 = 2;
@@ -1057,6 +1064,20 @@ pub(crate) fn mark_with_next_trusted(block: &mut [u8]) -> Result<(), BlockError>
     let b = Block::read_trusted(block)?;
     let id = BlockId::new(b.session, b.seq);
     restamp(block, id, FLAG_WITH_NEXT, Reread::Head)
+}
+
+/// The copy of the good block of puts `block`, its CRCs known good, as the block of id `id` that belongs with no
+/// other: [FLAG_WITH_NEXT] cleared, its CRCs rewritten ([FLAG_TWICE]).
+#[cfg(feature = "alloc")]
+pub(crate) fn copy_trusted(block: &[u8], id: BlockId) -> Result<alloc::vec::Vec<u8>, BlockError> {
+    let mut out = block.to_vec();
+    let short = BlockError::Short {
+        needed: HEADER_LEN + CRC_LEN,
+    };
+    let flags = bytes::le_u16(&out, 6).ok_or(short)?;
+    bytes::put_u16(&mut out, 6, flags & !FLAG_WITH_NEXT).ok_or(short)?;
+    restamp(&mut out, id, 0, Reread::Head)?;
+    Ok(out)
 }
 
 /// [set_id], and mark the block as one of put or copied state records ([FLAG_REPEAT]).

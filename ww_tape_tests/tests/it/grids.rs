@@ -61,6 +61,7 @@ fn grid_track<'a>(axes: &'a [FixedAxis<'a>]) -> TrackDef<'a> {
         }),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

@@ -6,6 +6,16 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- `TrackDef` gains `defined_twice`, written after `relations`; every track definition's bytes change, old files read false (TRACK-9).
+- `TrackSpec` and `TrackFacts` gain `defined_twice`: a struct literal adds `defined_twice: false` (TRACK-9).
+
+### Features
+
+- A track with `defined_twice` has each definition it needs written in two blocks at once (TRACK-9).
+- Header bit 7 `FLAG_TWICE` marks such blocks; each copy follows its run, and a resume writes missing copies (TRACK-9).
+
 ## [0.9.1] - 2026-11-24
 
 ### Features
