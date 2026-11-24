@@ -29,6 +29,10 @@ The carried definitions come in blocks of at most `CARRIED_BLOCK_LEN` (4 KiB):
 One damaged block so costs only its own tracks, never another block's clock. A lost bundle block costs its tracks their
 bundle.
 
+A track defined twice at once ([format](format.md#definitions-written-twice-at-once)) loses nothing to one damaged
+block. Its carried definitions go into a block of their own, and a copy of that block follows the run the piece
+head's puts start.
+
 ## State tracks
 
 A state put once and never again lies only in the piece that holds it. So a cut carries more for a state track: its

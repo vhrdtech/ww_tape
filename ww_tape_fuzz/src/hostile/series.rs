@@ -41,6 +41,7 @@ pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) 
         kind: TrackKind::Series(def),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     });
     definition(&track)
 }

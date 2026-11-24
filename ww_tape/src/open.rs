@@ -304,6 +304,8 @@ pub struct TrackFacts {
     /// The tiles of a grid's fixed axes, whose tile number goes into each chunk's index entry;
     /// [TileLayout::SERIES](crate::TileLayout::SERIES) for a series or an events track.
     pub tiles: crate::TileLayout,
+    /// [TrackDef::defined_twice](crate::TrackDef::defined_twice).
+    pub defined_twice: bool,
 }
 
 impl TrackFacts {
@@ -337,6 +339,7 @@ impl TrackFacts {
                 .series()
                 .and_then(|s| s.tile_layout().ok())
                 .unwrap_or(crate::TileLayout::SERIES),
+            defined_twice: t.defined_twice,
         }
     }
 }
@@ -604,6 +607,10 @@ pub struct Definitions {
     bytes: usize,
     /// The numbers given to tracks and clocks
     numbers: Numbers,
+    /// The tracks held whose definitions are written twice at once ([TrackDef::defined_twice](crate::TrackDef))
+    twice: BTreeSet<TrackNum>,
+    /// The definitions those tracks need ([Self::needs]), kept as definitions are held and closed
+    twice_slots: BTreeSet<Slot>,
 }
 
 impl Definitions {
@@ -722,7 +729,12 @@ impl Definitions {
     /// producer's: its track-0 records, checked as one batch; a producer, a layout, a typed item or a kind this crate
     /// doesn't know is passed over. How many are held.
     pub fn take_block(&mut self, b: &Block<'_>) -> Result<usize, DescribeError> {
-        let mut batch: Vec<(Describe<'_>, &[u8])> = Vec::new();
+        // one allocation of the size the block's records need: a block of many definitions doubles no buffer
+        let n = b
+            .records()
+            .filter(|r| r.as_ref().is_ok_and(|r| r.track.is_definitions()))
+            .count();
+        let mut batch: Vec<(Describe<'_>, &[u8])> = Vec::with_capacity(n);
         for r in b.records() {
             let r = r.map_err(DescribeError::Block)?;
             if !r.track.is_definitions() {
@@ -833,6 +845,18 @@ impl Definitions {
         out
     }
 
+    /// Whether the definition in `slot` is written twice at once: a track held as
+    /// [defined_twice](crate::TrackDef::defined_twice) needs it ([Self::needs]).
+    pub(crate) fn defined_twice(&self, slot: &Slot) -> bool {
+        self.twice_slots.contains(slot)
+    }
+
+    /// Gather [Self::twice_slots] again from the tracks written twice and what they need.
+    fn gather_twice(&mut self) {
+        let slots = self.twice.iter().flat_map(|t| self.needs(*t)).collect();
+        self.twice_slots = slots;
+    }
+
     /// The maps held from clock `c`.
     fn maps_from(&self, c: ClockNum) -> impl Iterator<Item = (&Slot, &Held)> {
         self.defs.range(
@@ -922,6 +946,11 @@ impl Definitions {
             Describe::Track(t) => {
                 self.numbers.take_track(t.number, t.id(), t.owner);
                 let bundles = track_bundles(t);
+                if t.defined_twice {
+                    self.twice.insert(t.number);
+                } else {
+                    self.twice.remove(&t.number);
+                }
                 self.tracks.insert(
                     t.number,
                     HeldTrack {
@@ -968,6 +997,7 @@ impl Definitions {
         };
         let old = self.defs.insert(slot, held).map_or(0, |o| o.item.len());
         self.bytes = self.bytes.saturating_sub(old).saturating_add(item.len());
+        self.gather_twice();
         Some(slot)
     }
 
@@ -984,6 +1014,7 @@ impl Definitions {
         let Some(t) = self.tracks.remove(&number) else {
             return false;
         };
+        self.twice.remove(&number);
         self.remove(&Slot::Track { number });
         let named: BTreeSet<&Named> = self.tracks.values().flat_map(|t| &t.bundles).collect();
         let gone: Vec<Named> = t
@@ -1019,6 +1050,7 @@ impl Definitions {
                 }
             }
         }
+        self.gather_twice();
         true
     }
 

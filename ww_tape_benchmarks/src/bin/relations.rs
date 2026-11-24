@@ -123,6 +123,7 @@ fn track(
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: relations },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

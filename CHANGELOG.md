@@ -11,6 +11,30 @@ benchmarks, golden files and book pages.
 - spirit_level checks the big tier with a crate map of layers; Clippy's pedantic set is on (REPO-86).
 - `IntoIterator` for `&Starts` and `&Payloads`: a `for` loop takes them borrowed (REPO-86).
 
+## [0.10.0] - 2026-11-24
+
+### Breaking
+
+- A scan drops a run torn before its last block: no record of a torn group or unit (WRITE-17).
+- `FollowError::RunTooLong`: a follower stops at a run of more than `RUN_BLOCKS_MAX` blocks (WRITE-17).
+- Format: header bit 8 `FLAG_GROUP` marks a group's blocks; readers drop a damaged group whole (WRITE-17).
+- Format: header bit 9 `FLAG_GROUP_START` marks a group's first block; a group after damage stays whole (WRITE-17).
+- `TrackDef` gains `defined_twice`, written after `relations`; every track definition's bytes change, old files read false (TRACK-9).
+- `TrackSpec` and `TrackFacts` gain `defined_twice`: a struct literal adds `defined_twice: false` (TRACK-9).
+
+### Features
+
+- `TapeWriter::put_group` and `PieceChain::put_group` put items on several state tracks, taken whole or not at all (WRITE-17).
+- `TapeMux::group` gives a `GroupHandle` that sends a group of puts through the mux (WRITE-17).
+- `PieceInfo::dropped_runs` and `Resumed::dropped_run` name the runs a reader or a resume dropped (WRITE-17).
+- A follower keeps a run's block places, not bytes, and takes definitions as it hands blocks out (WRITE-17).
+- `GroupHandle::put_group` refuses a track twice or items past `GROUP_BYTES_MAX` at the call (`CallError::Group`) (WRITE-17).
+- A relay holds a producer's group of puts until its last block and writes it whole (WRITE-17).
+- A relay holds a group per producer, so interleaved producers keep their groups; a dropped group is an error (WRITE-17).
+- A relayed group puts one item per state track; held records count their overhead against `RELAY_HELD_BYTES_MAX` (WRITE-17).
+- A track with `defined_twice` has each definition it needs written in two blocks at once (TRACK-9).
+- Header bit 7 `FLAG_TWICE` marks such blocks; each copy follows its run, and a resume writes missing copies (TRACK-9).
+
 ## [0.9.1] - 2026-11-24
 
 ### Features

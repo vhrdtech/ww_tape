@@ -36,6 +36,7 @@ pub fn definitions() -> anyhow::Result<(Definitions, TrackNum)> {
             kind: TrackKind::Series(GridDef::of::<i16>(1, period())),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
+            defined_twice: false,
         })
         .map_err(d)?;
     Ok((defs, track))

@@ -52,6 +52,7 @@ fn iq8_track() -> TrackDef<'static> {
         kind: TrackKind::Series(series),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
     // --8<-- [end:def]
 }

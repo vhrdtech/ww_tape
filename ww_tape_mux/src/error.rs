@@ -6,8 +6,8 @@ use exact_units::Bytes;
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
-    BlockError, BlockKind, ColumnSpec, DescribeError, ItemNum, SampleError, SeriesError, TrackNum,
-    WriteError,
+    BlockError, BlockKind, ColumnSpec, DescribeError, GroupRefusal, ItemNum, SampleError,
+    SeriesError, TrackNum, WriteError,
 };
 use ww_tape_summary::BuildError;
 
@@ -25,6 +25,8 @@ pub enum Unit {
     Block(Vec<u8>),
     /// A put of a [StateHandle](crate::StateHandle).
     Put { ticks: i64, item: Vec<u8> },
+    /// A group of puts of a [GroupHandle](crate::GroupHandle): track, time and item each.
+    Group(Vec<(TrackNum, i64, Vec<u8>)>),
 }
 
 /// What a handle refuses at the call, before anything is sent.
@@ -57,6 +59,9 @@ pub enum CallError {
     /// One time step of a tile takes `bytes` bytes, more than a chunk holds: `max`, the smaller of the handle's
     /// chunk bytes and what fits a block.
     StepTooLarge { bytes: Bytes<u64>, max: Bytes<u64> },
+    /// A group of puts a [GroupHandle](crate::GroupHandle) refuses: it names a track twice, or its items are too long
+    /// ([GroupPut::check](ww_tape::GroupPut::check)).
+    Group(GroupRefusal),
     /// Summary leaves that don't fit the chunk sender: given to a sender without summaries, missing on a summarized
     /// one, of another kind or fields than the track's tree, or of a grid's tile.
     WrongLeaves,
@@ -189,6 +194,14 @@ impl core::fmt::Display for CallError {
                 bytes.get(),
                 max.get()
             ),
+            Self::Group(GroupRefusal::SlotTwice { track }) => {
+                write!(f, "a group puts on track {} twice", track.get())
+            }
+            Self::Group(GroupRefusal::TooLong { len, max }) => write!(
+                f,
+                "a group's items take {len} bytes, more than {max}"
+            ),
+            Self::Group(r) => write!(f, "a group refused: {r:?}"),
             Self::WrongLeaves => f.write_str("summary leaves that don't fit the chunk sender's track"),
             Self::HeldItems { items, bytes } => write!(
                 f,

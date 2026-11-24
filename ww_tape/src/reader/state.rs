@@ -248,6 +248,8 @@ pub(super) struct StateIndex {
     entries: Vec<(IndexEntry, StateEntry)>,
     by_slot: Vec<usize>,
     by_hash: Vec<usize>,
+    /// The blocks of puts ([FLAG_REPEAT](crate::FLAG_REPEAT)) by offset: one entry of each
+    puts: BTreeMap<u64, IndexEntry>,
 }
 
 impl StateIndex {
@@ -257,11 +259,31 @@ impl StateIndex {
         let key = |i: &usize| entries.get(*i).map(|(e, s)| (s.slot, e.offset));
         by_slot.sort_by_key(key);
         by_hash.sort_by_key(|i| entries.get(*i).map(|(e, s)| (s.hash, e.offset)));
+        let puts = entries
+            .iter()
+            .filter(|(e, _)| e.repeat)
+            .map(|(e, _)| (e.offset, *e))
+            .collect();
         Self {
             entries,
             by_slot,
             by_hash,
+            puts,
         }
+    }
+
+    /// The block of puts that ends at `at`.
+    fn puts_before(&self, at: u64) -> Option<&IndexEntry> {
+        self.puts
+            .range(..at)
+            .next_back()
+            .map(|(_, e)| e)
+            .filter(|e| e.offset.saturating_add(u64::from(e.len)) == at)
+    }
+
+    /// The block of puts that starts at `at`.
+    fn puts_at(&self, at: u64) -> Option<&IndexEntry> {
+        self.puts.get(&at)
     }
 
     fn at(&self, i: &usize) -> Option<&(IndexEntry, StateEntry)> {
@@ -325,8 +347,8 @@ type Kept = Vec<(Slot, ItemHash, Option<ClockTime>, Vec<u8>)>;
 /// What a lookup made of a block.
 #[derive(Debug, PartialEq, Eq)]
 enum Read {
-    /// The block read: the records the lookup keeps of it
-    Kept(Kept),
+    /// The block read: its header flags, the records the lookup keeps of it
+    Kept { flags: u16, records: Kept },
     /// It didn't read, or isn't the block its entry names
     Bad,
     /// The budget has no room for it
@@ -386,7 +408,7 @@ impl<S: ByteSource> TapeReader<S> {
     pub fn state_at(&self, i: usize, slot: Slot, offset: u64) -> R<Lookup, S> {
         let ix = self.state_index(i)?;
         let candidates: Vec<&(IndexEntry, StateEntry)> = ix.of_slot(slot, offset).rev().collect();
-        let mut found = self.first_good(i, &candidates)?;
+        let mut found = self.first_good(i, &ix, &candidates)?;
         let from = found.item.as_ref().map_or(0, |s| s.offset);
         found.uncovered = uncovered(self.piece(i)?, from..offset);
         Ok(found)
@@ -404,7 +426,7 @@ impl<S: ByteSource> TapeReader<S> {
     pub fn item_by_hash(&self, i: usize, hash: ItemHash) -> R<Lookup, S> {
         let ix = self.state_index(i)?;
         let candidates: Vec<&(IndexEntry, StateEntry)> = ix.of_hash(hash).rev().collect();
-        let mut found = self.first_good(i, &candidates)?;
+        let mut found = self.first_good(i, &ix, &candidates)?;
         let from = found.item.as_ref().map_or(0, |s| s.offset);
         found.uncovered = uncovered(self.piece(i)?, from..u64::MAX);
         Ok(found)
@@ -437,7 +459,7 @@ impl<S: ByteSource> TapeReader<S> {
         let mut out = DefinitionsAt::default();
         'slots: for slot in slots {
             for (e, s) in ix.of_slot(slot, offset).rev() {
-                match self.take(i, e, s, &mut reads)? {
+                match self.take(i, &ix, e, s, &mut reads)? {
                     Taken::Item(item) => {
                         out.items.insert(slot, item);
                         break;
@@ -474,7 +496,7 @@ impl<S: ByteSource> TapeReader<S> {
         for slot in slots {
             let candidates: Vec<&(IndexEntry, StateEntry)> =
                 ix.of_slot(slot, u64::MAX).rev().collect();
-            if let Some(item) = self.first_good(i, &candidates)?.item {
+            if let Some(item) = self.first_good(i, &ix, &candidates)?.item {
                 out.push(item);
             }
         }
@@ -482,7 +504,12 @@ impl<S: ByteSource> TapeReader<S> {
     }
 
     /// The first of `candidates` (newest first) whose record reads and is the one its entry names.
-    fn first_good(&self, i: usize, candidates: &[&(IndexEntry, StateEntry)]) -> R<Lookup, S> {
+    fn first_good(
+        &self,
+        i: usize,
+        ix: &StateIndex,
+        candidates: &[&(IndexEntry, StateEntry)],
+    ) -> R<Lookup, S> {
         let wanted: BTreeSet<(Slot, ItemHash)> =
             candidates.iter().map(|(_, s)| (s.slot, s.hash)).collect();
         let mut reads = Reads {
@@ -492,7 +519,7 @@ impl<S: ByteSource> TapeReader<S> {
         };
         let mut found = Lookup::default();
         for (e, s) in candidates {
-            match self.take(i, e, s, &mut reads)? {
+            match self.take(i, ix, e, s, &mut reads)? {
                 Taken::Item(item) => {
                     found.item = Some(item);
                     break;
@@ -511,29 +538,130 @@ impl<S: ByteSource> TapeReader<S> {
     }
 
     /// The record entry `e` (listing `s`) names, its block read once into `reads`: the first of the block's records
-    /// of the entry's slot and hash. Lost when the block doesn't read or holds no such record.
-    fn take(&self, i: usize, e: &IndexEntry, s: &StateEntry, reads: &mut Reads<'_>) -> R<Taken, S> {
+    /// of the entry's slot and hash. Lost when the block doesn't read or holds no such record, and when a block of
+    /// its group doesn't ([Self::group_reads]).
+    fn take(
+        &self,
+        i: usize,
+        ix: &StateIndex,
+        e: &IndexEntry,
+        s: &StateEntry,
+        reads: &mut Reads<'_>,
+    ) -> R<Taken, S> {
+        let kept = match self.read_once(i, e, reads)? {
+            Read::Kept { records, .. } => records,
+            Read::Spent => return Ok(Taken::Spent),
+            Read::Bad => return Ok(Taken::Lost),
+        };
+        let Some((_, _, at, item)) = kept
+            .iter()
+            .find(|(slot, hash, ..)| *hash == s.hash && *slot == s.slot)
+        else {
+            return Ok(Taken::Lost);
+        };
+        let item = StateItem {
+            slot: s.slot,
+            hash: s.hash,
+            offset: e.offset,
+            at: *at,
+            item: item.clone(),
+        };
+        Ok(match self.group_reads(i, ix, e, reads)? {
+            Read::Kept { .. } => Taken::Item(item),
+            Read::Spent => Taken::Spent,
+            Read::Bad => Taken::Lost,
+        })
+    }
+
+    /// What `reads` made of the block entry `e` names in piece `i`, read now when it hasn't been.
+    fn read_once<'r>(&self, i: usize, e: &IndexEntry, reads: &'r mut Reads<'_>) -> R<&'r Read, S> {
         if !reads.blocks.contains_key(&e.offset) {
             let read = self.kept_of(i, e, reads)?;
             reads.blocks.insert(e.offset, read);
         }
-        let kept = match reads.blocks.get(&e.offset) {
-            Some(Read::Kept(kept)) => kept,
-            Some(Read::Spent) => return Ok(Taken::Spent),
-            Some(Read::Bad) | None => return Ok(Taken::Lost),
+        Ok(reads.blocks.get(&e.offset).unwrap_or(&Read::Bad))
+    }
+
+    /// Whether every block of the group of puts ([FLAG_GROUP](crate::FLAG_GROUP)) the block entry `e` names belongs
+    /// to reads, each read once into `reads`: [Read::Bad] when one doesn't, [Read::Spent] when the budget runs out
+    /// first, else an empty [Read::Kept]. A block of no group stands alone.
+    ///
+    /// The group is the block, the blocks of the group before it back to its first one
+    /// ([FLAG_GROUP_START](crate::FLAG_GROUP_START)), and when the block is marked
+    /// [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the blocks after it up to the first unmarked one. A block of puts
+    /// that doesn't read hides its marks, so before a block of a group without a start it may be of the group: Bad,
+    /// as a scan drops such blocks after damage. So is a group whose first block is missing. A group of more than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks
+    /// is no group a writer makes: Bad.
+    fn group_reads(
+        &self,
+        i: usize,
+        ix: &StateIndex,
+        e: &IndexEntry,
+        reads: &mut Reads<'_>,
+    ) -> R<Read, S> {
+        let whole = Read::Kept {
+            flags: 0,
+            records: Vec::new(),
         };
-        let named = kept
-            .iter()
-            .find(|(slot, hash, ..)| *hash == s.hash && *slot == s.slot);
-        Ok(named.map_or(Taken::Lost, |(_, _, at, item)| {
-            Taken::Item(StateItem {
-                slot: s.slot,
-                hash: s.hash,
-                offset: e.offset,
-                at: *at,
-                item: item.clone(),
-            })
-        }))
+        // (of a group, marked FLAG_WITH_NEXT, the group's first)
+        let marks = |r: &Read| match r {
+            Read::Kept { flags, .. } => Some((
+                flags & crate::FLAG_GROUP != 0,
+                flags & crate::FLAG_WITH_NEXT != 0,
+                flags & crate::FLAG_GROUP_START != 0,
+            )),
+            Read::Bad | Read::Spent => None,
+        };
+        let (group, mut marked, mut start) = match self.read_once(i, e, reads)? {
+            Read::Spent => return Ok(Read::Spent),
+            r => marks(r).unwrap_or((false, false, false)),
+        };
+        if !group {
+            return Ok(whole);
+        }
+        let mut steps = 0usize;
+        // backwards: the marked blocks of the group the block goes on, back to its first
+        let mut at = e.offset;
+        while !start {
+            let Some(prev) = ix.puts_before(at) else {
+                return Ok(Read::Bad);
+            };
+            steps = steps.saturating_add(1);
+            if steps > crate::RUN_BLOCKS_MAX {
+                return Ok(Read::Bad);
+            }
+            match self.read_once(i, prev, reads)? {
+                Read::Spent => return Ok(Read::Spent),
+                r => match marks(r) {
+                    Some((true, true, first)) => {
+                        at = prev.offset;
+                        start = first;
+                    }
+                    _ => return Ok(Read::Bad),
+                },
+            }
+        }
+        // forwards: the blocks after a marked one up to the first unmarked one
+        let mut end = e.offset.saturating_add(u64::from(e.len));
+        while marked {
+            let Some(next) = ix.puts_at(end) else {
+                return Ok(whole);
+            };
+            steps = steps.saturating_add(1);
+            if steps > crate::RUN_BLOCKS_MAX {
+                return Ok(Read::Bad);
+            }
+            match self.read_once(i, next, reads)? {
+                Read::Spent => return Ok(Read::Spent),
+                Read::Bad => return Ok(Read::Bad),
+                r => match marks(r) {
+                    Some((true, m, false)) => marked = m,
+                    _ => return Ok(Read::Bad),
+                },
+            }
+            end = next.offset.saturating_add(u64::from(next.len));
+        }
+        Ok(whole)
     }
 
     /// The records of the record block `e` names in piece `i` that `reads` wants, the bytes read, decoded and kept
@@ -583,7 +711,10 @@ fn kept(block: &Block<'_>, e: &IndexEntry, reads: &mut Reads<'_>) -> Read {
             out.push((slot, hash, r.at, r.item.to_vec()));
         }
     }
-    Read::Kept(out)
+    Read::Kept {
+        flags: block.flags,
+        records: out,
+    }
 }
 
 /// The stretches of `stretch` (offsets in piece `p`) that `p`'s index doesn't cover: the gaps a scan read past,
@@ -681,7 +812,7 @@ mod tests {
             "the records kept are spent too"
         );
         let mut r = reads(&wanted, 2 * decoded);
-        assert!(matches!(kept(&b, &e, &mut r), Read::Kept(k) if k.len() == 8));
+        assert!(matches!(kept(&b, &e, &mut r), Read::Kept { records: k, .. } if k.len() == 8));
     }
 
     /// A coded body's decoded length is charged before it is decoded: a damaged body over the budget is the budget's
@@ -723,7 +854,7 @@ mod tests {
         };
         let wanted = BTreeSet::from([(slot, ItemHash::of(&items[3]))]);
         let mut r = reads(&wanted, u64::MAX);
-        let Read::Kept(k) = kept(&b, &e, &mut r) else {
+        let Read::Kept { records: k, .. } = kept(&b, &e, &mut r) else {
             panic!("the block reads");
         };
         assert_eq!(k.len(), 1);

@@ -369,6 +369,7 @@ fn sample_describe() -> Vec<Describe<'static>> {
             kind: TrackKind::Events(EventsDef::INSTANTS),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
+            defined_twice: false,
         }),
         Describe::Map(ClockMap {
             from: HOST,
@@ -1725,6 +1726,7 @@ fn bare_track_round_trips() {
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     });
     let mut buf = [0u8; 256];
     let bytes = d.to_ww_bytes(&mut buf).unwrap();

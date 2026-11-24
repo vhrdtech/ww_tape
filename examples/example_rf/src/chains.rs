@@ -82,6 +82,7 @@ fn decoded_track(
         kind: TrackKind::Events(EventsDef { ends, flags: false }),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

@@ -74,6 +74,7 @@ pub(crate) fn labeled(number: u32, clock: u32, label: &'static str) -> Describe<
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     })
 }
 

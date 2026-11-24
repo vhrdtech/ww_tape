@@ -174,6 +174,7 @@ fn track(index: u32, clock: ClockNum, kind: TrackKind<'static>) -> TrackSpec<'st
         kind,
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

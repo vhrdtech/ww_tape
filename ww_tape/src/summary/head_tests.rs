@@ -180,6 +180,7 @@ fn series_definitions() -> Vec<crate::Describe<'static>> {
             kind: TrackKind::Series(GridDef::of::<i16>(1, crate::Ratio64::int(1000).unwrap())),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
+            defined_twice: false,
         }),
     ]
 }

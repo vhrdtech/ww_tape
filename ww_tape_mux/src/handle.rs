@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
-    Block, BlockKind, ColumnSpec, ItemNum, PieceStore, Sample, SeriesGrid, TrackFacts, TrackNum,
+    Block, BlockKind, ColumnSpec, GroupPut, ItemNum, PieceStore, Sample, SeriesGrid, TrackFacts,
+    TrackNum,
 };
 use ww_tape_summary::{BuildError, EventRuns, Scalar};
 
@@ -122,6 +123,9 @@ impl<T: PieceStore> Sender<T> {
                 .for_each(|(_, b)| self.slot.give_back(b)),
             Some(Work::Block { block, .. }) => self.slot.give_back(block),
             Some(Work::Put { item, .. }) => self.slot.give_back(item),
+            Some(Work::PutGroup { puts, .. }) => puts
+                .into_iter()
+                .for_each(|(_, _, item)| self.slot.give_back(item)),
             _ => {}
         }
     }
@@ -535,6 +539,74 @@ impl<T: PieceStore> StateHandle<T> {
             item: buf,
         };
         (work, bytes)
+    }
+}
+
+/// Puts groups of items of some state tracks, each group taken whole or not at all
+/// ([TapeWriter::put_group](ww_tape::TapeWriter::put_group)): a crash inside a group leaves none of it after a resume,
+/// and readers show all of it or none.
+///
+/// Any number of these handles may put on the same tracks, and [StateHandle]s too.
+pub struct GroupHandle<T: PieceStore> {
+    s: Sender<T>,
+    tracks: Vec<TrackNum>,
+}
+
+common!(GroupHandle);
+buffered!(GroupHandle);
+
+impl<T: PieceStore> GroupHandle<T> {
+    pub(crate) fn new(shared: Arc<Shared<T>>, tracks: Vec<TrackNum>) -> Self {
+        Self {
+            s: Sender::new(shared, None),
+            tracks,
+        }
+    }
+
+    /// The state tracks this handle puts on.
+    pub fn tracks(&self) -> &[TrackNum] {
+        &self.tracks
+    }
+
+    /// Put `puts` as one group. Refused at the call, before its items are copied: a put on a track not of this
+    /// handle ([CallError::Kind]), and a group naming a track twice or whose items take more than
+    /// [GROUP_BYTES_MAX](ww_tape::GROUP_BYTES_MAX) bytes ([CallError::Group]).
+    ///
+    /// A group takes its items' bytes and a share for each put of the queue's budget
+    /// ([MuxOptions::queue_bytes](crate::MuxOptions::queue_bytes)). One larger than the whole budget waits until the
+    /// queue is empty and goes alone, as any unit does: the queue then holds at most the
+    /// [GROUP_BYTES_MAX](ww_tape::GROUP_BYTES_MAX) bytes of its items and their shares.
+    pub fn put_group(&self, puts: &[GroupPut<'_>]) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(puts)?;
+        self.s.send(work, bytes)
+    }
+
+    /// [Self::put_group] as a future, waiting for room by waker. Dropped while it waits, the group is not put.
+    pub async fn put_group_async(&self, puts: &[GroupPut<'_>]) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(puts)?;
+        self.s.send_async(work, bytes).await
+    }
+
+    fn unit(&self, puts: &[GroupPut<'_>]) -> Result<(Work<T>, u64), MuxError<T::Error>> {
+        if let Some(p) = puts.iter().find(|p| !self.tracks.contains(&p.track)) {
+            return Err(CallError::Kind { track: p.track }.into());
+        }
+        GroupPut::check(puts).map_err(CallError::Group)?;
+        let mut bytes = 0u64;
+        let mut items = Vec::with_capacity(puts.len());
+        for p in puts {
+            let mut buf = self.s.slot.buffer();
+            buf.extend_from_slice(p.item);
+            bytes = bytes
+                .saturating_add(block_bytes(&buf))
+                .saturating_add(PUT_OVERHEAD_BYTES);
+            items.push((p.track, p.ticks, buf));
+        }
+        let work = Work::PutGroup {
+            from: self.s.slot.clone(),
+            puts: items,
+        };
+        Ok((work, bytes))
     }
 }
 

@@ -78,6 +78,8 @@ replays! {
     replay_tape_flags_hostile: "tape-flags-hostile";
     replay_tape_grid: "tape-grid";
     replay_tape_grid_hostile: "tape-grid-hostile";
+    replay_tape_runs: "tape-runs";
+    replay_tape_runs_hostile: "tape-runs-hostile";
 }
 
 /// Every target has a replay test above.

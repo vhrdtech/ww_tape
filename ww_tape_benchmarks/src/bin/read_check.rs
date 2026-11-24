@@ -84,6 +84,7 @@ fn read(bench: &Bench, args: &Args) -> anyhow::Result<Measure> {
             kind: TrackKind::Events(ww_tape::EventsDef::INSTANTS),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
+            defined_twice: false,
         })
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);

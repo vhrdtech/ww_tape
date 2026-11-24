@@ -17,6 +17,7 @@ mod grid;
 mod index;
 mod payloads;
 mod records;
+mod runs;
 mod samples;
 mod series;
 mod state;
@@ -30,6 +31,12 @@ pub use grid::grid;
 pub use index::index;
 pub use payloads::payloads;
 pub use records::records;
+#[cfg(test)]
+pub(crate) use runs::long_bytes as runs_long;
+pub(crate) use runs::{
+    LARGE as runs_large, blocks as runs_blocks, item as runs_item, marked as runs_marked,
+};
+pub use runs::{runs, runs_template};
 pub(crate) use samples::CODECS;
 pub use samples::samples;
 pub use series::series;

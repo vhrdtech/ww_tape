@@ -78,6 +78,7 @@ fn track(index: u32, clock: ClockNum, label: &str) -> TrackSpec<'_> {
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

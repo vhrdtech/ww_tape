@@ -258,6 +258,7 @@ fn track(kind: TrackKind<'static>, state: bool) -> TrackDef<'static> {
         kind,
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 
