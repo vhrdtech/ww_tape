@@ -650,3 +650,125 @@ fn a_unit_is_written_whole_and_dropped_whole() {
         }
     }
 }
+
+/// A grid writer's definitions, a writer of a piece begun, and the samples of a chunk of [STEPS] time steps.
+fn unit_writer() -> (
+    ww_tape::Definitions,
+    TapeWriter<MemSink>,
+    TrackId,
+    Vec<TileCoords>,
+) {
+    let axes = axes(&EXTENTS);
+    let track = grid_track(&axes);
+    let layout = track.series().unwrap().tile_layout().unwrap();
+    let id = track.id();
+    let mut defs = ww_tape::Definitions::new();
+    crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)]).unwrap();
+    (defs, crate::resume::begin(0), id, all_tiles(&layout))
+}
+
+/// Raw samples of one chunk, `len` bytes long in its column spec.
+fn samples_column(samples: &[u8], len: usize) -> [(ColumnSpec, &[u8]); 1] {
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len,
+    };
+    [(spec, samples)]
+}
+
+/// A unit of a chunk of `columns` per head.
+fn unit_of<'a>(
+    heads: &'a [ChunkHead],
+    columns: &'a [(ColumnSpec, &'a [u8])],
+) -> Vec<ww_tape::UnitChunk<'a>> {
+    heads
+        .iter()
+        .map(|h| ww_tape::UnitChunk {
+            head: h,
+            columns,
+            payload_hash: None,
+        })
+        .collect()
+}
+
+/// A unit holds back the writer's own blocks and its cuts, so it has at most UNIT_CHUNKS_MAX chunks: a longer
+/// [TapeWriter::write_chunk_unit] is refused whole, and a caller's (a relay's) chunk marked FLAG_WITH_NEXT that would
+/// make a longer unit is refused, nothing written either way.
+#[test]
+fn a_unit_longer_than_its_cap_is_refused() {
+    use ww_tape::writer::UNIT_CHUNKS_MAX;
+    assert_eq!(
+        UNIT_CHUNKS_MAX,
+        usize::from(ww_tape::grid::GRID_OVERVIEW_LEVELS_MAX) + 1,
+        "a tile chunk and one overview chunk per level"
+    );
+    let (defs, mut w, id, tiles) = unit_writer();
+    let samples = [0u8; 4 * STEPS as usize];
+    let columns = samples_column(&samples, samples.len());
+    let heads: Vec<ChunkHead> = (0..RUNS)
+        .flat_map(|run| tiles.iter().map(move |t| head(id, run, *t)))
+        .take(UNIT_CHUNKS_MAX + 1)
+        .collect();
+    assert_eq!(heads.len(), UNIT_CHUNKS_MAX + 1);
+    let unit = |heads| unit_of(heads, &columns);
+    let tape = w.sink().tape();
+    let before = tape.to_vec().unwrap();
+    // puts of the piece head may wait for the first chunk, marked as belonging with it
+    let open = w.unit_open();
+    assert!(matches!(
+        w.write_chunk_unit(&defs, &unit(&heads)),
+        Err(WriteError::Input(ww_tape::InputError::UnitTooLong {
+            max: UNIT_CHUNKS_MAX
+        }))
+    ));
+    assert!(
+        tape.to_vec().unwrap() == before,
+        "a refused unit writes nothing"
+    );
+    assert_eq!(w.unit_open(), open);
+    w.write_chunk_unit(&defs, &unit(&heads[..UNIT_CHUNKS_MAX]))
+        .unwrap();
+    assert!(!w.unit_open());
+
+    // the marked chunks of two units another writer made: a relay passing on the first's without its last chunk
+    let all: Vec<ChunkHead> = (0..RUNS)
+        .flat_map(|run| tiles.iter().map(move |t| head(id, run, *t)))
+        .collect();
+    let (defs, mut src, _, _) = unit_writer();
+    let src_tape = src.sink().tape();
+    let mut placed = vec![];
+    for heads in all.chunks(UNIT_CHUNKS_MAX).take(2) {
+        assert_eq!(heads.len(), UNIT_CHUNKS_MAX);
+        placed.extend(src.write_chunk_unit(&defs, &unit(heads)).unwrap());
+    }
+    drop(src);
+    let src_bytes = src_tape.to_vec().unwrap();
+    let marked: Vec<Vec<u8>> = placed
+        .iter()
+        .map(|p| {
+            let at = usize::try_from(p.offset).unwrap();
+            src_bytes[at..at + p.len as usize].to_vec()
+        })
+        .filter(|b| Block::read(b).unwrap().flags & ww_tape::FLAG_WITH_NEXT != 0)
+        .collect();
+    assert_eq!(marked.len(), 2 * (UNIT_CHUNKS_MAX - 1));
+    let (_, mut relay, _, _) = unit_writer();
+    let tape = relay.sink().tape();
+    for b in &marked[..UNIT_CHUNKS_MAX - 1] {
+        relay.write_block(&defs, b).unwrap();
+        assert!(relay.unit_open());
+    }
+    let before = tape.to_vec().unwrap();
+    assert!(matches!(
+        relay.write_block(&defs, &marked[UNIT_CHUNKS_MAX - 1]),
+        Err(WriteError::Input(ww_tape::InputError::UnitTooLong {
+            max: UNIT_CHUNKS_MAX
+        }))
+    ));
+    assert!(
+        tape.to_vec().unwrap() == before,
+        "a refused chunk writes nothing"
+    );
+}

@@ -2067,6 +2067,9 @@ The tile chunk and its overview chunks are one **unit** (`PieceChain::write_unit
 `FLAG_WITH_NEXT`. The writer places no deferred block or checkpoint inside the unit and cuts no piece in it. The cut
 policy counts the unit's bytes and chunks after it, overview chunks among a piece's and a track's chunks.
 
+A unit has at most `UNIT_CHUNKS_MAX` (17) chunks: a tile chunk and one overview chunk per level. A writer refuses a
+marked chunk that would make a longer unit, a relayed one too (`InputError::UnitTooLong`).
+
 A crash inside a unit leaves a run of marked chunks at the end of the piece. The resume drops it whole
 ([What a resume keeps](#what-a-resume-keeps)), and the handle sends the tile chunk again from its first time step.
 So a run with a crash writes the bytes of one without. A tile chunk sent without overviews (`ChunkSender`, a relay of
@@ -2359,6 +2362,7 @@ would pass one:
 | `RESYNC_AHEAD_MAX` | 128 MiB | the bytes a salvage walk (`Recovery::Resync`) reads ahead |
 | `RESYNC_SEQS_MAX` | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
 | `DEFERRED_BYTES_MAX` | 1 MiB | the deferred blocks a writer keeps before it writes them out |
+| `UNIT_CHUNKS_MAX` | 17 | the chunks of one unit a writer writes or relays: a tile chunk and its overviews |
 | `VERIFY_LISTS_MAX` | 466432 | the track lists of a final index one verify takes |
 | `TRACKS_PER_PIECE_MAX` | 466430 | the tracks with data in one piece, so its close fits a block |
 | `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |

@@ -24,6 +24,7 @@ benchmarks, golden files and book pages.
 - `OverviewCells` halves a tile's cells level by level: min, max and means rounded ties to even (FMT-15).
 - `GridHandle` writes each tile chunk and its overview chunks as one unit; a resume drops a torn unit whole (FMT-15).
 - `TapeWriter::write_chunk_unit` and `PieceChain::write_unit` write chunks as one unit, cut before it, never inside (FMT-15).
+- A writer refuses a unit past `UNIT_CHUNKS_MAX` (17) chunks, relayed ones too: `InputError::UnitTooLong` (FMT-15).
 
 ## [0.8.1] - 2026-11-24
 

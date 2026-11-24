@@ -138,6 +138,7 @@
 //! | [LAYOUT_READ_MAX](reader::LAYOUT_READ_MAX) | 256 MiB | the bytes of definitions blocks a reader reads to find a piece's layout |
 //! | [VERIFY_LISTS_MAX](reader::VERIFY_LISTS_MAX) | 466432 | the track lists of a final index one verify takes, one entry held each |
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
+//! | [UNIT_CHUNKS_MAX](writer::UNIT_CHUNKS_MAX) | 17 | the chunks of one unit a writer writes or relays |
 //! | [TRACKS_PER_PIECE_MAX] | 466430 | the tracks with data in one piece a writer takes: its close fits a block |
 //! | [HEAD_TRACKS_MAX] | 699006 | the tracks a piece head carries over the chain: the head fits a block |
 //! | [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |

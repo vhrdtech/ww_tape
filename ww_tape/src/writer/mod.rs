@@ -196,6 +196,8 @@ pub struct TapeWriter<S: TapeSink> {
     /// The last block written belongs with the block after it ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): the writer
     /// places none of its own blocks until the unit ends
     unit_open: bool,
+    /// The chunks of the open unit so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
+    unit_chunks: usize,
     last_checkpoint: Option<u64>,
     /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash; untouched below
     /// [Integrity::Full]
@@ -353,6 +355,14 @@ pub const DEFINITION_BLOCK_LEN: usize = 64 << 10;
 /// Most bytes of deferred blocks a [TapeWriter] keeps before writing them out anyway.
 pub const DEFERRED_BYTES_MAX: usize = 1 << 20;
 
+/// Most chunks of one unit ([TapeWriter::write_chunk_unit]).
+///
+/// A grid tile chunk and an overview chunk per level, up to
+/// [GRID_OVERVIEW_LEVELS_MAX](crate::grid::GRID_OVERVIEW_LEVELS_MAX), make one. A unit holds back the writer's own
+/// blocks (a deferred block, a checkpoint) and a cut, so a chunk marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) that
+/// would make a longer unit is refused ([InputError::UnitTooLong]).
+pub const UNIT_CHUNKS_MAX: usize = 17;
+
 /// Bytes a deferred block may wait for a gap, from where it was deferred: it is placed before a call would carry the
 /// piece past that.
 ///
@@ -389,6 +399,7 @@ impl<S: TapeSink> TapeWriter<S> {
             indexer: Indexer::new(IndexPolicy::default()),
             index_due: false,
             unit_open: false,
+            unit_chunks: 0,
             last_checkpoint: now,
             hash: blake3::Hasher::new(),
             level: Integrity::Full,
@@ -1237,7 +1248,18 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         }
         let offset = self.offset();
-        self.unit_open = u16::from_le_bytes([header[6], header[7]]) & crate::FLAG_WITH_NEXT != 0;
+        let with_next = u16::from_le_bytes([header[6], header[7]]) & crate::FLAG_WITH_NEXT != 0;
+        let chunk = matches!(
+            crate::BlockKind::from_u8(header[5]),
+            crate::BlockKind::Events | crate::BlockKind::Series
+        );
+        // a marked chunk was checked against UNIT_CHUNKS_MAX ([Self::check_unit]): never near usize::MAX
+        self.unit_chunks = match (with_next, chunk) {
+            (false, _) => 0,
+            (true, true) => self.unit_chunks.saturating_add(1),
+            (true, false) => self.unit_chunks,
+        };
+        self.unit_open = with_next;
         let unit = self.account_hashed(block, header, *crc, payload)?;
         self.unsynced = self.unsynced.saturating_add(1);
         let due = match self.policy {
@@ -1777,12 +1799,33 @@ impl<S: TapeSink> TapeWriter<S> {
         if chunks.iter().any(|c| Some(c.head.track_number) != track) {
             return Err(WriteError::Input(InputError::UnitTracks));
         }
+        if self.unit_chunks.saturating_add(chunks.len()) > UNIT_CHUNKS_MAX {
+            return Err(WriteError::Input(InputError::UnitTooLong {
+                max: UNIT_CHUNKS_MAX,
+            }));
+        }
         let last = chunks.len().saturating_sub(1);
         let mut placed = Vec::with_capacity(chunks.len());
         for (i, c) in chunks.iter().enumerate() {
             placed.push(self.write_chunk_as(defs, c.head, c.columns, c.payload_hash, i < last)?);
         }
         Ok(placed)
+    }
+
+    /// Refuse a chunk of `kind` marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) when `with_next` that would make the
+    /// open unit longer than [UNIT_CHUNKS_MAX] chunks: with it and one after it, the unit has two more.
+    fn check_unit(
+        &self,
+        kind: crate::BlockKind,
+        with_next: bool,
+    ) -> Result<(), WriteError<S::Error>> {
+        let chunk = matches!(kind, crate::BlockKind::Events | crate::BlockKind::Series);
+        if with_next && chunk && self.unit_chunks.saturating_add(2) > UNIT_CHUNKS_MAX {
+            return Err(WriteError::Input(InputError::UnitTooLong {
+                max: UNIT_CHUNKS_MAX,
+            }));
+        }
+        Ok(())
     }
 
     /// Whether the last block written belongs with the block after it ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): a
@@ -1800,6 +1843,7 @@ impl<S: TapeSink> TapeWriter<S> {
         with_next: bool,
     ) -> Result<Placed, WriteError<S::Error>> {
         self.check()?;
+        self.check_unit(head.kind, with_next)?;
         self.want(&[head.track_number]);
         // the head and the column table are checked here and as the chunk is encoded: the payload is the caller's
         // columns, copied, not read back
@@ -1941,6 +1985,7 @@ impl<S: TapeSink> TapeWriter<S> {
     ) -> Result<Option<Placed>, WriteError<S::Error>> {
         let block = b.bytes();
         Self::check_data(defs, b)?;
+        self.check_unit(b.kind, b.flags & crate::FLAG_WITH_NEXT != 0)?;
         let tracks = data_tracks(b);
         self.track_room(defs, &tracks)?;
         let needs = self.needed(defs, &tracks);
