@@ -14,6 +14,9 @@
 //! is a value: it is the min or max it is, and the mean of a cell that holds it. A cell holding both infinities has a
 //! NaN mean. Of two zeros, -0 is the smaller.
 //!
+//! A cell stores no count of its NaN source cells, unlike a series summary node. A reader therefore can't tell a cell
+//! of some NaN source cells from one of none; it knows only that a NaN cell had no other values.
+//!
 //! Cells run time outermost, then the fixed axes in definition order, row-major, `lanes` scalars each (a cell's
 //! channels and components interleaved): a tile's order ([ww_tape::grid#tiles]).
 

@@ -2036,6 +2036,7 @@ Float cells, in any order of their source cells:
 
 - A NaN is left out of all three statistics, as a summary leaves it out of its min and max.
 - A cell is NaN only where every source cell is NaN.
+- A cell stores no NaN count, unlike a series summary: a reader can't tell how many source cells were NaN.
 - An infinity is a value: a cell holding one has it as its min or max and as its mean.
 - A cell holding both infinities has a NaN mean.
 - Of two zeros, -0 is the smaller.
