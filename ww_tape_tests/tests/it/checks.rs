@@ -88,7 +88,9 @@ fn flagged(block: &[u8], flags: u16) -> Vec<u8> {
 }
 
 /// A caller's records or chunk block with a header flag its kind doesn't take (reserved bits, `FLAG_WITH_NEXT`
-/// without `FLAG_REPEAT`, `FLAG_PAYLOAD_UNCHECKED`) is refused without a byte written, by every call taking one.
+/// without `FLAG_REPEAT`, `FLAG_PAYLOAD_UNCHECKED`) is refused without a byte written, by every call taking one. A
+/// chunk of a unit (`FLAG_WITH_NEXT`) is written and adopted (`relayed_units_resume_without_duplicates`), never
+/// deferred.
 #[test]
 fn a_callers_block_with_flags_its_kind_does_not_take_is_refused() {
     let mut w = begin(options(u64::MAX));
@@ -106,7 +108,13 @@ fn a_callers_block_with_flags_its_kind_does_not_take_is_refused() {
         let theirs = u16::from_le_bytes([block[6], block[7]]);
         for bit in [2u16, 3, 4, 9, 15] {
             let b = flagged(block, theirs | 1 << bit);
-            for call in 0..3 {
+            // a chunk of a unit is refused only where it would be deferred
+            let calls = if what == "chunk" && bit == 2 {
+                2..3
+            } else {
+                0..3
+            };
+            for call in calls {
                 let r = match call {
                     0 => w.write_block(&b).map(|_| ()),
                     1 => w.w.adopt_block(&w.defs, &b).map(|_| ()),

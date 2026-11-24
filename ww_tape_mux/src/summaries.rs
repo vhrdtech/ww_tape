@@ -372,7 +372,7 @@ impl Trees {
 }
 
 /// The block of entry `e` of the piece `sink` writes, read back into `buf`; None when its length is no block's.
-pub(crate) fn read_block<S: TapeSink>(
+fn read_block<S: TapeSink>(
     sink: &S,
     e: &IndexEntry,
     buf: &mut Vec<u8>,

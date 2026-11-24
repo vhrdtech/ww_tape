@@ -520,3 +520,133 @@ fn a_tile_number_outside_the_fields_falls_back_to_the_head() {
         assert_eq!(tiles_of(&found), tiles_of(&scanned), "{cells:?}");
     }
 }
+
+/// Units of three chunks each ([TapeWriter::write_chunk_unit]) with a checkpoint due after every block: each chunk
+/// but a unit's last is marked FLAG_WITH_NEXT, nothing of the writer's own but marked puts lies inside a unit, the
+/// checkpoint follows
+/// the unit; a resume of the bytes cut anywhere inside a unit keeps the bytes before it. A unit of two tracks is
+/// refused before anything is written.
+#[test]
+fn a_unit_is_written_whole_and_dropped_whole() {
+    for alignment in [0, ww_tape::ALIGNMENT] {
+        let axes = axes(&EXTENTS);
+        let track = grid_track(&axes);
+        let layout = track.series().unwrap().tile_layout().unwrap();
+        let id = track.id();
+        let mut defs = ww_tape::Definitions::new();
+        crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)])
+            .unwrap();
+        let mut w = crate::resume::begin(alignment);
+        w.set_index_policy(IndexPolicy {
+            bytes: exact_units::Bytes::new(1),
+            interval: None,
+            ..IndexPolicy::default()
+        })
+        .unwrap();
+        let tape = w.sink().tape();
+        let samples = [0u8; 4 * STEPS as usize];
+        let spec = ColumnSpec {
+            kind: ColumnKind::Samples,
+            codec: Codec::RAW,
+            param: 0,
+            len: samples.len(),
+        };
+        let columns = [(spec, &samples[..])];
+        let tiles = all_tiles(&layout);
+        for run in 0..RUNS {
+            let heads: Vec<ChunkHead> = tiles[..3].iter().map(|t| head(id, run, *t)).collect();
+            let unit: Vec<ww_tape::UnitChunk<'_>> = heads
+                .iter()
+                .map(|h| ww_tape::UnitChunk {
+                    head: h,
+                    columns: &columns,
+                    payload_hash: None,
+                })
+                .collect();
+            w.write_chunk_unit(&defs, &unit).unwrap();
+            assert!(!w.unit_open(), "a unit written whole is closed");
+        }
+        let before = tape.to_vec().unwrap();
+        let other = ChunkHead {
+            track_number: TrackNum::new(2),
+            ..head(id, RUNS, tiles[0])
+        };
+        let first = head(id, RUNS, tiles[0]);
+        let mixed = [&first, &other].map(|h| ww_tape::UnitChunk {
+            head: h,
+            columns: &columns,
+            payload_hash: None,
+        });
+        assert!(matches!(
+            w.write_chunk_unit(&defs, &mixed),
+            Err(WriteError::Input(ww_tape::InputError::UnitTracks))
+        ));
+        assert!(
+            tape.to_vec().unwrap() == before,
+            "a refused unit writes nothing"
+        );
+        drop(w);
+        let bytes = tape.to_vec().unwrap();
+        // the blocks in file order: chunks in runs of three, marked but the last, and no other block inside a run
+        let blocks = crate::follow::walk(&bytes);
+        let mut run_len = 0;
+        let mut units = vec![];
+        for (offset, b) in &blocks {
+            let b = Block::read(b).unwrap();
+            let marked = b.flags & ww_tape::FLAG_WITH_NEXT != 0;
+            if b.chunk().is_some() {
+                run_len += 1;
+                assert_eq!(
+                    marked,
+                    run_len < 3,
+                    "alignment {alignment}: chunk at {offset}"
+                );
+                if run_len == 1 {
+                    units.push(*offset as usize);
+                }
+                if run_len == 3 {
+                    run_len = 0;
+                }
+            } else {
+                // inside a unit only puts belonging with the chunk after them, as the near policy asks
+                assert!(
+                    run_len == 0 || (marked && b.is_repeat()),
+                    "alignment {alignment}: a {:?} block inside a unit at {offset}",
+                    b.kind
+                );
+                assert!(
+                    !marked || b.is_repeat(),
+                    "only a unit's chunks or puts are marked"
+                );
+            }
+        }
+        assert_eq!(units.len(), RUNS as usize);
+        let index_after = |at: usize| {
+            blocks
+                .iter()
+                .filter(|(o, _)| *o as usize > at)
+                .any(|(_, b)| Block::read(b).unwrap().kind == BlockKind::Index)
+        };
+        assert!(index_after(units[0]), "a checkpoint follows the first unit");
+        // a cut anywhere from a unit's first chunk to inside its last: the resume keeps what lies before the unit
+        for &start in &units {
+            let end = blocks
+                .iter()
+                .filter(|(o, b)| *o as usize >= start && Block::read(b).unwrap().chunk().is_some())
+                .nth(2)
+                .map(|(o, b)| *o as usize + b.len())
+                .unwrap();
+            for cut in [start + 1, (start + end) / 2, end - 1] {
+                let mut sink = MemSink::new();
+                ww_tape::TapeSink::write_all(&mut sink, &bytes[..cut]).unwrap();
+                let (_, resumed) =
+                    TapeWriter::resume_on(sink, crate::resume::options(alignment)).unwrap();
+                assert!(
+                    resumed.kept_bytes <= start as u64,
+                    "alignment {alignment}: cut at {cut} in the unit at {start}, kept {}",
+                    resumed.kept_bytes
+                );
+            }
+        }
+    }
+}

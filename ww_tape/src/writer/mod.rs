@@ -102,7 +102,9 @@ impl Default for SyncPolicy {
 fn caller_flags(kind: BlockKind) -> u16 {
     match kind {
         BlockKind::Records => crate::FLAG_BODY_CODED,
-        BlockKind::Events => crate::FLAG_RELATION_BREAK,
+        // a chunk of a unit as another writer made it ([TapeWriter::write_chunk_unit])
+        BlockKind::Events => crate::FLAG_RELATION_BREAK | crate::FLAG_WITH_NEXT,
+        BlockKind::Series => crate::FLAG_WITH_NEXT,
         BlockKind::Summary => crate::FLAG_TILE,
         _ => 0,
     }
@@ -191,6 +193,9 @@ pub struct TapeWriter<S: TapeSink> {
     indexer: Indexer,
     /// A checkpoint waits for the gap before the next aligned chunk
     index_due: bool,
+    /// The last block written belongs with the block after it ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): the writer
+    /// places none of its own blocks until the unit ends
+    unit_open: bool,
     last_checkpoint: Option<u64>,
     /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash; untouched below
     /// [Integrity::Full]
@@ -330,6 +335,18 @@ pub struct Placed {
     pub unit: UnitHash,
 }
 
+/// A chunk of a unit [TapeWriter::write_chunk_unit] writes: its head, its columns and, when the producer hashed it,
+/// the hash of its payload ([columns_payload_hash](crate::piece::columns_payload_hash)).
+#[derive(Copy, Clone, Debug)]
+pub struct UnitChunk<'a> {
+    /// The chunk's head.
+    pub head: &'a crate::ChunkHead,
+    /// Its columns, as [TapeWriter::write_chunk] takes them.
+    pub columns: &'a [(crate::ColumnSpec, &'a [u8])],
+    /// The hash of its payload, as [TapeWriter::write_chunk_hashed] takes it; None to hash it on the writer.
+    pub payload_hash: Option<[u8; 32]>,
+}
+
 /// Most bytes of a block of definitions or of puts the writer makes; a longer record gets a block of its own.
 pub const DEFINITION_BLOCK_LEN: usize = 64 << 10;
 
@@ -371,6 +388,7 @@ impl<S: TapeSink> TapeWriter<S> {
             chunk_buf: Vec::new(),
             indexer: Indexer::new(IndexPolicy::default()),
             index_due: false,
+            unit_open: false,
             last_checkpoint: now,
             hash: blake3::Hasher::new(),
             level: Integrity::Full,
@@ -600,7 +618,7 @@ impl<S: TapeSink> TapeWriter<S> {
         });
         self.admit(cands.len())?;
         self.room(0, !self.head_put)?;
-        self.flush_deferred()?;
+        self.place_deferred()?;
         self.ensure_carried(defs)?;
         self.put_last(&cands)
     }
@@ -639,7 +657,7 @@ impl<S: TapeSink> TapeWriter<S> {
         });
         self.admit(cands.len())?;
         self.room(0, !self.head_put)?;
-        self.flush_deferred()?;
+        self.place_deferred()?;
         self.ensure_carried(defs)?;
         self.put_last(&cands)
     }
@@ -1219,6 +1237,7 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         }
         let offset = self.offset();
+        self.unit_open = u16::from_le_bytes([header[6], header[7]]) & crate::FLAG_WITH_NEXT != 0;
         let unit = self.account_hashed(block, header, *crc, payload)?;
         self.unsynced = self.unsynced.saturating_add(1);
         let due = match self.policy {
@@ -1474,7 +1493,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// the next chunk).
     fn after_block(&mut self) -> Result<(), WriteError<S::Error>> {
         if self.checkpoint_due() {
-            if self.alignment() == 0 {
+            // inside a unit the checkpoint waits for the unit's last block
+            if self.alignment() == 0 && !self.unit_open {
                 self.place_checkpoint()?;
             } else {
                 self.index_due = true;
@@ -1516,7 +1536,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// definitions; a deferred block is placed in the piece it was deferred in. It is renumbered into the writer's
     /// session when placed ([crate::set_id]), so seqs ascend in the file. In an unaligned file it is written at once;
     /// past [DEFERRED_BYTES_MAX] waiting, all are. Index, close, tail and piece head blocks are the writer's own:
-    /// refused with [WriteError::Index]. A producer's block of puts or copies is put at once ([Self::put_block]).
+    /// refused with [WriteError::Index]. A producer's block of puts or copies is put at once ([Self::put_block]); a chunk
+    /// marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) is refused with [InputError::Flags].
     pub fn defer_block(
         &mut self,
         defs: &Definitions,
@@ -1526,6 +1547,13 @@ impl<S: TapeSink> TapeWriter<S> {
         let b = crate::Block::read(&block).map_err(WriteError::Block)?;
         if b.is_repeat() {
             return self.put_block(defs, &block);
+        }
+        // a chunk of a unit goes with the block after it: a deferred one would open the unit wherever it is placed
+        if b.flags & crate::FLAG_WITH_NEXT != 0 {
+            return Err(WriteError::Input(InputError::Flags {
+                kind: b.kind,
+                flags: b.flags,
+            }));
         }
         let needs = self.defer_needs(defs, &b)?;
         self.check_caller_relations(defs, &b, false)?;
@@ -1558,7 +1586,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.deferred_bytes = self.deferred_bytes.saturating_add(d.block.len());
         self.deferred.push(d);
         if self.deferred_bytes > DEFERRED_BYTES_MAX {
-            self.flush_deferred()?;
+            self.place_deferred()?;
         }
         Ok(())
     }
@@ -1665,10 +1693,22 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Place every deferred block now when a call that writes at most `ahead` more bytes would carry the piece past
     /// [DEFER_WINDOW] from where the oldest was deferred.
     fn place_overdue(&mut self, ahead: usize) -> Result<(), WriteError<S::Error>> {
+        if self.unit_open {
+            return Ok(());
+        }
         let due = self.deferred.first().is_some_and(|d| {
             self.offset().saturating_add(wide(ahead)) > d.at.saturating_add(DEFER_WINDOW)
         });
         if due { self.flush_deferred() } else { Ok(()) }
+    }
+
+    /// [Self::flush_deferred] where the writer places its own blocks before a call's: none inside a unit, whose
+    /// blocks follow each other with nothing between ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)).
+    fn place_deferred(&mut self) -> Result<(), WriteError<S::Error>> {
+        if self.unit_open {
+            return Ok(());
+        }
+        self.flush_deferred()
     }
 
     /// Write every deferred block now, in the order they came; on an error the ones not yet placed stay.
@@ -1705,7 +1745,7 @@ impl<S: TapeSink> TapeWriter<S> {
         head: &crate::ChunkHead,
         columns: &[(crate::ColumnSpec, &[u8])],
     ) -> Result<Placed, WriteError<S::Error>> {
-        self.write_chunk_as(defs, head, columns, None)
+        self.write_chunk_as(defs, head, columns, None, false)
     }
 
     /// [Self::write_chunk] with the hash of the chunk's payload given: `payload` is
@@ -1719,7 +1759,36 @@ impl<S: TapeSink> TapeWriter<S> {
         columns: &[(crate::ColumnSpec, &[u8])],
         payload: [u8; 32],
     ) -> Result<Placed, WriteError<S::Error>> {
-        self.write_chunk_as(defs, head, columns, Some(payload))
+        self.write_chunk_as(defs, head, columns, Some(payload), false)
+    }
+
+    /// Chunks that belong together, written one after the other as one unit: each but the last marked
+    /// [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), nothing of the writer's own (a deferred block, a checkpoint) placed
+    /// between them, so a resume after a crash inside the unit drops all of it ([Self::resume_on]) and the call is
+    /// given again. A grid tile chunk and its overview chunks are such a unit ([grid](crate::grid#overviews)). The
+    /// chunks are of one track, else [InputError::UnitTracks] and nothing is written; each is written as
+    /// [Self::write_chunk] or, with its payload hash, [Self::write_chunk_hashed] writes it. Where each landed.
+    pub fn write_chunk_unit(
+        &mut self,
+        defs: &Definitions,
+        chunks: &[UnitChunk<'_>],
+    ) -> Result<Vec<Placed>, WriteError<S::Error>> {
+        let track = chunks.first().map(|c| c.head.track_number);
+        if chunks.iter().any(|c| Some(c.head.track_number) != track) {
+            return Err(WriteError::Input(InputError::UnitTracks));
+        }
+        let last = chunks.len().saturating_sub(1);
+        let mut placed = Vec::with_capacity(chunks.len());
+        for (i, c) in chunks.iter().enumerate() {
+            placed.push(self.write_chunk_as(defs, c.head, c.columns, c.payload_hash, i < last)?);
+        }
+        Ok(placed)
+    }
+
+    /// Whether the last block written belongs with the block after it ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): a
+    /// unit is open, and a cut now would split it.
+    pub fn unit_open(&self) -> bool {
+        self.unit_open
     }
 
     fn write_chunk_as(
@@ -1728,6 +1797,7 @@ impl<S: TapeSink> TapeWriter<S> {
         head: &crate::ChunkHead,
         columns: &[(crate::ColumnSpec, &[u8])],
         payload_hash: Option<[u8; 32]>,
+        with_next: bool,
     ) -> Result<Placed, WriteError<S::Error>> {
         self.check()?;
         self.want(&[head.track_number]);
@@ -1762,9 +1832,10 @@ impl<S: TapeSink> TapeWriter<S> {
             .iter()
             .any(|d| d.tracks.contains(&head.track_number))
         {
-            self.flush_deferred()?;
+            self.place_deferred()?;
         }
-        if self.alignment() != 0 {
+        // inside a unit nothing of the writer's own comes between its chunks: deferred blocks and a checkpoint wait
+        if self.alignment() != 0 && !self.unit_open {
             // what this call may write: the deferred blocks, a checkpoint, the puts and the chunk
             let checkpoint = if self.index_due {
                 self.indexer.checkpoint_bytes()
@@ -1819,6 +1890,9 @@ impl<S: TapeSink> TapeWriter<S> {
                     if self.check_relations(defs, &chunk, false)? {
                         crate::mark_relation_break(&mut buf).map_err(WriteError::Block)?;
                     }
+                }
+                if with_next {
+                    crate::mark_with_next_trusted(&mut buf).map_err(WriteError::Block)?;
                 }
                 self.write_chosen(&needs, &chosen, true)?;
                 if self.at()? != at {
@@ -1876,7 +1950,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.room(0, !self.head_put || session.is_some())?;
         // a block numbered the next id when called goes after the deferred blocks placed first: renumbered
         let asked = self.next_id();
-        self.flush_deferred()?;
+        self.place_deferred()?;
         let renumbered = block_id(block) == Some(asked) && self.next_id() != asked;
         // a counted block with the last one's id takes its place
         let replacing = !renumbered
@@ -1935,7 +2009,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.track_room(defs, &tracks)?;
         let needs = self.needed(defs, &tracks);
         self.room(0, !self.head_put)?;
-        self.flush_deferred()?;
+        self.place_deferred()?;
         self.check_caller_relations(defs, &b, false)?;
         self.ensure_carried(defs)?;
         self.put_needed(&needs)?;
@@ -2052,7 +2126,7 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         }
         self.room(0, !self.head_put)?;
-        self.flush_deferred()?;
+        self.place_deferred()?;
         self.ensure_carried(defs)?;
         self.put_last(&cands).map(|_| ())
     }
@@ -2081,7 +2155,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let by_time = self.indexer.policy().interval.is_some_and(|t| {
             self.indexer.pending() > 0 && self.clock.passed(self.last_checkpoint, t)
         });
-        if by_time && self.alignment() == 0 {
+        if by_time && self.alignment() == 0 && !self.unit_open {
             self.place_checkpoint()?;
         } else if by_time {
             self.index_due = true;

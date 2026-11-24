@@ -409,7 +409,7 @@ impl<S: Scalar + Sample> GridChunks<S> {
             codec: self.codec,
             runs,
         };
-        let overviews = of.overviews(&tile.samples, buffers, 1)?;
+        let overviews = of.overviews(&tile.samples, buffers)?;
         let summary = match (&mut tile.leaves, self.summaries) {
             (Some(leaves), Some(spec)) => Some(ChunkSummary::Series {
                 shape: self.shape,

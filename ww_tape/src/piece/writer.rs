@@ -451,7 +451,10 @@ impl<T: PieceStore> PieceChain<T> {
         mut call: impl FnMut(&mut TapeWriter<T::Sink>) -> Result<R, WriteError<T::Error>>,
     ) -> Result<R, WriteError<T::Error>> {
         match call(self.writer()?) {
-            Err(WriteError::Index(IndexError::StateEntries { .. })) => {
+            // a cut inside a unit would split it: the call fails instead
+            Err(WriteError::Index(IndexError::StateEntries { .. }))
+                if !self.writer.as_ref().is_some_and(TapeWriter::unit_open) =>
+            {
                 self.cut_now(defs)?;
                 call(self.writer()?)
             }
@@ -564,6 +567,10 @@ impl<T: PieceStore> PieceChain<T> {
         let Some(w) = self.writer.as_ref() else {
             return false;
         };
+        // never inside a unit ([TapeWriter::write_chunk_unit])
+        if w.unit_open() {
+            return false;
+        }
         let c = self.cut;
         (c.bytes.get() > 0 && w.bytes() >= c.bytes.get())
             || (c.chunks.get() > 0 && w.chunks() >= c.chunks.get())
@@ -600,18 +607,31 @@ impl<T: PieceStore> PieceChain<T> {
         self.write_chunk_as(defs, head, columns, Some(payload_hash))
     }
 
-    /// A chunk that belongs in the piece of the chunk written before it, as a grid tile chunk's overview chunks do
-    /// ([grid](crate::grid#overviews)): no cut by the policy comes before it, so a resumed piece that kept a chunk
-    /// holds its followers or lost them, never has them in the next piece. With the hash of its payload given or
-    /// not, as [Self::write_chunk_hashed] and [Self::write_chunk].
-    pub fn write_follower(
+    /// Chunks of one track that belong together, as a grid tile chunk and its overview chunks do
+    /// ([grid](crate::grid#overviews)), written as one unit ([TapeWriter::write_chunk_unit]) in one piece: a cut by
+    /// the policy comes before the unit when due, never inside it, so the policy counts the unit's bytes and chunks
+    /// as one. Where each landed.
+    pub fn write_unit(
         &mut self,
         defs: &Definitions,
-        head: &ChunkHead,
-        columns: &[(ColumnSpec, &[u8])],
-        payload_hash: Option<[u8; 32]>,
-    ) -> Result<ChunkPlaced, WriteError<T::Error>> {
-        self.place_chunk(defs, head, columns, payload_hash)
+        chunks: &[crate::UnitChunk<'_>],
+    ) -> Result<Vec<ChunkPlaced>, WriteError<T::Error>> {
+        if self.cut_due() {
+            let track = chunks.first().map(|c| c.head.track_number);
+            if let Some(track) = track {
+                self.cut_for(defs, track)?;
+            }
+        }
+        let placed = self.with_room(defs, |w| w.write_chunk_unit(defs, chunks))?;
+        Ok(placed
+            .into_iter()
+            .map(|Placed { offset, len, unit }| ChunkPlaced {
+                seq: self.seq,
+                offset,
+                len,
+                unit,
+            })
+            .collect())
     }
 
     fn write_chunk_as(

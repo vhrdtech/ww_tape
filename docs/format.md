@@ -119,7 +119,7 @@ off size field
   4  u8  version, 1
   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
-         copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
+         copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
@@ -183,7 +183,7 @@ moves the block's body behind the tile, so a reader without it refuses the block
 |---:|---|---|
 | 0 | `FLAG_BODY_CODED` | a coded records body ([below](#records-blocks)) |
 | 1 | `FLAG_REPEAT` | a block of state records a writer put or copied ([State tracks](#state-tracks)) |
-| 2 | `FLAG_WITH_NEXT` | a block of puts that belongs with the block after it ([State tracks](#state-tracks)) |
+| 2 | `FLAG_WITH_NEXT` | puts or a chunk that belong with the block after it ([State tracks](#state-tracks), [Space overviews](#space-overviews)) |
 | 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
 | 4 | `FLAG_RELATION_BREAK` | an events chunk where a track's monotone relations start again ([below](#relation-breaks)) |
 | 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
@@ -796,12 +796,14 @@ The producer's seq therefore stays its own count. A reader that holds an item of
 the record as nothing new.
 
 A block of puts that belongs with the block after it is also marked **`FLAG_WITH_NEXT`** (header bit 2). The flag
-appears only on a block marked `FLAG_REPEAT`.
+appears on a block marked `FLAG_REPEAT` and on a chunk of a unit (`TapeWriter::write_chunk_unit`), such as a grid tile
+chunk and its overviews ([Space overviews](#space-overviews)).
 
-A block belongs with the next one in two cases:
+A block belongs with the next one in three cases:
 
 - it serves the block of data after it;
-- the next block holds the rest of a put too long for one block.
+- the next block holds the rest of a put too long for one block;
+- it is a chunk of a unit but the last.
 
 A run of such blocks ends in the block they belong to, all from one writer call.
 
@@ -2045,17 +2047,30 @@ An overview chunk is a series chunk of the same track, of the time steps of the 
 | index entry | the level in the summary-level byte; the tile number under flag bit 4 |
 
 It holds no samples column, and no other chunk holds the three statistics columns. An entry a scan made carries the
-level without a tile number, so `grid_tiles` reads that chunk's head. A reader of format 0.8 refuses an overview
-chunk: its byte 83 was 0 in every series chunk. The golden file `v1-overview.hex` pins a piece of two tiles and their
-overviews.
+level without a tile number, so `grid_tiles` reads that chunk's head. A reader of format 0.8 reads an overview chunk
+as damaged. Byte 83 was 0 in every series chunk, so its head check refuses it. The golden file `v1-overview.hex` pins
+a piece of two tiles and their overviews.
 
 A `GridHandle` builds a tile chunk's overview chunks on the producer's thread when it completes the chunk. Each level
-comes from the min, max, sum and count of the level below (`ww_tape_summary::OverviewCells`). They go to the writing
-thread in one unit with the chunk, which places them right after it in the same piece (`PieceChain::write_follower`).
-The chunk bytes a handle allows count the overview chunks too: three columns of the level-1 cells.
+comes from the min, max, sum and count of the level below (`ww_tape_summary::OverviewCells`). The chunk bytes a
+handle allows count the overview chunks too: three columns of the level-1 cells.
 
-A resumed mux reads back the tile chunks the torn piece kept. It writes the overview chunks the crash lost before
-anything else, so the chain gets the bytes of the run without the crash.
+The tile chunk and its overview chunks are one **unit** (`PieceChain::write_unit`). Each chunk but the last is marked
+`FLAG_WITH_NEXT`. The writer places no deferred block or checkpoint inside the unit and cuts no piece in it. The cut
+policy counts the unit's bytes and chunks after it, overview chunks among a piece's and a track's chunks.
+
+A crash inside a unit leaves a run of marked chunks at the end of the piece. The resume drops it whole
+([What a resume keeps](#what-a-resume-keeps)), and the handle sends the tile chunk again from its first time step.
+So a run with a crash writes the bytes of one without. A tile chunk sent without overviews (`ChunkSender`, a relay of
+chunks as written) is no unit and gains none. A relay passes another writer's units on as they are, marks and all.
+
+What a reader shows of a unit:
+
+| Reader | A unit's chunks |
+|---|---|
+| a scan of a piece | each as it comes: a torn piece may show a tile chunk without its last overviews, which `grid_tiles` then lacks |
+| a follower (`ChainFollower`, `TrackFollower`) | the marked chunks only with the last one: a live view never shows a tile chunk before its overviews |
+| the index of a closed piece (`grid_tiles`, `track_entries`) | every chunk of each unit, an entry each: only a resume closes a crashed piece, and it drops the torn unit first |
 
 `ww_tape::Overview` reads the three columns in place, each of the tile's cells at the level times the chunk's time
 steps. A viewer picks a level with `TileLayout::level_for`: the highest whose cell is at most a pixel along every

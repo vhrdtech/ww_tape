@@ -78,6 +78,9 @@ pub enum InputError {
     /// Removed pieces ([TapeWriter::record_removed](super::TapeWriter::record_removed)) the piece's close can't name:
     /// see [RemovedRefusal].
     Removed(RemovedRefusal),
+    /// The chunks of a unit ([TapeWriter::write_chunk_unit](super::TapeWriter::write_chunk_unit)) are of more than
+    /// one track.
+    UnitTracks,
 }
 
 /// Why [TapeWriter::record_removed](super::TapeWriter::record_removed) refuses removed pieces ([InputError::Removed]).
@@ -256,6 +259,7 @@ impl core::fmt::Display for InputError {
                 f,
                 "the call's definitions and puts take {needed} state entries with the layout and the producer, more than the index policy's {max}"
             ),
+            Self::UnitTracks => f.write_str("a unit of chunks of more than one track"),
             Self::SummaryTooLong { len, max } => write!(
                 f,
                 "a close's summary of {len} bytes: it holds at most {max}"

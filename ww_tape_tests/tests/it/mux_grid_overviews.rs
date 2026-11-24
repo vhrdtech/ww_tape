@@ -403,8 +403,8 @@ fn next_steps(done: &[Vec<u8>], torn: &[u8], id: TrackId) -> Vec<u64> {
     next
 }
 
-/// Crash the run at every block boundary of each piece and at bytes between; a mux resumes the chain, writes the
-/// overview chunks the crash lost after the tile chunks the piece kept, each tile's handle goes on after its last
+/// Crash the run at every block boundary of each piece and at bytes between; a mux resumes the chain, which drops a
+/// unit the crash tore (a tile chunk and not all its overviews) whole, each tile's handle goes on after its last
 /// chunk kept, and the chain holds the bytes of the run without the crash.
 #[test]
 fn a_mux_grid_crashed_anywhere_resumes_its_overviews_to_the_bytes_of_the_whole_run() {
@@ -418,11 +418,23 @@ fn a_mux_grid_with_summaries_crashed_anywhere_resumes_to_the_bytes_of_the_whole_
     crash_anywhere(true);
 }
 
+/// The level of the last chunk in `bytes`, read up to the first block that doesn't.
+fn last_level(bytes: &[u8]) -> Option<u8> {
+    let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
+    let mut last = None;
+    while let Some(Ok(b)) = rd.next_block() {
+        if let Some(c) = b.chunk() {
+            last = Some(c.head().level);
+        }
+    }
+    last
+}
+
 fn crash_anywhere(summaries: bool) {
     let (want, id) = whole_run(true, summaries);
     assert!(want.len() >= 2, "{} pieces", want.len());
     let mut crashes = 0;
-    let mut torn_overviews = 0;
+    let mut torn_units = 0;
     for (p, piece) in want.iter().enumerate() {
         let (done, _) = want.split_at(p);
         for at in cut_points(piece, 30) {
@@ -436,17 +448,14 @@ fn crash_anywhere(summaries: bool) {
             let (track, _) = define(&mux, summaries);
             let kept = usize::try_from(resumed.kept_bytes).unwrap();
             let kept_bytes = &piece[..kept.min(at)];
-            // the piece ends between a tile chunk and its last overview
-            let mut rd = FileBlocks::with_recovery(kept_bytes, Recovery::Prefix);
-            let mut last = None;
-            while let Some(Ok(b)) = rd.next_block() {
-                if let Some(c) = b.chunk() {
-                    last = Some(c.head().level);
-                }
+            // the crash tore a unit: a tile chunk and not all its overviews; the resume dropped the unit whole
+            if last_level(&piece[..at]).is_some_and(|l| l < LEVELS) {
+                torn_units += 1;
             }
-            if last.is_some_and(|l| l < LEVELS) {
-                torn_overviews += 1;
-            }
+            assert!(
+                last_level(kept_bytes).is_none_or(|l| l == LEVELS),
+                "a crash in piece {p} at {at}: the kept bytes end inside a unit"
+            );
             let from = next_steps(done, kept_bytes, id);
             write(mux, track, &from);
             let got = pieces(&mem);
@@ -462,8 +471,8 @@ fn crash_anywhere(summaries: bool) {
     }
     assert!(crashes > 50, "{crashes} crashes");
     assert!(
-        torn_overviews > 10,
-        "{torn_overviews} crashes between a chunk and its overviews"
+        torn_units > 10,
+        "{torn_units} crashes between a chunk and its last overview"
     );
 }
 
@@ -499,4 +508,243 @@ fn a_follower_skips_overview_chunks() {
         .filter(|i| matches!(i, ww_tape_fs::follow::TrackItem::Samples(_)))
         .count();
     assert_eq!(samples, runs.len());
+}
+
+/// The tile chunks as written of the pieces `run`, in file order: each head and its columns, as a chunk sender takes
+/// them.
+type Sent = (ww_tape::ChunkHead, Vec<(ww_tape::ColumnSpec, Vec<u8>)>);
+
+fn tile_chunks(run: &[Vec<u8>]) -> Vec<Sent> {
+    let mut out = vec![];
+    for p in run {
+        let mut rd = FileBlocks::new(&p[..]);
+        while let Some(b) = rd.next_block() {
+            let b = b.unwrap();
+            let Some(c) = b.chunk() else { continue };
+            if c.head().level != 0 {
+                continue;
+            }
+            let cols = c
+                .columns()
+                .map(|col| {
+                    let spec = ww_tape::ColumnSpec {
+                        kind: col.kind,
+                        codec: col.codec,
+                        param: col.param,
+                        len: col.bytes.len(),
+                    };
+                    (spec, col.bytes.to_vec())
+                })
+                .collect();
+            out.push((c.head(), cols));
+        }
+    }
+    out
+}
+
+/// Send the tile chunks `chunks` on a chunk sender of `mux`, from the `skip`-th on; then close.
+fn send_chunks(mux: TapeMux<MemPieces>, chunks: &[Sent], skip: usize) {
+    let (track, _) = define(&mux, false);
+    let s = mux.chunks(track).unwrap();
+    for (head, cols) in chunks.iter().skip(skip) {
+        s.send(*head, cols.clone()).unwrap();
+    }
+    drop(s);
+    mux.close().unwrap();
+}
+
+/// Chunks as written in `bytes`, and whether any overview chunk is among them.
+fn count_chunks(bytes: &[u8]) -> (usize, bool) {
+    let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
+    let (mut n, mut overview) = (0, false);
+    while let Some(Ok(b)) = rd.next_block() {
+        if let Some(c) = b.chunk() {
+            n += usize::from(c.head().level == 0);
+            overview |= c.head().level != 0;
+        }
+    }
+    (n, overview)
+}
+
+/// Tile chunks of a downsampled grid sent on a chunk sender carry no overviews; a mux crashed anywhere and resumed
+/// adds none to them, and the chain holds the bytes of the run without the crash.
+#[test]
+fn chunks_sent_without_overviews_resume_without_them() {
+    let (run, _) = whole_run(false, false);
+    let chunks = tile_chunks(&run);
+    let mem = MemPieces::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(CUT),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    send_chunks(mux, &chunks, 0);
+    let want = pieces(&mem);
+    assert!(want.iter().all(|p| !count_chunks(p).1), "no overview sent");
+    let mut crashes = 0;
+    for (p, piece) in want.iter().enumerate() {
+        let (done, _) = want.split_at(p);
+        for at in cut_points(piece, 30) {
+            if p + 1 == want.len() && at == piece.len() {
+                continue;
+            }
+            let mem = plant(done, &piece[..at]);
+            let (mux, resumed) =
+                TapeMux::resume(mem.clone(), OWNER, 0, options(CUT), MuxOptions::default())
+                    .unwrap();
+            let kept = usize::try_from(resumed.kept_bytes).unwrap();
+            let sent: usize = done
+                .iter()
+                .map(|d| count_chunks(d).0)
+                .chain([count_chunks(&piece[..kept.min(at)]).0])
+                .sum();
+            send_chunks(mux, &chunks, sent);
+            assert!(
+                pieces(&mem) == want,
+                "a crash in piece {p} at {at}, kept {kept}"
+            );
+            crashes += 1;
+        }
+    }
+    assert!(crashes > 50, "{crashes} crashes");
+}
+
+/// Blocks a relay passes on: every chunk of the pieces `run`, a tile chunk and its overviews one unit as their writer
+/// marked them.
+fn relayed(run: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    let mut out = vec![];
+    for p in run {
+        let mut rd = FileBlocks::new(&p[..]);
+        while let Some(b) = rd.next_block() {
+            let b = b.unwrap();
+            if b.chunk().is_some() {
+                out.push(b.bytes().to_vec());
+            }
+        }
+    }
+    out
+}
+
+/// Relay the blocks `blocks` on `mux` from the `skip`-th on; then close.
+fn relay_blocks(mux: TapeMux<MemPieces>, blocks: &[Vec<u8>], skip: usize) {
+    define(&mux, false);
+    let r = mux.relay(ww_tape_mux::RelayMode::Relay);
+    for b in blocks.iter().skip(skip) {
+        r.send(b.clone()).unwrap();
+    }
+    drop(r);
+    mux.close().unwrap();
+}
+
+/// A relay passes on another mux's units of a tile chunk and its overviews; the chain cuts no piece inside a unit.
+/// Crashed anywhere, the resume drops a torn unit whole and the relay passes it on again: no chunk twice, the bytes of
+/// the run without the crash.
+#[test]
+fn relayed_units_resume_without_duplicates() {
+    let (run, _) = whole_run(false, false);
+    let blocks = relayed(&run);
+    let mem = MemPieces::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(CUT),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    relay_blocks(mux, &blocks, 0);
+    let want = pieces(&mem);
+    let chunks_in = |bytes: &[u8]| {
+        let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
+        let mut n = 0;
+        while let Some(Ok(b)) = rd.next_block() {
+            n += usize::from(b.chunk().is_some());
+        }
+        n
+    };
+    assert_eq!(
+        want.iter().map(|p| chunks_in(p)).sum::<usize>(),
+        blocks.len()
+    );
+    // a cut every CUT chunks, units of LEVELS + 1: no cut falls inside a unit
+    assert!(want.len() >= 2, "{} pieces", want.len());
+    assert_ne!(
+        CUT % (u64::from(LEVELS) + 1),
+        0,
+        "a cut by count alone would split a unit"
+    );
+    for p in &want {
+        assert_eq!(
+            last_level(p),
+            Some(LEVELS),
+            "each piece ends with a unit's last chunk"
+        );
+    }
+    let mut crashes = 0;
+    for (p, piece) in want.iter().enumerate() {
+        let (done, _) = want.split_at(p);
+        for at in cut_points(piece, 30) {
+            if p + 1 == want.len() && at == piece.len() {
+                continue;
+            }
+            let mem = plant(done, &piece[..at]);
+            let (mux, resumed) =
+                TapeMux::resume(mem.clone(), OWNER, 0, options(CUT), MuxOptions::default())
+                    .unwrap();
+            let kept = usize::try_from(resumed.kept_bytes).unwrap();
+            let sent: usize = done
+                .iter()
+                .map(|d| chunks_in(d))
+                .chain([chunks_in(&piece[..kept.min(at)])])
+                .sum();
+            relay_blocks(mux, &blocks, sent);
+            assert!(
+                pieces(&mem) == want,
+                "a crash in piece {p} at {at}, kept {kept}"
+            );
+            crashes += 1;
+        }
+    }
+    assert!(crashes > 50, "{crashes} crashes");
+}
+
+/// A follower of a chain being written hands out a tile chunk only with all its overviews: the chunk and each
+/// overview but the last wait for the unit's last block, wherever the written bytes end.
+#[test]
+fn a_follower_hands_out_a_tile_chunk_with_its_overviews() {
+    let (run, _) = whole_run(false, false);
+    let piece = &run[0];
+    let dir = crate::pieces::scratch("overview-units");
+    let mut cuts = 0;
+    for at in cut_points(piece, 30) {
+        std::fs::write(dir.join(ww_tape_fs::piece_name(0)), &piece[..at]).unwrap();
+        let mut f = ww_tape_fs::follow::ChainFollower::new(
+            &dir,
+            ww_tape_fs::follow::FollowOptions::default(),
+        )
+        .unwrap();
+        let mut levels = vec![];
+        while let Some(b) = f.try_next().unwrap() {
+            if let Some(c) = b.block.block().chunk() {
+                levels.push(c.head().level);
+            }
+        }
+        // each tile chunk as written is followed by its levels 1 to LEVELS, nothing torn
+        assert_eq!(
+            levels.len() % (usize::from(LEVELS) + 1),
+            0,
+            "cut at {at}: {levels:?}"
+        );
+        for unit in levels.chunks(usize::from(LEVELS) + 1) {
+            assert_eq!(unit, (0..=LEVELS).collect::<Vec<_>>(), "cut at {at}");
+        }
+        cuts += usize::from(last_level(&piece[..at]).is_some_and(|l| l < LEVELS));
+    }
+    assert!(cuts > 10, "{cuts} cuts inside a unit");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

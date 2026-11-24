@@ -7,7 +7,7 @@ use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
     ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, PieceStore, Slot as DefSlot,
-    WriteError,
+    UnitChunk, WriteError,
 };
 
 use crate::define;
@@ -158,45 +158,13 @@ fn rebuilt<T: PieceStore>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mu
     if shared.failure.get().is_some() {
         return;
     }
-    let r = st.trees.rebuild(chain, defs, &entries).and_then(|refused| {
-        Counters::add(&shared.counters.refused, refused);
-        rebuild_overviews(chain, defs, &entries, shared.hash_payloads)
-    });
-    match r {
-        Ok(()) => {}
+    match st.trees.rebuild(chain, defs, &entries) {
+        Ok(refused) => Counters::add(&shared.counters.refused, refused),
         Err(e) if stops(chain, &e) => {
             shared.fail(e);
         }
         Err(_) => Counters::add(&shared.counters.refused, 1),
     }
-}
-
-/// Write the overview chunks a resumed piece of blocks `entries` lost after the tile chunks it kept, as their handles
-/// made them, hashed with `hash`.
-fn rebuild_overviews<T: PieceStore>(
-    chain: &mut PieceChain<T>,
-    defs: &Definitions,
-    entries: &[IndexEntry],
-    hash: bool,
-) -> Result<(), WriteError<T::Error>> {
-    let lost = {
-        let sink = chain.writer()?.sink();
-        crate::overview::lost_overviews(defs, entries, &mut |e, buf| {
-            crate::summaries::read_block(sink, e, buf).map(|r| r.is_some())
-        })
-        .map_err(ww_tape::sink::sink_err("reading a kept chunk back"))?
-    };
-    let followers: Vec<Follower> = lost
-        .into_iter()
-        .map(|c| Follower {
-            hash: hash.then(|| {
-                ww_tape::piece::columns_payload_hash(c.columns.iter().map(|(_, b)| b.as_slice()))
-            }),
-            head: c.head,
-            columns: c.columns,
-        })
-        .collect();
-    place_followers(chain, defs, &followers)
 }
 
 /// Whether placing `work` writes: it waits for the rebuild of a resumed piece's trees.
@@ -234,25 +202,64 @@ fn end_trees<T: PieceStore>(
     Ok(())
 }
 
-/// Place a typed handle's or a chunk sender's chunk, its summary into its track's tree.
+/// A chunk to place: its head, columns, payload hash and overview chunks.
+struct Placing<'a> {
+    head: &'a ChunkHead,
+    columns: &'a [(ColumnSpec, Vec<u8>)],
+    hash: Option<[u8; 32]>,
+    overviews: &'a [Follower],
+}
+
+/// Place a typed handle's or a chunk sender's chunk, then its overview chunks, the chunk and they one unit
+/// ([PieceChain::write_unit]); then its summary into its track's tree.
 fn place_chunk<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &Definitions,
     st: &mut State<'_, T>,
-    head: &ChunkHead,
-    columns: &[(ColumnSpec, Vec<u8>)],
-    hash: Option<[u8; 32]>,
+    c: &Placing<'_>,
     summary: Option<Box<ChunkSummary>>,
 ) -> Result<(), WriteError<T::Error>> {
+    let Placing {
+        head,
+        columns,
+        hash,
+        overviews,
+    } = *c;
     // the chain cuts before the chunk: the trees end in the piece their items are in
     if chain.cut_due() {
         end_trees(chain, defs, st)?;
     }
     let refs: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
-    match hash {
-        Some(hash) => chain.write_chunk_hashed(defs, head, &refs, hash)?,
-        None => chain.write_chunk(defs, head, &refs)?,
-    };
+    if overviews.is_empty() {
+        match hash {
+            Some(hash) => chain.write_chunk_hashed(defs, head, &refs, hash)?,
+            None => chain.write_chunk(defs, head, &refs)?,
+        };
+    } else {
+        let follower_refs: Vec<Vec<(ColumnSpec, &[u8])>> = overviews
+            .iter()
+            .map(|f| f.columns.iter().map(|(c, b)| (*c, b.as_slice())).collect())
+            .collect();
+        let unit: Vec<UnitChunk<'_>> = [UnitChunk {
+            head,
+            columns: &refs,
+            payload_hash: hash,
+        }]
+        .into_iter()
+        .chain(
+            overviews
+                .iter()
+                .zip(&follower_refs)
+                .map(|(f, cols)| UnitChunk {
+                    head: &f.head,
+                    columns: cols,
+                    payload_hash: f.hash,
+                }),
+        )
+        .collect();
+        chain.write_unit(defs, &unit)?;
+    }
+    // a summary block is placed after the unit, never inside it
     match summary {
         Some(s) => {
             if let Added::Refused = st.trees.add(chain, defs, head, *s)? {
@@ -260,20 +267,6 @@ fn place_chunk<T: PieceStore>(
             }
         }
         None => st.trees.plain(head.track_number),
-    }
-    Ok(())
-}
-
-/// Place the chunks that follow a chunk in its piece, a grid tile chunk's overviews, in order: no cut comes between.
-fn place_followers<T: PieceStore>(
-    chain: &mut PieceChain<T>,
-    defs: &Definitions,
-    followers: &[Follower],
-) -> Result<(), WriteError<T::Error>> {
-    for f in followers {
-        let refs: Vec<(ColumnSpec, &[u8])> =
-            f.columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
-        chain.write_follower(defs, &f.head, &refs, f.hash)?;
     }
     Ok(())
 }
@@ -301,8 +294,13 @@ fn place<T: PieceStore>(
             overviews,
         } => {
             if !failed {
-                let r = place_chunk(chain, defs, st, &head, &columns, hash, summary)
-                    .and_then(|()| place_followers(chain, defs, &overviews));
+                let c = Placing {
+                    head: &head,
+                    columns: &columns,
+                    hash,
+                    overviews: &overviews,
+                };
+                let r = place_chunk(chain, defs, st, &c, summary);
                 let ok = r.is_ok();
                 placed(chain, shared, &from, r, bytes);
                 if ok {
