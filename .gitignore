@@ -23,10 +23,11 @@ target
 # Mac stuff
 .DS_Store
 
-# The book Zensical builds (`just book`), the cards' stylesheet and script `spl book refs` writes, and the footer's
-# build stamp and its age script `spl book stamp` writes
+# The book Zensical builds (`just book`), the cards' stylesheet and script and the code colours `vz prep` writes,
+# and the footer's build stamp and its age script, also `vz prep`'s
 site/
-docs/stylesheets/spl-refs.css
-docs/javascripts/spl-refs.js
-/overrides/partials/stamp.html
-/docs/javascripts/book-stamp-age.js
+docs/stylesheets/vz-refs.css
+docs/stylesheets/vz-code.css
+docs/javascripts/vz-refs.js
+/overrides/partials/vz-stamp.html
+/docs/javascripts/vz-stamp-age.js
