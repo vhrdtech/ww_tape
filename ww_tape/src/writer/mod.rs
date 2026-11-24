@@ -715,7 +715,9 @@ impl<S: TapeSink> TapeWriter<S> {
     /// [GROUP_BYTES_MAX] bytes together ([GroupRefusal::TooLong]), the piece's room for the state entries of all it
     /// writes ([IndexError::StateEntries]: [crate::PieceChain::put_group] cuts first then, never inside), and its
     /// blocks with its definitions at most [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) ([InputError::RunTooLong]), which
-    /// only a group of many items shorter than [MAX_RECORD_HEAD](crate::MAX_RECORD_HEAD) bytes may pass.
+    /// only a group of many items shorter than [MAX_RECORD_HEAD](crate::MAX_RECORD_HEAD) bytes may pass. The last
+    /// check runs once the blocks are encoded: on [InputError::RunTooLong] none of the group is written, but the
+    /// deferred blocks and the definitions carried from the piece before may already be.
     pub fn put_group(
         &mut self,
         defs: &Definitions,
