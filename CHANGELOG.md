@@ -6,6 +6,11 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Features
+
+- spirit_level checks the big tier with a crate map of layers; Clippy's pedantic set is on (REPO-86).
+- `IntoIterator` for `&Starts` and `&Payloads`: a `for` loop takes them borrowed (REPO-86).
+
 ## [0.9.1] - 2026-11-24
 
 ### Features
@@ -19,8 +24,6 @@ benchmarks, golden files and book pages.
 - `TapeWriter::carried_owners` names the owners of the tracks a piece head carries; `track_owner` names one track's (MUX-4).
 - `Definitions::track_identity` gives a held track's id and owner (READ-6).
 - The book moves to the `vhrd_zensical` kit: renamed extension ids and assets, abbreviations in `docs/abbreviations.toml` (BOOK-6).
-- spirit_level checks the big tier with a crate map of layers; Clippy's pedantic set is on (REPO-86).
-- `Starts` and `Payloads` borrowed iterate in a `for` loop: `IntoIterator` for `&Starts` and `&Payloads` (REPO-86).
 
 ### Fixes
 
