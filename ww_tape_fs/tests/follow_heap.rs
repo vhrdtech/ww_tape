@@ -29,6 +29,10 @@ struct Counting;
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 
+#[expect(
+    unsafe_code,
+    reason = "a GlobalAlloc is an unsafe trait: the count wraps System and changes no pointer"
+)]
 // SAFETY: every call goes to the system allocator with the same layout; the counters only observe.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
@@ -233,7 +237,7 @@ fn group_blocks(defs: &Definitions, tracks: &[TrackNum], items: &[Vec<u8>]) -> V
 fn relay_held(defs: &Definitions, blocks: &[Vec<u8>]) -> (usize, usize, usize) {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let (_, last) = blocks.split_last().unwrap();
-    assert!(!last.is_empty());
+    assert_ne!(*last, [] as [Vec<u8>; 0]);
     let before = LIVE.load(Ordering::Relaxed);
     let ((), peak) = peak_of(|| {
         for b in &blocks[..blocks.len() - 1] {

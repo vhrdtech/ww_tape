@@ -431,7 +431,9 @@ fn place<T: PieceStore>(
             from.give_back(item);
         }
         Work::PutGroup { from, puts } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let group: Vec<GroupPut<'_>> = puts
                     .iter()
                     .map(|(track, ticks, item)| GroupPut {
@@ -442,11 +444,10 @@ fn place<T: PieceStore>(
                     .collect();
                 let r = chain.put_group(defs, &group).map(drop);
                 placed(chain, shared, &from, r, bytes);
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
-            puts.into_iter()
-                .for_each(|(_, _, item)| from.give_back(item));
+            for (_, _, item) in puts {
+                from.give_back(item);
+            }
         }
         Work::PutItem { item, carry, reply } => {
             let r = match shared.failure.get() {
