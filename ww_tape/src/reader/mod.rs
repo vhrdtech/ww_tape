@@ -222,6 +222,9 @@ pub struct OpenOptions {
     /// for the newest piece.
     pub medium: Medium,
     /// Where a [Medium::Raw] walk starts: the medium's start, or a hint the medium layer gives (its own superblock).
+    ///
+    /// A start inside a run of blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) shows the run's tail, taken as a
+    /// run: the blocks before the start are not read, so a group of puts there shows only its later items.
     pub start: u64,
     /// The gap rules of a [Medium::Raw] from its start, before the definitions say them; None: none until then.
     pub layout: Option<Layout>,

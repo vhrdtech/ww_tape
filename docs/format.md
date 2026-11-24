@@ -823,6 +823,9 @@ A scan drops a run that the end of the bytes, a tail or a piece head cuts: what 
 part of a run that a crash tore. A scan also drops a run longer than `RUN_BLOCKS_MAX`, up to its first unmarked block,
 as a follower stops at one.
 
+A scan that starts inside a run, at `OpenOptions::start` on a raw medium, takes the run's tail as a run: it doesn't
+read the blocks before its start.
+
 Damage inside a run hurts its blocks only, unless they are of a group of puts ([Groups of puts](#groups-of-puts)).
 A group is taken whole or not at all, damaged too, so a block of a group that doesn't read drops the whole group. A
 block that doesn't read hides its own marks. After damage, a scan so drops the blocks of a group up to the first one
@@ -851,7 +854,11 @@ The writer checks the whole group before it writes the first block:
 | each item at most `STATE_ITEM_MAX` bytes | `DescribeError::TooLong` |
 | no track twice in the group | `InputError::Group(GroupRefusal::SlotTwice)` |
 | the items at most `GROUP_BYTES_MAX` (64 MiB) together | `InputError::Group(GroupRefusal::TooLong)` |
+| its blocks of puts, with its definitions, at most `RUN_BLOCKS_MAX` | `InputError::RunTooLong` |
 | the piece's room for the state entries of all it writes | `IndexError::StateEntries` |
+
+A group of `GROUP_BYTES_MAX` of items of `MAX_RECORD_HEAD` (25) bytes or more always fits a run. One of many shorter
+items may take more blocks than its bytes say, and the writer refuses it whole.
 
 `PieceChain::put_group` cuts before a group that the piece has no room for and puts it whole into the next piece.
 No cut falls inside a group, nor a checkpoint or a deferred block.

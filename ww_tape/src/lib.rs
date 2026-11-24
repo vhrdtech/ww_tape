@@ -339,10 +339,13 @@ pub const FLAG_WITH_NEXT: u16 = 1 << 2;
 
 /// Most blocks of one run: the blocks marked [FLAG_WITH_NEXT] in a row and the block they belong with.
 ///
-/// A writer refuses a call that would make a longer run ([InputError::RunTooLong]): a group of puts
-/// ([TapeWriter::put_group]) of [GROUP_BYTES_MAX] takes at most `2 * GROUP_BYTES_MAX / DEFINITION_BLOCK_LEN + 1`
-/// blocks of puts and a unit [UNIT_CHUNKS_MAX](writer::UNIT_CHUNKS_MAX) chunks, each with its puts, so neither
-/// reaches it. A follower holds a run's places until its last block comes and stops at a longer one.
+/// A writer refuses a call that would make a longer run ([InputError::RunTooLong]). A unit of
+/// [UNIT_CHUNKS_MAX](writer::UNIT_CHUNKS_MAX) chunks, each with its puts, never reaches it. Nor does a group of puts
+/// ([TapeWriter::put_group]) of [GROUP_BYTES_MAX] bytes of items of [MAX_RECORD_HEAD] bytes or more: its items fill at
+/// least half of each block, so it takes at most `2 * GROUP_BYTES_MAX / DEFINITION_BLOCK_LEN + 1` blocks. A group of
+/// many shorter items may take more blocks than its bytes say, and the writer refuses it whole.
+///
+/// A follower holds a run's places until its last block comes and stops at a longer run; a scan drops one.
 pub const RUN_BLOCKS_MAX: usize = 4096;
 /// Header flag on blocks of puts: the block is one of a group of puts ([TapeWriter::put_group]), taken whole or not
 /// at all.

@@ -358,11 +358,12 @@ pub const DEFINITION_BLOCK_LEN: usize = 64 << 10;
 pub const GROUP_BYTES_MAX: usize = 64 << 20;
 
 const _: () = {
-    // a group's puts: a block holds at least half of DEFINITION_BLOCK_LEN of items, or one longer item
+    // a group's puts of items of MAX_RECORD_HEAD bytes or more: a block holds at least half of
+    // DEFINITION_BLOCK_LEN of items, or one longer item; shorter items may take more blocks (InputError::RunTooLong)
     let group_blocks = 2 * GROUP_BYTES_MAX / DEFINITION_BLOCK_LEN + 1;
     assert!(
         group_blocks < crate::RUN_BLOCKS_MAX,
-        "a group of puts fits a run with its definitions"
+        "a group of GROUP_BYTES_MAX bytes of items of MAX_RECORD_HEAD bytes or more fits a run"
     );
     assert!(
         2 * UNIT_CHUNKS_MAX < crate::RUN_BLOCKS_MAX,
@@ -707,8 +708,10 @@ impl<S: TapeSink> TapeWriter<S> {
     ///
     /// The group is checked whole before anything is written: every track a state track of `defs`, each item at
     /// most [STATE_ITEM_MAX] bytes, no track twice ([GroupRefusal::SlotTwice]), the items at most
-    /// [GROUP_BYTES_MAX] bytes together ([GroupRefusal::TooLong]), and the piece's room for the state entries of all
-    /// it writes ([IndexError::StateEntries]: [crate::PieceChain::put_group] cuts first then, never inside).
+    /// [GROUP_BYTES_MAX] bytes together ([GroupRefusal::TooLong]), the piece's room for the state entries of all it
+    /// writes ([IndexError::StateEntries]: [crate::PieceChain::put_group] cuts first then, never inside), and its
+    /// blocks with its definitions at most [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) ([InputError::RunTooLong]), which
+    /// only a group of many items shorter than [MAX_RECORD_HEAD](crate::MAX_RECORD_HEAD) bytes may pass.
     pub fn put_group(
         &mut self,
         defs: &Definitions,
