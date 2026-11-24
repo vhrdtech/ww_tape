@@ -116,7 +116,10 @@ fn a_keys_records_are_found_through_the_index() {
         deleted.iter().map(|(_, s)| s.deleted).collect::<Vec<_>>(),
         [false, true]
     );
-    assert!(r.key_entries(0, KEYED, b"/none").unwrap().is_empty());
+    assert_eq!(
+        r.key_entries(0, KEYED, b"/none").unwrap(),
+        [] as [(ww_tape::IndexEntry, ww_tape::StateEntry); 0]
+    );
 }
 
 /// The record in force at a place: the newest before it, a value or a deletion, its full key checked.

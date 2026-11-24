@@ -137,9 +137,12 @@ pub fn prefix_resync() -> anyhow::Result<String> {
     fates(
         &mut s,
         &blocks,
-        |b| match prefix.blocks.iter().any(|p| p.at == b.at) {
-            true => Fate::Read,
-            false => Fate::Lost,
+        |b| {
+            if prefix.blocks.iter().any(|p| p.at == b.at) {
+                Fate::Read
+            } else {
+                Fate::Lost
+            }
         },
         v,
         row_p,

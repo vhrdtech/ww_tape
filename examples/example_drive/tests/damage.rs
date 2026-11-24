@@ -41,7 +41,7 @@ fn damage_to_the_last_piece_costs_what_the_book_says() -> Result<(), Error> {
         assert!(
             FLIP_MINUTE < FAULT_MINUTE,
             "the fault itself stays readable"
-        )
+        );
     };
     check_flip(&drive, &flip)?;
     check_first(&drive, &first)?;
@@ -62,7 +62,7 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
         r.data_blocks(),
         "the index lists every block of data"
     );
-    assert!(r.unlisted.is_empty());
+    assert_eq!(r.unlisted, [] as [example_drive::Placed; 0]);
     let stop = r
         .prefix
         .reports
@@ -71,7 +71,7 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
         .expect("Prefix stops");
     assert_eq!(stop.0, bad.at, "Prefix stops at the damaged chunk");
     assert_eq!(r.resync.blocks, r.blocks, "Resync hands out every block");
-    assert!(r.resync.reports.is_empty());
+    assert_eq!(r.resync.reports, [] as [(u64, &str, u64); 0]);
     assert_eq!(r.resync.salvaged.len(), 1, "one chunk salvaged");
     let s = r.resync.salvaged[0];
     assert_eq!((s.segments, s.bad_segments), (1, 1));
@@ -119,7 +119,7 @@ fn check_first(drive: &Drive, first: &Damaged) -> Result<(), Error> {
     let r = first.read(drive)?;
     assert_eq!(r.found, Found::Tail);
     assert_eq!(r.holds, Some(false));
-    assert!(!r.unreadable.is_empty());
+    assert_ne!(r.unreadable, [] as [example_drive::Placed; 0]);
     assert!(r.unreadable.iter().all(|b| b.at < LOST_UNIT));
     assert!(r.read.iter().all(|b| b.at + b.len > LOST_UNIT));
     assert_eq!((r.definitions, r.definitions_written), (10, 10));

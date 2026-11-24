@@ -117,7 +117,7 @@ pub(crate) fn hold(defs: &mut Definitions, batch: &[Describe<'_>]) -> Result<(),
             .filter_map(|d| match d {
                 Describe::Map(m) if m.from == from => match &m.segments {
                     RefVec::Slice { slice } => Some((m.to, *slice)),
-                    _ => None,
+                    RefVec::Buf { .. } => None,
                 },
                 _ => None,
             })
@@ -373,12 +373,12 @@ pub(crate) fn options(copy_spacing: u64) -> WriterOptions {
 }
 
 /// A first piece on a memory sink with a producer, `layout`, a clock and track 1 defined, not yet flushed.
-fn begin_with(o: WriterOptions, layout: Layout) -> Rig {
+fn begin_with(o: &WriterOptions, layout: Layout) -> Rig {
     begin_numbered(o, layout, &[])
 }
 
 /// [begin_with], the definitions numbering the tracks and clocks of `later` as it writes them ([numbers_of]).
-pub(crate) fn begin_numbered(o: WriterOptions, layout: Layout, later: &[Describe<'_>]) -> Rig {
+pub(crate) fn begin_numbered(o: &WriterOptions, layout: Layout, later: &[Describe<'_>]) -> Rig {
     let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_index_policy(o.index)
         .expect("a policy with room for a piece head");
@@ -408,7 +408,7 @@ pub(crate) fn begin_numbered(o: WriterOptions, layout: Layout, later: &[Describe
 }
 
 /// [begin_with] the unaligned layout.
-pub(crate) fn begin(o: WriterOptions) -> Rig {
+pub(crate) fn begin(o: &WriterOptions) -> Rig {
     begin_with(o, Layout::UNALIGNED)
 }
 
@@ -455,7 +455,7 @@ const NEAR_2K: StatePolicy = StatePolicy {
 #[test]
 fn a_definition_is_put_where_it_is_used() {
     let mut w = begin_with(
-        options(u64::MAX),
+        &options(u64::MAX),
         Layout::UNALIGNED.with_definitions(NEAR_2K),
     );
     define_all(&mut w, &[track(2, CLOCK), track(3, CLOCK)]);
@@ -530,7 +530,7 @@ fn a_definition_is_put_where_it_is_used() {
 /// point 4).
 #[test]
 fn the_reader_takes_the_definition_in_force() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     write_records(&mut w, 0, 3);
     w.define(&labeled(1, CLOCK, "v2")).unwrap();
@@ -601,7 +601,7 @@ fn the_reader_takes_the_definition_in_force() {
 /// place past the end; a closed piece at its end has none (reading side review 2, point 4).
 #[test]
 fn a_lookup_names_the_stretches_the_index_does_not_cover() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     write_records(&mut w, 0, 3);
     w.close_piece().unwrap();
@@ -639,7 +639,7 @@ fn a_lookup_names_the_stretches_the_index_does_not_cover() {
 /// review 3, point 4).
 #[test]
 fn a_spent_read_budget_is_its_own_answer() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     write_records(&mut w, 0, 3);
     w.close_piece().unwrap();
@@ -691,7 +691,7 @@ impl ByteSource for Counted<'_> {
 /// again (reading side review 2, point 6).
 #[test]
 fn a_reader_keeps_the_state_entries_once_read() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     let tracks: Vec<Describe<'_>> = (2..=9).map(|n| track(n, CLOCK)).collect();
     define_all(&mut w, &tracks);
@@ -739,7 +739,7 @@ fn a_reader_keeps_the_state_entries_once_read() {
 #[test]
 fn a_put_writes_only_what_is_not_close_behind() {
     let fives = [state_with(5, NEAR_2K)];
-    let mut w = begin_numbered(options(u64::MAX), Layout::UNALIGNED, &fives);
+    let mut w = begin_numbered(&options(u64::MAX), Layout::UNALIGNED, &fives);
     define_all(&mut w, &fives);
     let tape = w.sink().tape();
     assert!(w.put(5, 0, b"A").unwrap());
@@ -805,7 +805,10 @@ fn a_put_writes_only_what_is_not_close_behind() {
     assert_eq!(by_hash.item.unwrap().item, b"B");
     // a state entry's item number and count stay 0, kept for numbering every record
     let entries = r.state_entries(0).unwrap();
-    assert!(!entries.is_empty());
+    assert_ne!(
+        entries,
+        [] as [(ww_tape::IndexEntry, ww_tape::StateEntry); 0]
+    );
     assert!(
         entries
             .iter()
@@ -859,7 +862,7 @@ pub(crate) fn puts_of(
 /// its definitions held and its records put, a records block after it is written under them.
 #[test]
 fn a_relay_holds_the_definitions_of_the_blocks_of_puts() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     let producer = BlockId::new(SessionTag::random(), 7);
     let mut defs = Definitions::new();
@@ -902,7 +905,7 @@ fn a_relay_holds_the_definitions_of_the_blocks_of_puts() {
 /// stream track is refused with nothing put.
 #[test]
 fn a_producers_block_of_puts_is_put_on_the_tape() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     let producer = BlockId::new(SessionTag::random(), 7);
     let puts_of =
@@ -1048,7 +1051,7 @@ fn a_use_writes_the_copies() {
         copies: exact_units::Count::new(2),
     };
     let states = [state_with(5, policy), state_with(6, policy)];
-    let mut w = begin_numbered(options(1024), Layout::UNALIGNED, &states);
+    let mut w = begin_numbered(&options(1024), Layout::UNALIGNED, &states);
     define_all(&mut w, &states);
     let tape = w.sink().tape();
     assert!(w.put(5, 0, b"five").unwrap());
@@ -1091,7 +1094,7 @@ fn a_use_writes_the_copies() {
 #[test]
 fn a_track_dropped_from_the_definitions_is_refused() {
     let mut w = begin_numbered(
-        options(u64::MAX),
+        &options(u64::MAX),
         Layout::UNALIGNED,
         &[clock(2), track(7, 2)],
     );
@@ -1241,7 +1244,7 @@ fn definitions_report_their_size() {
 /// good ones still placed (writing side point 1).
 #[test]
 fn definitions_that_do_not_hold_together_are_refused() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     write_records(&mut w, 0, 3);
     let tape = w.sink().tape();
     let len = tape.to_vec().unwrap().len();
@@ -1365,7 +1368,7 @@ fn a_resumed_piece_takes_the_definitions_passed() {
 /// A typed item is put on track 0 like a state item: written once while it lies close behind.
 #[test]
 fn a_typed_item_is_put() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let item = TypedItem {
         ty: TypeRef {
             bundle: RefVec::Slice { slice: &[] },
@@ -1411,7 +1414,7 @@ impl ByteSource for Counting<'_> {
 #[test]
 fn ten_thousand_tracks_one_at_a_time() {
     const TRACKS: u32 = 10_000;
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     write_records(&mut w, 0, 1);
     let start = tape.to_vec().unwrap().len();
@@ -1449,7 +1452,7 @@ fn ten_thousand_tracks_one_at_a_time() {
 fn a_block_on_many_tracks_puts_each_definition_once() {
     const TRACKS: u32 = 2000;
     let mut w = begin_with(
-        options(u64::MAX),
+        &options(u64::MAX),
         Layout::UNALIGNED.with_definitions(NEAR_2K),
     );
     let tape = w.sink().tape();
@@ -1496,7 +1499,7 @@ fn a_block_on_many_tracks_puts_each_definition_once() {
 fn near_is_measured_to_the_data() {
     let defs: Vec<Describe<'_>> = (10..70).map(|n| track(n, CLOCK)).collect();
     let mut w = begin_numbered(
-        options(u64::MAX),
+        &options(u64::MAX),
         Layout::UNALIGNED.with_definitions(NEAR_2K),
         &[&defs[..], &[track(2, CLOCK)]].concat(),
     );

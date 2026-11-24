@@ -61,6 +61,10 @@ struct State<'a, T: PieceStore> {
 }
 
 /// The thread: place every unit until a close or a stop, ticking every `tick`.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the thread owns its handle on the shared state until it exits"
+)]
 pub(crate) fn run<T: PieceStore>(
     mut chain: PieceChain<T>,
     mut defs: Definitions,
@@ -355,7 +359,9 @@ fn place<T: PieceStore>(
             overviews,
             placed: receipt,
         } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let c = Placing {
                     head: &head,
                     columns: &columns,
@@ -383,8 +389,6 @@ fn place<T: PieceStore>(
                 if let Some(tx) = receipt {
                     tx.send(answer);
                 }
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
             for (_, buf) in columns
                 .into_iter()
@@ -398,14 +402,14 @@ fn place<T: PieceStore>(
             how,
             mut block,
         } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let r = place_block(chain, defs, how, &mut block);
                 if r.is_ok() && st.items.wants_tracks() {
                     st.wrote = items::block_tracks(&block);
                 }
                 placed(chain, shared, &from, r, bytes);
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
             from.give_back(block);
         }
@@ -416,23 +420,21 @@ fn place<T: PieceStore>(
             item,
             keyed,
         } => {
-            if !failed {
-                let r = if keyed {
-                    put_keyed(chain, defs, track, ticks, &item)
-                } else {
-                    chain.put(defs, track, ticks, &item).map(|_| ())
-                };
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
+                let r = put_unit(chain, defs, (track, ticks), &item, keyed);
                 if r.is_ok() {
                     st.wrote.push(track);
                 }
                 placed(chain, shared, &from, r, bytes);
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
             from.give_back(item);
         }
         Work::PutGroup { from, puts } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let group: Vec<GroupPut<'_>> = puts
                     .iter()
                     .map(|(track, ticks, item)| GroupPut {
@@ -443,11 +445,10 @@ fn place<T: PieceStore>(
                     .collect();
                 let r = chain.put_group(defs, &group).map(drop);
                 placed(chain, shared, &from, r, bytes);
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
-            puts.into_iter()
-                .for_each(|(_, _, item)| from.give_back(item));
+            for (_, _, item) in puts {
+                from.give_back(item);
+            }
         }
         Work::PutItem { item, carry, reply } => {
             let r = match shared.failure.get() {
@@ -504,14 +505,17 @@ fn place<T: PieceStore>(
     None
 }
 
-/// Put the keyed item `item`, a key and its value or deletion as a handle encoded it, on keyed track `track`.
-fn put_keyed<T: PieceStore>(
+/// The put of `item` on `track` at `ticks`: by key when `keyed`, the item then a [KeyedItem].
+fn put_unit<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &Definitions,
-    track: TrackNum,
-    ticks: i64,
+    (track, ticks): (TrackNum, i64),
     item: &[u8],
+    keyed: bool,
 ) -> Result<(), WriteError<T::Error>> {
+    if !keyed {
+        return chain.put(defs, track, ticks, item).map(|_| ());
+    }
     // the handle encoded it: a key within the cap
     let k = KeyedItem::read(item).map_err(DescribeError::KeyedItem)?;
     match k.value {

@@ -220,9 +220,16 @@ fn define(mux: &TapeMux<MemPieces>, summaries: bool) -> (TrackNum, TrackId) {
     (mux.define_track(spec).unwrap(), id)
 }
 
-/// The pieces of a run without a crash: a handle per tile, or one of the whole grid; the time pyramid with
-/// `summaries`.
-fn whole_run(per_tile: bool, summaries: bool) -> (Vec<Vec<u8>>, TrackId) {
+/// How [whole_run] shapes a run: a handle per tile when `per_tile`, else one of the whole grid; the time pyramid
+/// when `summaries`.
+#[derive(Clone, Copy)]
+struct RunShape {
+    per_tile: bool,
+    summaries: bool,
+}
+
+/// The pieces of a run without a crash, shaped as `shape`.
+fn whole_run(shape: RunShape) -> (Vec<Vec<u8>>, TrackId) {
     let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
@@ -233,8 +240,8 @@ fn whole_run(per_tile: bool, summaries: bool) -> (Vec<Vec<u8>>, TrackId) {
         MuxOptions::default(),
     )
     .unwrap();
-    let (track, id) = define(&mux, summaries);
-    let from = if per_tile {
+    let (track, id) = define(&mux, shape.summaries);
+    let from = if shape.per_tile {
         vec![0; tiles().len()]
     } else {
         vec![]
@@ -339,7 +346,10 @@ fn golden_overview() {
 /// cell of each holds the naive min, max and mean of its source cells, at edge tiles and the odd edge too.
 #[test]
 fn a_mux_grid_writes_overviews_of_a_naive_downsample() {
-    let (pieces, id) = whole_run(false, false);
+    let (pieces, id) = whole_run(RunShape {
+        per_tile: false,
+        summaries: false,
+    });
     let l = layout();
     assert_eq!(l.overview_levels(), LEVELS);
     let steps = BATCHES * BATCH;
@@ -401,7 +411,10 @@ fn a_view_picks_its_level_and_finds_only_it() {
     assert_eq!(l.level_for(&[2.5, 1.0, 3.0]), 1);
     assert_eq!(l.level_for(&[16.0, 1.0, 16.0]), LEVELS);
     // a box made of the layout as written finds no overview, and one of a level none of the chunks as written
-    let (pieces, id) = whole_run(false, false);
+    let (pieces, id) = whole_run(RunShape {
+        per_tile: false,
+        summaries: false,
+    });
     let r = TapeReader::open(&pieces[0][..]).unwrap();
     let at = l.overview(1).unwrap();
     let b = at.tile_box(&[0..1, 0..1, 0..1]).unwrap();
@@ -465,7 +478,10 @@ fn last_level(bytes: &[u8]) -> Option<u8> {
 }
 
 fn crash_anywhere(summaries: bool) {
-    let (want, id) = whole_run(true, summaries);
+    let (want, id) = whole_run(RunShape {
+        per_tile: true,
+        summaries,
+    });
     assert!(want.len() >= 2, "{} pieces", want.len());
     let mut crashes = 0;
     let mut torn_units = 0;
@@ -514,7 +530,10 @@ fn crash_anywhere(summaries: bool) {
 /// over the overview chunks.
 #[test]
 fn a_follower_skips_overview_chunks() {
-    let (pieces, id) = whole_run(false, false);
+    let (pieces, id) = whole_run(RunShape {
+        per_tile: false,
+        summaries: false,
+    });
     let mut f = ww_tape_fs::follow::TrackItems::new(id);
     let mut defs = ww_tape::Definitions::new();
     let mut out = std::collections::VecDeque::new();
@@ -604,7 +623,10 @@ fn count_chunks(bytes: &[u8]) -> (usize, bool) {
 /// adds none to them, and the chain holds the bytes of the run without the crash.
 #[test]
 fn chunks_sent_without_overviews_resume_without_them() {
-    let (run, _) = whole_run(false, false);
+    let (run, _) = whole_run(RunShape {
+        per_tile: false,
+        summaries: false,
+    });
     let chunks = tile_chunks(&run);
     let mem = MemPieces::new();
     let mux = TapeMux::create(
@@ -679,7 +701,10 @@ fn relay_blocks(mux: TapeMux<MemPieces>, blocks: &[Vec<u8>], skip: usize) {
 /// the run without the crash.
 #[test]
 fn relayed_units_resume_without_duplicates() {
-    let (run, _) = whole_run(false, false);
+    let (run, _) = whole_run(RunShape {
+        per_tile: false,
+        summaries: false,
+    });
     let blocks = relayed(&run);
     let mem = MemPieces::new();
     let mux = TapeMux::create(
@@ -751,7 +776,10 @@ fn relayed_units_resume_without_duplicates() {
 /// overview but the last wait for the unit's last block, wherever the written bytes end.
 #[test]
 fn a_follower_hands_out_a_tile_chunk_with_its_overviews() {
-    let (run, _) = whole_run(false, false);
+    let (run, _) = whole_run(RunShape {
+        per_tile: false,
+        summaries: false,
+    });
     let piece = &run[0];
     let dir = crate::pieces::scratch("overview-units");
     let mut cuts = 0;

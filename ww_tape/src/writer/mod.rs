@@ -723,7 +723,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if facts.keyed {
             return Err(DescribeError::Keyed { track }.into());
         }
-        self.put_state(defs, track, facts, ticks, Slot::State { track }, item)
+        self.put_state(defs, track, &facts, ticks, Slot::State { track }, item)
     }
 
     /// Put the value `value` of key `key` on keyed state track `track` of `defs` at `ticks` of its clock, as
@@ -799,7 +799,7 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         keyed::check(&self.kept, defs, &[put], self.key_limits())?;
         let slot = Slot::Keyed { track, key };
-        self.put_state(defs, track, facts, ticks, slot, &item)
+        self.put_state(defs, track, &facts, ticks, slot, &item)
     }
 
     /// The limits the keys every cut carries keep to ([keyed::check]).
@@ -815,7 +815,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         defs: &Definitions,
         track: TrackNum,
-        facts: crate::open::TrackFacts,
+        facts: &crate::open::TrackFacts,
         ticks: i64,
         slot: Slot,
         item: &[u8],
@@ -1205,7 +1205,7 @@ impl<S: TapeSink> TapeWriter<S> {
         // the live keys of each keyed track, by slot: a key's id is its slot, no two live keys share one
         let mut keys: BTreeMap<TrackNum, Vec<Slot>> = BTreeMap::new();
         let mut key_states: BTreeMap<Slot, (crate::StatePolicy, &kept::State)> = BTreeMap::new();
-        for (n, ident) in self.keyed_rows(defs, &rows) {
+        for (n, ident) in Self::keyed_rows(defs, &rows) {
             let slots = keys.entry(n).or_default();
             let (Some(k), Some(policy)) = (
                 self.kept.keys(n, ident),
@@ -1382,7 +1382,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// The keyed state tracks of head rows `rows` that `defs` holds under the row's number, id and owner.
-    fn keyed_rows(&self, defs: &Definitions, rows: &[TrackStart]) -> Vec<(TrackNum, TrackIdent)> {
+    fn keyed_rows(defs: &Definitions, rows: &[TrackStart]) -> Vec<(TrackNum, TrackIdent)> {
         rows.iter()
             .filter(|r| defs.track_identity(r.track_number) == Some((r.track_id, r.owner.0)))
             .filter(|r| defs.track(r.track_number).is_some_and(|f| f.keyed))
@@ -2080,7 +2080,7 @@ impl<S: TapeSink> TapeWriter<S> {
             {
                 self.indexer.define(t.number, t.id(), OwnerId(t.owner));
                 self.relations
-                    .define(t.number, crate::open::TrackFacts::of(&t));
+                    .define(t.number, &crate::open::TrackFacts::of(&t));
             }
             self.near
                 .wrote(slot, Some(ItemHash::of(r.item)), at, &self.near_policy);
@@ -2222,7 +2222,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 .indexer
                 .key_of(c.head().track_number, Some(c.head().track_id))
         {
-            self.relations.deferred(key, &c, facts);
+            self.relations.deferred(key, &c, &facts);
         }
         let tracks = data_tracks(&b);
         let d = Deferred {
@@ -2562,10 +2562,10 @@ impl<S: TapeSink> TapeWriter<S> {
             loop {
                 let gap = crate::chunk::chunk_padding(self.at()?, head_len, self.alignment())
                     .ok_or(WriteError::Input(InputError::Alignment(self.alignment())))?;
-                if !self
+                if self
                     .deferred
                     .first()
-                    .is_some_and(|next| next.block.len() <= gap)
+                    .is_none_or(|next| next.block.len() > gap)
                 {
                     break;
                 }
@@ -3313,14 +3313,13 @@ impl<S: TapeSink> TapeWriter<S> {
         for t in &mut tracks {
             t.not_carried = dropped.contains(&t.track_number);
         }
-        for (n, ident) in self.keyed_rows(defs, &tracks) {
+        for (n, ident) in Self::keyed_rows(defs, &tracks) {
             let complete = self.keys_complete(n, ident);
             for t in tracks.iter_mut().filter(|t| t.track_number == n) {
                 t.keys_carried = complete && !t.not_carried;
             }
         }
-        let keyed: BTreeSet<TrackNum> = self
-            .keyed_rows(defs, &tracks)
+        let keyed: BTreeSet<TrackNum> = Self::keyed_rows(defs, &tracks)
             .into_iter()
             .map(|(n, _)| n)
             .collect();

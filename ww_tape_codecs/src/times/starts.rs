@@ -657,6 +657,15 @@ impl<'b> Starts<'b> {
     }
 }
 
+impl<'b> IntoIterator for &Starts<'b> {
+    type Item = i64;
+    type IntoIter = Iter<'b>;
+
+    fn into_iter(self) -> Iter<'b> {
+        self.iter()
+    }
+}
+
 /// Starts of a range of items, a group decoded at a time.
 #[derive(Clone)]
 pub struct Iter<'b> {

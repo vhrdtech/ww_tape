@@ -142,7 +142,13 @@ pub fn grids() -> anyhow::Result<String> {
                 scale_name(&h.grid.context("a series head")?.scale)
             )
         };
-        s.text((x0 + x1) / 2.0, lane - 22.0, "middle", "small", &label);
+        s.text(
+            f64::midpoint(x0, x1),
+            lane - 22.0,
+            "middle",
+            "small",
+            &label,
+        );
         s.text(
             x0 + 2.0,
             lane + 32.0,
@@ -172,7 +178,13 @@ pub fn grids() -> anyhow::Result<String> {
     // the gap
     let (g0, g1) = (x(c3.last_tick) + 8.0, x(c4.first_tick) - 8.0);
     s.bracket_over(g0, g1, lane - 2.0, "thin");
-    s.text((g0 + g1) / 2.0, lane - 12.0, "middle", "soft small", "gap");
+    s.text(
+        f64::midpoint(g0, g1),
+        lane - 12.0,
+        "middle",
+        "soft small",
+        "gap",
+    );
     // the axis
     s.line((left, axis), (left + plot_w, axis), "thin");
     s.text(

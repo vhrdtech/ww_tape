@@ -36,7 +36,8 @@ pub use reclose::reclose;
 pub(crate) use reclose::summarized;
 pub use resume::resume;
 pub(crate) use resume::{
-    Defined, chain_template, chunk as chunk_of, options, removed_chain, template_definitions,
+    ChainTemplateMode, Defined, chain_template, chunk as chunk_of, options, removed_chain,
+    template_definitions,
 };
 pub use runs::{runs, runs_hostile};
 pub use samples::samples;

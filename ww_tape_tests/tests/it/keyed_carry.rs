@@ -67,15 +67,12 @@ fn apply(
     value: Option<&[u8]>,
 ) {
     let defs = defs();
-    match value {
-        Some(v) => {
-            chain.put_key(&defs, KEYED, ticks, key, v).unwrap();
-            model.insert(key.to_vec(), v.to_vec());
-        }
-        None => {
-            chain.delete_key(&defs, KEYED, ticks, key).unwrap();
-            model.remove(key);
-        }
+    if let Some(v) = value {
+        chain.put_key(&defs, KEYED, ticks, key, v).unwrap();
+        model.insert(key.to_vec(), v.to_vec());
+    } else {
+        chain.delete_key(&defs, KEYED, ticks, key).unwrap();
+        model.remove(key);
     }
 }
 

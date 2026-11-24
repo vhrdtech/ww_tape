@@ -869,9 +869,10 @@ impl<S: TapeSink> TapeWriter<S> {
             ended_at,
         } = walk;
         // the reason of a close record dropped with the end it belongs to: the piece was being closed
-        let ended = match write_on {
-            true => None,
-            false => close_in(&sink, &ending)?.map(|(_, c)| c.reason),
+        let ended = if write_on {
+            None
+        } else {
+            close_in(&sink, &ending)?.map(|(_, c)| c.reason)
         };
         if let Some(from) = ended_at
             && let Some(offset) = taken_after_end(&sink, &layout, from, &sessions)?
@@ -1045,7 +1046,7 @@ impl<S: TapeSink> TapeWriter<S> {
         // the copies of definitions written twice at once that the bytes stop before, as the writer would have
         // written them next
         w.write_copies()?;
-        w.take_head_puts(past_head, &named.read, base.is_some())?;
+        w.take_head_puts(past_head, base.is_some().then_some(&named.read))?;
         // the definitions of the tracks the head carries follow the layout and the producer: lost with them, the next
         // call given definitions puts them
         w.carried_due = !past_head && w.head.as_ref().is_some_and(|(_, rows)| !rows.is_empty());
@@ -1080,19 +1081,18 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Take the layout and the producer the piece holds: put when a block lies `past_head` (they follow the head
-    /// first), so a use copies them as the writer before the crash did; of a `closed` piece, whose record of what lies
-    /// near starts empty, those `read` after its head ([Named::read]) are its first records.
+    /// first), so a use copies them as the writer before the crash did; of a closed piece, whose record of what lies
+    /// near starts empty, those `read_of_closed` after its head ([Named::read]) are its first records.
     fn take_head_puts(
         &mut self,
         past_head: bool,
-        read: &BTreeMap<Slot, (ItemHash, u64)>,
-        closed: bool,
+        read_of_closed: Option<&BTreeMap<Slot, (ItemHash, u64)>>,
     ) -> Result<(), WriteError<S::Error>> {
         self.head_put = past_head;
         if past_head {
             self.head_items = self.head_candidates()?;
         }
-        if closed {
+        if let Some(read) = read_of_closed {
             for (slot, (hash, at)) in read {
                 self.near.wrote(*slot, Some(*hash), *at, &self.near_policy);
             }
@@ -1107,9 +1107,10 @@ impl<S: TapeSink> TapeWriter<S> {
         let (head, tracks) = &b.head;
         self.session = b.id.session;
         // the close's seq is that of the last counted block, 0 before the first of a first piece
-        self.next_seq = match b.id.seq == 0 && head.prev.is_none() && !b.counted {
-            true => 0,
-            false => b.id.seq.wrapping_add(1),
+        self.next_seq = if b.id.seq == 0 && head.prev.is_none() && !b.counted {
+            0
+        } else {
+            b.id.seq.wrapping_add(1)
         };
         self.set_level(head.integrity);
         self.indexer.start(tracks);
@@ -1225,9 +1226,10 @@ impl<S: TapeSink> TapeWriter<S> {
             if !e.repeat {
                 self.indexer.begin_block();
                 if let Some(track) = e.track() {
-                    match e.unit == crate::piece::UnitHash::NONE {
-                        true => self.indexer.tally_unread(track, e.track_id),
-                        false => self.indexer.tally_chunk(track, e.track_id, &e.unit),
+                    if e.unit == crate::piece::UnitHash::NONE {
+                        self.indexer.tally_unread(track, e.track_id);
+                    } else {
+                        self.indexer.tally_chunk(track, e.track_id, &e.unit);
                     }
                 }
             }

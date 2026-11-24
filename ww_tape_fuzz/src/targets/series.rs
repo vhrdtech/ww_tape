@@ -51,7 +51,7 @@ pub(crate) fn query(t: &SeriesTimeline, at: u64, count: u32) {
             assert_eq!(SeriesGrid::of_chunk(&head, t.period()), Ok(*g));
         }
     }
-    for i in 0..t.stretches().len() + 1 {
+    for i in 0..=t.stretches().len() {
         let _ = t.gap_before(i);
     }
 }
@@ -169,13 +169,13 @@ pub fn series(data: &[u8]) {
                 h.grid = h.grid.map(|g| SeriesGrid {
                     grid_tick: g.grid_tick ^ i64::from(*x),
                     ..g
-                })
+                });
             }
             3 => {
                 h.grid = h.grid.map(|g| SeriesGrid {
                     grid_index: g.grid_index.wrapping_add(u64::from(*x)),
                     ..g
-                })
+                });
             }
             4 => h.grid = None,
             _ => {}

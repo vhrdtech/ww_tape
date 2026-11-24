@@ -241,10 +241,10 @@ fn rewritten(w: &[Vec<u8>], edit: impl Fn(&mut [u8]), bad: &[usize]) {
     for (i, want) in w.iter().enumerate() {
         let g = i / GROUP;
         assert_eq!(s.is_suspect(i), bad.contains(&g), "item {i}");
-        if !bad.contains(&g) {
-            assert_eq!(s.get(i), Some(want.as_slice()), "item {i}");
-        } else {
+        if bad.contains(&g) {
             assert_eq!(s.get(i), Some(&[][..]), "item {i}");
+        } else {
+            assert_eq!(s.get(i), Some(want.as_slice()), "item {i}");
         }
     }
 }
@@ -373,9 +373,7 @@ fn payloads_deterministic_and_golden() {
     assert_eq!(blocks, again, "two encodes of the same payloads");
     let mut hex = String::new();
     for b in &blocks {
-        for x in b {
-            hex.push_str(&std::format!("{x:02x}"));
-        }
+        hex.push_str(&crate::tests::hex(b));
         hex.push('\n');
     }
     let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-payloads.hex");
@@ -517,9 +515,7 @@ fn from_parts_encodes_as_items_do() {
             EncodedPayloads::from_parts(PayloadCodec::Auto, &lens, &raw, vec![7; 3]).unwrap();
         let items = EncodedPayloads::encode(w.iter().map(Vec::as_slice)).unwrap();
         assert_eq!(parts, items, "{name}");
-        let taken = parts
-            .into_columns()
-            .map(|(spec, bytes)| (spec, bytes.to_vec()));
+        let taken = parts.into_columns();
         let given = items.columns().map(|(spec, bytes)| (spec, bytes.to_vec()));
         assert_eq!(taken, given, "{name}: the columns");
     }

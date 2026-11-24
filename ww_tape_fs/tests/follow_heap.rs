@@ -11,9 +11,6 @@
 //! as it takes. The follower holds the places of the run's blocks, not their bytes, so its heap stays near one block
 //! besides the run's definitions.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use shrink_wrap::prelude::{RefVec, UNib32};
 use ww_tape::{
     ClockOrigin, ClockSpec, Definitions, EventsDef, FLAG_GROUP, FileBlocks, FullVersion,
@@ -22,42 +19,10 @@ use ww_tape::{
     TrackRepeat, TrackSpec, Version, clock_key, track_key,
 };
 use ww_tape_fs::follow::{ChainFollower, FollowOptions};
-
-/// The system allocator, counting the bytes live and their peak.
-struct Counting;
-
-static LIVE: AtomicUsize = AtomicUsize::new(0);
-static PEAK: AtomicUsize = AtomicUsize::new(0);
-
-// SAFETY: every call goes to the system allocator with the same layout; the counters only observe.
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // SAFETY: the caller's contract for `alloc` holds for `System` too.
-        let p = unsafe { System.alloc(layout) };
-        if !p.is_null() {
-            let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
-            PEAK.fetch_max(live, Ordering::Relaxed);
-        }
-        p
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: `ptr` came from `alloc` with this layout.
-        unsafe { System.dealloc(ptr, layout) };
-        LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
-    }
-}
+use ww_tape_testalloc::{Counting, thread_heap_of};
 
 #[global_allocator]
-static ALLOC: Counting = Counting;
-
-/// The peak heap `f` adds to what is live before it.
-fn peak_of<T>(f: impl FnOnce() -> T) -> (T, usize) {
-    let live = LIVE.load(Ordering::Relaxed);
-    PEAK.store(live, Ordering::Relaxed);
-    let out = f();
-    (out, PEAK.load(Ordering::Relaxed) - live)
-}
+static ALLOC: Counting = Counting::new();
 
 /// Bytes of an item: one more than half a block of puts, so each item takes a block of its own.
 const ITEM: usize = (32 << 10) + 1;
@@ -121,7 +86,7 @@ fn follow_peak(path: &std::path::Path, from: usize) -> (usize, usize, usize) {
         at = b.offset as usize + b.block.bytes().len();
     }
     assert_eq!(at, from, "`from` is where a block starts");
-    let ((blocks, bytes), peak) = peak_of(|| {
+    let ((blocks, bytes), heap) = thread_heap_of(|| {
         let (mut blocks, mut bytes) = (0usize, 0usize);
         while let Some(b) = f.try_next().unwrap() {
             blocks += 1;
@@ -129,7 +94,7 @@ fn follow_peak(path: &std::path::Path, from: usize) -> (usize, usize, usize) {
         }
         (blocks, bytes)
     });
-    (blocks, bytes, peak)
+    (blocks, bytes, heap.peak_bytes)
 }
 
 /// The heap of a follower over a group of puts of [GROUP_BYTES_MAX] on as many tracks as items: once with the
@@ -233,15 +198,13 @@ fn group_blocks(defs: &Definitions, tracks: &[TrackNum], items: &[Vec<u8>]) -> V
 fn relay_held(defs: &Definitions, blocks: &[Vec<u8>]) -> (usize, usize, usize) {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let (_, last) = blocks.split_last().unwrap();
-    assert!(!last.is_empty());
-    let before = LIVE.load(Ordering::Relaxed);
-    let ((), peak) = peak_of(|| {
+    assert_ne!(*last, [] as [Vec<u8>; 0]);
+    let ((), heap) = thread_heap_of(|| {
         for b in &blocks[..blocks.len() - 1] {
             w.put_block(defs, b).unwrap();
         }
     });
-    let held = LIVE.load(Ordering::Relaxed) - before;
-    (held, peak, w.relay_held_bytes())
+    (heap.held_bytes, heap.peak_bytes, w.relay_held_bytes())
 }
 
 /// What a relay holds of a group stays within what it counts against [RELAY_HELD_BYTES_MAX], its peak too: for a group

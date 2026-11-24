@@ -91,7 +91,7 @@ fn payload_len(payload: &[u8]) -> u32 {
         assert!(
             ITEM_BYTES_MAX <= u32::MAX as usize,
             "a payload length fits a u32"
-        )
+        );
     };
     debug_assert!(payload.len() <= ITEM_BYTES_MAX, "a payload checked");
     payload.len() as u32
@@ -194,11 +194,12 @@ impl EventsChunk {
     /// Whether item `it` is refused after an item starting at `last`, but for its relation values' order.
     fn refuses(&self, it: &Event<'_>, last: i64) -> bool {
         (it.start < last)
-            | (it.end < it.start)
-            | (!self.fields.latest_end & (it.end != it.start))
-            | (!self.fields.flags & (it.flags != 0))
-            | (it.payload.len() > ITEM_BYTES_MAX)
-            | (it.values.len() != self.stored.len())
+            || (it.end < it.start)
+            || !self.fields.latest_end && (it.end != it.start)
+            || !self.fields.flags
+                && (it.flags != 0)
+                    | (it.payload.len() > ITEM_BYTES_MAX)
+                    | (it.values.len() != self.stored.len())
     }
 
     /// Whether a monotone relation's values decrease in `items`, from the open chunk's last ones on.

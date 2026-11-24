@@ -18,6 +18,7 @@ shrink_wrap = { workspace = true, features = ["std"] }
 ww_tape = { workspace = true, features = ["std"] }
 ww_tape_fs.workspace = true
 ww_tape_summary = { workspace = true, features = ["std"] }
+ww_tape_testalloc.workspace = true
 
 [dev-dependencies]
 # tests/it/stores.rs: the store model on files

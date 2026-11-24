@@ -190,7 +190,7 @@ impl<'b> Durations<'b> {
         p.width
             .decode_line(p.values, self.min(g).cast_signed(), 0, &mut d);
         if self.salvaged {
-            for d in d.iter_mut() {
+            for d in &mut d {
                 *d = d.cast_unsigned().min(self.max).cast_signed();
             }
         }

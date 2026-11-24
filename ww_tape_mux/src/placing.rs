@@ -91,7 +91,9 @@ impl Placing {
         if self.taken {
             return None;
         }
-        let r = self.rx.try_take()?;
+        let Poll::Ready(r) = self.rx.try_take() else {
+            return None;
+        };
         self.taken = true;
         Some(r.unwrap_or(Err(Unplaced::Lost)))
     }

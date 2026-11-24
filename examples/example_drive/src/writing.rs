@@ -345,7 +345,7 @@ fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Colu
         }
     }
     c.start_millibits = start_bits * 1000 / c.frames.max(1);
-    c.payloads_raw = frame_payload_bytes(&drive)?;
+    c.payloads_raw = frame_payload_bytes(&drive);
     c.codecs = codecs
         .iter()
         .zip(codec_bytes)
@@ -445,12 +445,12 @@ fn sample_bytes(drive: &Drive, codec: Codec, values: &[i16]) -> Result<u64, Erro
 }
 
 /// Bytes of every frame's payload of the hour, before coding.
-fn frame_payload_bytes(drive: &Drive) -> Result<u64, Error> {
+fn frame_payload_bytes(drive: &Drive) -> u64 {
     let period_us = 1_000_000 / u64::from(drive.can_hz);
     let frames = u64::from(drive.can_hz) * 60 * u64::from(drive.minutes);
-    Ok((0..frames)
+    (0..frames)
         .map(|k| crate::signals::frame(k, period_us).1.len() as u64)
-        .sum())
+        .sum()
 }
 
 /// The recording's blocks by kind, in order of first appearance.

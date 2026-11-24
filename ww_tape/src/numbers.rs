@@ -346,7 +346,7 @@ impl RelationSet {
             assert!(
                 crate::RELATIONS_MAX == 16,
                 "a RelationSet has a bit per relation index below the cap"
-            )
+            );
         }
         1u16.checked_shl(u32::from(i)).map(Self)
     }

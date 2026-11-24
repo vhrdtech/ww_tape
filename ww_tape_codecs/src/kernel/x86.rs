@@ -20,6 +20,10 @@ impl Avx2 {
     }
 
     #[inline]
+    #[expect(
+        clippy::unused_self,
+        reason = "self is the proof that the CPU has AVX2"
+    )]
     pub fn int_batch<T: Narrow, const C: usize>(
         self,
         frames: &[[T; C]],
@@ -46,6 +50,10 @@ impl Avx512 {
     }
 
     #[inline]
+    #[expect(
+        clippy::unused_self,
+        reason = "self is the proof that the CPU has AVX-512"
+    )]
     pub fn int_batch<T: Narrow, const C: usize>(
         self,
         frames: &[[T; C]],

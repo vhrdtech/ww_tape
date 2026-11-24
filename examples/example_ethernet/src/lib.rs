@@ -717,8 +717,10 @@ impl Flow {
                 ip: [192, 0, 2, i],
                 port: if proto == PROTO_UDP {
                     4789 + u16::from(j % 4)
+                } else if j % 4 == 3 {
+                    80
                 } else {
-                    if j % 4 == 3 { 80 } else { 443 }
+                    443
                 },
             },
             proto,

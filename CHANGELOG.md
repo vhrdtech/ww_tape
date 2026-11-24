@@ -20,7 +20,6 @@ benchmarks, golden files and book pages.
 
 ### Features
 
-- The book kit pins `vhrd-zensical[zensical]==0.2.1` from PyPI, not the git tag (BOOK-7).
 - `TrackRepeat::Keyed`: a state track of many keys, the newest record per key in force (TRACK-8).
 - `put_key` and `delete_key` on `TapeWriter`, `PieceChain` and the mux's `StateHandle` put by key (TRACK-8).
 - The index lists a keyed record by key head, length and hash: `key_entries` and `key_slots` read the index only (TRACK-8).
@@ -29,6 +28,14 @@ benchmarks, golden files and book pages.
 - A cut carries every live key of a keyed track; a piece read alone holds them or says not (TRACK-8).
 - A put by key past the carry's limit, or of another live key's id, is refused (TRACK-8).
 - `put_group` refuses a keyed track; a relay refuses a keyed block in a group (`GroupRefusal::Keyed`) (TRACK-8).
+
+## [0.10.1] - 2026-11-24
+
+### Features
+
+- spirit_level checks the big tier with a crate map of layers; Clippy's pedantic set is on (REPO-86).
+- `IntoIterator` for `&Starts` and `&Payloads`: a `for` loop takes them borrowed (REPO-86).
+- The book kit pins `vhrd-zensical[zensical]==0.2.1` from PyPI, not the git tag (BOOK-7).
 
 ## [0.10.0] - 2026-11-24
 

@@ -11,7 +11,7 @@ use ww_tape::{
 };
 
 use crate::definitions::{CLOCK, base_defs};
-use crate::pieces::{chunk, column};
+use crate::pieces::{chunk, column, push_hex};
 
 /// A chain of three pieces in memory: tracks 1 and 2 give data in the first, then only track 2. The bytes of each
 /// piece, oldest first.
@@ -215,9 +215,7 @@ fn not_carried_golden() {
 pub(crate) fn golden(bytes: &[u8], name: &str) {
     let mut hex = String::new();
     for line in bytes.chunks(64) {
-        for byte in line {
-            hex.push_str(&format!("{byte:02x}"));
-        }
+        push_hex(&mut hex, line);
         hex.push('\n');
     }
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -521,7 +519,7 @@ fn a_damaged_carried_block_costs_only_its_own_tracks() {
     damaged[at + second.len() / 2] ^= 0xff;
     let r = TapeReader::open(&damaged[..]).unwrap();
     let defs_at = r.definitions_at(0, u64::MAX).unwrap();
-    assert!(!defs_at.lost.is_empty());
+    assert_ne!(defs_at.lost, [] as [ww_tape::reader::Lost; 0]);
     assert!(defs_at.items.contains_key(&clock));
     let tracks = defs_at
         .items

@@ -174,8 +174,7 @@ pub(super) fn pack_in(
     let lengths = encode_lengths(lens).ok_or(EncodeError::TooLong { len: raw.len() })?;
     let (candidates, keep_any) = match codec {
         PayloadCodec::Auto => (coders, false),
-        PayloadCodec::Raw => (&[][..], false),
-        PayloadCodec::Named(Codec::RAW) => (&[][..], false),
+        PayloadCodec::Raw | PayloadCodec::Named(Codec::RAW) => (&[][..], false),
         PayloadCodec::Named(c) => {
             let coder = coder_in(coders, c).ok_or(EncodeError::UnknownCodec(c))?;
             (core::slice::from_ref(coder), true)

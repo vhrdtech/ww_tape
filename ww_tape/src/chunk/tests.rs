@@ -739,9 +739,7 @@ fn chunks_golden() {
     let mut hex = String::new();
     let mut rd = FileBlocks::new(&file[..]);
     while let Some(b) = rd.next_block() {
-        for byte in b.unwrap().bytes() {
-            hex.push_str(&format!("{byte:02x}"));
-        }
+        hex.push_str(&crate::tests::hex(b.unwrap().bytes()));
         hex.push('\n');
     }
     let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-chunks.hex");

@@ -259,7 +259,7 @@ impl<T: PieceStore> ChunkSender<T> {
     pub(crate) fn new(
         shared: Arc<Shared<T>>,
         track: TrackNum,
-        facts: TrackFacts,
+        facts: &TrackFacts,
         summary: Option<SummaryOf>,
     ) -> Self {
         let kind = match facts.period {
@@ -312,7 +312,7 @@ impl<T: PieceStore> ChunkSender<T> {
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(head, columns, None)?;
+        let (work, bytes) = self.unit(Box::new(head), columns, None)?;
         self.s.send(work, bytes)
     }
 
@@ -322,7 +322,7 @@ impl<T: PieceStore> ChunkSender<T> {
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(head, columns, None)?;
+        let (work, bytes) = self.unit(Box::new(head), columns, None)?;
         self.s.send_async(work, bytes).await
     }
 
@@ -349,7 +349,7 @@ impl<T: PieceStore> ChunkSender<T> {
         leaves: Option<Leaves>,
     ) -> Result<Option<Placing>, MuxError<T::Error>> {
         let (tx, placing) = Placing::new();
-        let (mut work, bytes) = self.unit(head, columns, Some(tx))?;
+        let (mut work, bytes) = self.unit(Box::new(head), columns, Some(tx))?;
         if let Work::Chunk { head, summary, .. } = &mut work {
             *summary = match (self.summary, leaves) {
                 (Some(s), Some(l)) => Some(Box::new(s.summary(l, head)?)),
@@ -366,7 +366,7 @@ impl<T: PieceStore> ChunkSender<T> {
     /// The unit of a chunk checked as [Self::send] says, its payload hashed.
     fn unit(
         &self,
-        head: ChunkHead,
+        head: Box<ChunkHead>,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
         placed: Option<PlacedTx>,
     ) -> Result<(Work<T>, u64), MuxError<T::Error>> {
@@ -395,7 +395,7 @@ impl<T: PieceStore> ChunkSender<T> {
         });
         let work = Work::Chunk {
             from: self.s.slot.clone(),
-            head: Box::new(head),
+            head,
             columns,
             hash,
             summary: None,

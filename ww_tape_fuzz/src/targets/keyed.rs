@@ -161,7 +161,7 @@ fn entries(data: &[u8]) {
         })
         .collect();
     let valid = entries.iter().all(|e| match e.key {
-        None => !e.deleted && !(e.kind == BlockKind::Events && e.level != 0),
+        None => !(e.deleted || (e.kind == BlockKind::Events && e.level != 0)),
         Some(key) => {
             e.track_id == STATE_TRACK_ID
                 && e.kind == BlockKind::Records

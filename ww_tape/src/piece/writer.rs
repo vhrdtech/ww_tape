@@ -116,6 +116,10 @@ impl<T: PieceStore> PieceChain<T> {
     /// `tracks` say where items of tracks carried over from elsewhere continue (empty for a new recording). Each
     /// chain of a owner takes its own number, so its pieces and session tag are its own. With [PieceTapes::One] the
     /// tape that holds every piece is made with [PieceStore::create_whole].
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "a chain's constructors take their options by value, as TapeWriter::resume_on does"
+    )]
     pub fn create_on(
         mut store: T,
         owner: OwnerId,
@@ -161,6 +165,10 @@ impl<T: PieceStore> PieceChain<T> {
     /// of its own: only a torn end is cut, and a resume that would drop more is refused. An application that starts
     /// every write session in a piece of its own gives the calls a resume asks for again, then cuts
     /// ([Self::cut_now]).
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "a chain's constructors take their options by value, as TapeWriter::resume_on does"
+    )]
     pub fn resume_on(
         store: T,
         owner: OwnerId,
@@ -168,8 +176,8 @@ impl<T: PieceStore> PieceChain<T> {
         options: ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
         match options.tapes {
-            PieceTapes::Each => Self::resume_each(store, owner, chain, options),
-            PieceTapes::One => Self::resume_one(store, owner, chain, options),
+            PieceTapes::Each => Self::resume_each(store, owner, chain, &options),
+            PieceTapes::One => Self::resume_one(store, owner, chain, &options),
         }
     }
 
@@ -184,7 +192,7 @@ impl<T: PieceStore> PieceChain<T> {
         mut store: T,
         owner: OwnerId,
         chain: u64,
-        options: ChainOptions,
+        options: &ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
         let (walk, key, reopened) = {
             let walk = walk_each(&mut store)?;
@@ -257,48 +265,41 @@ impl<T: PieceStore> PieceChain<T> {
                 )))?;
             read_listed(&src, done.piece.start, e, buf)
         })?;
-        let (mut writer, resumed) = match reopened {
-            Some((mut w, resumed)) => {
-                headed(&w)?;
-                reserve_piece(&mut w, options.cut);
-                if w.bytes() == 0 {
-                    // cut off inside its head: the piece starts again (a first piece without carried-over tracks),
-                    // unless the piece before it is gone
-                    let after_gap = gaps.last().is_some_and(|g| g.1 == seq);
-                    match closed.last() {
-                        _ if after_gap => {
-                            return Err(WriteError::Resume(ResumeError::HeadLost {
-                                seq: Some(seq),
-                            }));
-                        }
-                        None if seq != 0 => {
-                            return Err(WriteError::Resume(ResumeError::HeadLost {
-                                seq: Some(seq),
-                            }));
-                        }
-                        None => {
-                            w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
-                        }
-                        Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
+        let (mut writer, resumed) = if let Some((mut w, resumed)) = reopened {
+            headed(&w)?;
+            reserve_piece(&mut w, options.cut);
+            if w.bytes() == 0 {
+                // cut off inside its head: the piece starts again (a first piece without carried-over tracks),
+                // unless the piece before it is gone
+                let after_gap = gaps.last().is_some_and(|g| g.1 == seq);
+                match closed.last() {
+                    _ if after_gap => {
+                        return Err(WriteError::Resume(ResumeError::HeadLost { seq: Some(seq) }));
                     }
-                } else if let Some((_, last)) = closed.last() {
-                    w.keep_after(last.kept.clone());
+                    None if seq != 0 => {
+                        return Err(WriteError::Resume(ResumeError::HeadLost { seq: Some(seq) }));
+                    }
+                    None => {
+                        w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?;
+                    }
+                    Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                 }
-                (w, resumed)
+            } else if let Some((_, last)) = closed.last() {
+                w.keep_after(last.kept.clone());
             }
-            None => {
-                let Some((done, last)) = closed.last() else {
-                    return Err(WriteError::Resume(ResumeError::NoPiece));
-                };
-                let next = next_piece(&done.piece, last)?;
-                let sink = store
-                    .create(&key)
-                    .map_err(sink_err("creating the next piece"))?;
-                let mut w = TapeWriter::start_next(sink, &options.writer, next)?;
-                reserve_piece(&mut w, options.cut);
-                let resumed = Resumed::started(w.bytes());
-                (w, resumed)
-            }
+            (w, resumed)
+        } else {
+            let Some((done, last)) = closed.last() else {
+                return Err(WriteError::Resume(ResumeError::NoPiece));
+            };
+            let next = next_piece(&done.piece, last)?;
+            let sink = store
+                .create(&key)
+                .map_err(sink_err("creating the next piece"))?;
+            let mut w = TapeWriter::start_next(sink, &options.writer, next)?;
+            reserve_piece(&mut w, options.cut);
+            let resumed = Resumed::started(w.bytes());
+            (w, resumed)
         };
         writer.take_newest(&newest);
         let resumed = numbers.under(resumed);
@@ -321,7 +322,7 @@ impl<T: PieceStore> PieceChain<T> {
         mut store: T,
         owner: OwnerId,
         chain: u64,
-        options: ChainOptions,
+        options: &ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
         let key = store.key_of(0);
         let Some(mut sink) = store
@@ -365,7 +366,7 @@ impl<T: PieceStore> PieceChain<T> {
                         return Err(WriteError::Resume(ResumeError::HeadLost { seq: None }));
                     }
                     None => {
-                        w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
+                        w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?;
                     }
                     Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                 }
@@ -586,6 +587,10 @@ impl<T: PieceStore> PieceChain<T> {
 
     /// A small block placed in the next gap ([TapeWriter::defer_block]).
     /// When the piece has no room for the state entries of the definitions it needs, on a new piece.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the signature of TapeWriter::defer_block, which keeps the block; the chain copies it for a retry"
+    )]
     pub fn defer_block(
         &mut self,
         defs: &Definitions,

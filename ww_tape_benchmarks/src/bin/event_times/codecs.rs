@@ -248,7 +248,7 @@ impl Column for EliasFano {
         let base = v[0];
         let max = (v[n - 1] - base) as u64;
         let per = max / n as u64;
-        let l = if per > 0 { 63 - per.leading_zeros() } else { 0 };
+        let l = if per > 0 { per.ilog2() } else { 0 };
         let nbits = n + (max >> l) as usize + 1;
         let mut high = vec![0u64; nbits.div_ceil(64) + 2];
         let mut low = Vec::new();

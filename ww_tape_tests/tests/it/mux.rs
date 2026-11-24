@@ -465,7 +465,7 @@ fn dropping_producers_leave_item_gaps_and_failing_ones_get_the_unit_back() {
         .sum::<u64>()
         + (40 * 50 - items.last().map_or(0, |l| l.0 + l.1));
     assert_eq!(lost, dropped * 50);
-    assert!(items_of(&pieces, 1).is_empty());
+    assert_eq!(items_of(&pieces, 1), [] as [(u64, u64); 0]);
 }
 
 /// A failed write stops the chain: every handle's next call, the flushes, a cut and the close return the failure.
@@ -739,7 +739,7 @@ fn a_mux_on_files_resumes_by_path() {
     drop(mux);
     let (mux, resumed) =
         ww_tape_fs::mux::resume(&dir, OWNER, 0, options(4), MuxOptions::default()).unwrap();
-    assert!(!resumed.entries.is_empty());
+    assert_ne!(resumed.entries, [] as [ww_tape::IndexEntry; 0]);
     define(&mux);
     let s = mux.chunks(TrackNum::new(1)).unwrap();
     for k in 10..14 {

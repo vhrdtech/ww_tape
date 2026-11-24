@@ -222,7 +222,7 @@ pub(crate) fn hit_some(d: &mut Draw<'_>, b: &mut [u8], fields: &[Field<'_>]) {
     if fields.is_empty() {
         return;
     }
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         let f = fields[d.below(fields.len())];
         hit(d, b, f);
     }

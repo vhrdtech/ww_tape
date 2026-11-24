@@ -26,7 +26,7 @@ const LARGE: usize = 40 << 10;
 /// A writer with [TRACKS] defined.
 fn rig() -> Rig {
     let states = TRACKS.map(state);
-    let mut w = begin_numbered(options(u64::MAX), ww_tape::Layout::UNALIGNED, &states);
+    let mut w = begin_numbered(&options(u64::MAX), ww_tape::Layout::UNALIGNED, &states);
     for d in &states {
         w.define(d).unwrap();
     }
@@ -351,7 +351,7 @@ struct Damaged {
 
 fn closed_on_card() -> Damaged {
     let mut w = begin_numbered(
-        options(u64::MAX),
+        &options(u64::MAX),
         ww_tape::Layout::UNALIGNED.on_sd_card(),
         &TRACKS.map(state),
     );
@@ -507,7 +507,7 @@ fn a_piece_closed_without_data_keeps_its_head_puts_in_both_readers() {
     let bytes = tape.to_vec().unwrap();
     let by_index = TapeReader::open(&bytes[..]).unwrap();
     let by_scan = TapeReader::open_with(&bytes[..], raw()).unwrap();
-    assert!(by_scan.pieces()[0].dropped_runs.is_empty());
+    assert_eq!(by_scan.pieces()[0].dropped_runs, [] as [(u64, u64); 0]);
     assert_eq!(by_index.entries(0).unwrap(), by_scan.entries(0).unwrap());
     for r in [&by_index, &by_scan] {
         let defs = r.definitions_at(0, u64::MAX).unwrap();
@@ -521,7 +521,7 @@ fn a_piece_closed_without_data_keeps_its_head_puts_in_both_readers() {
 #[test]
 fn a_damaged_one_block_group_is_lost_alone() {
     let mut w = begin_numbered(
-        options(u64::MAX),
+        &options(u64::MAX),
         ww_tape::Layout::UNALIGNED.on_sd_card(),
         &TRACKS.map(state),
     );
@@ -613,7 +613,7 @@ struct AroundData {
 
 fn around_data(c_len: usize) -> AroundData {
     let mut w = begin_numbered(
-        options(u64::MAX),
+        &options(u64::MAX),
         ww_tape::Layout::UNALIGNED.on_sd_card(),
         &TRACKS.map(state),
     );
@@ -771,7 +771,7 @@ fn a_relay_writes_a_producer_group_whole() {
         .filter(|b| b.repeat && b.offset >= start as u64)
         .map(|b| Block::read(&b.bytes).unwrap().flags)
         .collect();
-    assert!(!flags.is_empty());
+    assert_ne!(flags, [] as [u16; 0]);
     for (k, f) in flags.iter().enumerate() {
         assert_ne!(
             f & FLAG_GROUP,
@@ -864,7 +864,7 @@ fn twice_rig(layout: ww_tape::Layout) -> Rig {
             ..d
         })
     });
-    let mut w = begin_numbered(options(u64::MAX), layout, &tracks);
+    let mut w = begin_numbered(&options(u64::MAX), layout, &tracks);
     for d in &tracks {
         w.define(d).unwrap();
     }
@@ -1222,7 +1222,7 @@ fn a_relayed_group_putting_a_track_twice_is_refused() {
 fn a_refused_block_that_tears_a_group_names_the_torn_group() {
     let a = producer(100, b"a", 0x100);
     // a group of one block on track 13, a track the relay doesn't hold
-    let mut w = begin_numbered(options(u64::MAX), ww_tape::Layout::UNALIGNED, &[state(13)]);
+    let mut w = begin_numbered(&options(u64::MAX), ww_tape::Layout::UNALIGNED, &[state(13)]);
     w.define(&state(13)).unwrap();
     let tape = w.sink().tape();
     w.w.put(&w.defs, TrackNum::new(13), 1, b"other").unwrap();

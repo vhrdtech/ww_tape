@@ -498,15 +498,14 @@ fn a_range_hash_folds_a_chunk_written_again_once() {
         copied.copy_within(at..at + len, to);
         let r = TapeReader::open(&copied[..]).unwrap();
         let got = r.range_hash(id_of(t), OwnerId::NONE, all.clone(), TrackHash::START);
-        match expect_whole {
-            true => {
-                let got = got.unwrap();
-                assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
-            }
-            false => assert!(
+        if expect_whole {
+            let got = got.unwrap();
+            assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
+        } else {
+            assert!(
                 matches!(got, Err(ww_tape::ReadError::Overlap { offset, .. }) if offset == to as u64),
                 "{got:?}"
-            ),
+            );
         }
     }
 }

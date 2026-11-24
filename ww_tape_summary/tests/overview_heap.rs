@@ -7,45 +7,16 @@
 )]
 //! The heap of an overview level as it is built: its statistics and nothing per source cell.
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use ww_tape_summary::OverviewCells;
-
-/// The system allocator, counting the bytes live and their peak.
-struct Counting;
-
-static LIVE: AtomicUsize = AtomicUsize::new(0);
-static PEAK: AtomicUsize = AtomicUsize::new(0);
-
-// SAFETY: every call goes to the system allocator with the same layout; the counters only observe.
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // SAFETY: the caller's contract for `alloc` holds for `System` too.
-        let p = unsafe { System.alloc(layout) };
-        if !p.is_null() {
-            let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
-            PEAK.fetch_max(live, Ordering::Relaxed);
-        }
-        p
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: `ptr` came from `alloc` with this layout.
-        unsafe { System.dealloc(ptr, layout) };
-        LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
-    }
-}
+use ww_tape_testalloc::{Counting, thread_heap_of};
 
 #[global_allocator]
-static ALLOC: Counting = Counting;
+static ALLOC: Counting = Counting::new();
 
-/// The peak heap `f` adds to what is live before it.
+/// The peak heap `f` adds on this thread.
 fn peak_of<T>(f: impl FnOnce() -> T) -> (T, usize) {
-    let live = LIVE.load(Ordering::Relaxed);
-    PEAK.store(live, Ordering::Relaxed);
-    let out = f();
-    (out, PEAK.load(Ordering::Relaxed) - live)
+    let (out, heap) = thread_heap_of(f);
+    (out, heap.peak_bytes)
 }
 
 /// Bytes a level of `cells` cells holds: min, max and sum per scalar of an `elem`-byte element and a `sum`-byte sum,
@@ -55,7 +26,8 @@ fn level_bytes(cells: usize, elem: usize, sum: usize) -> usize {
 }
 
 /// A 512 by 512 tile of u16, halved twice: each level holds its statistics, an i64 sum each, and no table of the
-/// source cells; a f32 tile the same with f64 sums.
+/// source cells; a f32 tile the same with f64 sums. The builder takes no codec `Kernel` and calls none, so one run
+/// covers it on every CPU.
 #[test]
 fn a_level_holds_its_statistics_only() {
     let side = 512usize;

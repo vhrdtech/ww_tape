@@ -146,12 +146,13 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
             tile_extent: UNib32(tile),
             unit: None,
             scale: Magnitude::ONE,
-            coords: match regular {
-                true => AxisCoords::Regular {
+            coords: if regular {
+                AxisCoords::Regular {
                     origin: i64::from(extent),
                     step: i64::from(tile % 3) - 1,
-                },
-                false => AxisCoords::Listed(RefVec::Slice { slice: list }),
+                }
+            } else {
+                AxisCoords::Listed(RefVec::Slice { slice: list })
             },
             downsample: tile % 2 == 0,
         })
@@ -171,16 +172,17 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
         .ok()
         .map(|l| l.with_downsample(downsample));
     let levels = layout.map_or(0, |l| l.overview_levels());
-    for k in 0..1 + d.below(4) {
+    for k in 0..=d.below(4) {
         let coords: Vec<u32> = shape
             .iter()
             .take(GRID_FIXED_AXES_MAX)
             .map(|&(extent, tile, ..)| {
                 // half the time a tile of the grid, so chunks are found and their overviews read
                 let tiles = u64::from(extent.div_ceil(tile.max(1)));
-                match d.bool() {
-                    true => (d.u64() % tiles.max(1)) as u32,
-                    false => d.value(32, &[tiles], &[tiles.saturating_sub(1), 0]) as u32,
+                if d.bool() {
+                    (d.u64() % tiles.max(1)) as u32
+                } else {
+                    d.value(32, &[tiles], &[tiles.saturating_sub(1), 0]) as u32
                 }
             })
             .collect();
@@ -211,7 +213,7 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
         }
         .min(GRID_OVERVIEW_LEVELS_MAX);
         let head = ChunkHead { level, ..head };
-        let columns = overview_columns(&mut d, &head, layout);
+        let columns = overview_columns(&mut d, &head, layout.as_ref());
         let columns: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(s, b)| (*s, &b[..])).collect();
         let mut b = build(&head, &columns);
         // one chunk in two keeps its head: a scan stops at the first that doesn't read
@@ -249,10 +251,16 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
     }
     // past the input's end too: every draw is 0 there
     if !d.bool() {
-        summaries(&mut d, &mut out, &shape, grid_track(&fixed).id(), layout);
+        summaries(
+            &mut d,
+            &mut out,
+            &shape,
+            grid_track(&fixed).id(),
+            layout.as_ref(),
+        );
     }
     if d.u8() % 3 != 1 {
-        checkpoint(&mut d, &mut out, layout);
+        checkpoint(&mut d, &mut out, layout.as_ref());
     }
     out
 }
@@ -266,7 +274,7 @@ const OVERVIEW_CELLS_DRAWN_MAX: u64 = 64;
 fn overview_columns(
     d: &mut Draw<'_>,
     head: &ChunkHead,
-    layout: Option<TileLayout>,
+    layout: Option<&TileLayout>,
 ) -> Vec<(ColumnSpec, Vec<u8>)> {
     let raw = |kind, bytes: Vec<u8>| {
         let spec = ColumnSpec {
@@ -317,10 +325,10 @@ fn summaries(
     f: &mut Vec<u8>,
     shape: &[AxisShape],
     track_id: TrackId,
-    layout: Option<TileLayout>,
+    layout: Option<&TileLayout>,
 ) {
     let samples = SampleShape::new(ElementDesc::of(Element::I32), 1);
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         let coords: Vec<u32> = shape
             .iter()
             .take(GRID_FIXED_AXES_MAX)
@@ -386,7 +394,7 @@ fn summaries(
 /// A checkpoint index of the blocks in `f` put after them: each chunk's or summary block's entry carries the tile
 /// number `layout` packs its head's coordinates to, a hostile number (bits outside the fields, any bits) or none; a
 /// chunk's entry carries its level or now and then another.
-fn checkpoint(d: &mut Draw<'_>, f: &mut Vec<u8>, layout: Option<TileLayout>) {
+fn checkpoint(d: &mut Draw<'_>, f: &mut Vec<u8>, layout: Option<&TileLayout>) {
     let mut entries = vec![];
     let mut at = 0;
     while let Some(b) = f.get(at..).and_then(|r| Block::read(r).ok()) {

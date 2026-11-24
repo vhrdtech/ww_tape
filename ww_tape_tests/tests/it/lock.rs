@@ -247,6 +247,10 @@ fn a_child_held_between_fork_and_exec_holds_no_lock() {
     let (mut forked_rx, mut forked_tx) = std::io::pipe().unwrap();
     let mut cmd = Command::new("true");
     cmd.env_clear().stdin(Stdio::null());
+    #[expect(
+        unsafe_code,
+        reason = "pre_exec is unsafe: the test needs a child held between fork and exec"
+    )]
     // SAFETY: the closure runs in the forked child before exec and makes only two system calls on descriptors it
     // owns (write, then read), both async-signal-safe; it allocates and locks nothing.
     unsafe {

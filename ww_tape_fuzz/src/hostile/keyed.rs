@@ -296,7 +296,7 @@ pub fn attacked(data: &[u8]) -> KeyedAttacked {
         .iter()
         .filter(|(at, len, _)| ww_tape::Block::read(&f[*at..at + len]).is_ok_and(|b| b.is_keyed()))
         .collect();
-    for _ in 0..1 + d.below(4) {
+    for _ in 0..=d.below(4) {
         // 0: an index's state entry, 1: a keyed block behind a good CRC, 2: damage to one, 3: the piece head's row
         // flags behind a good CRC
         let attack = d.below(4);

@@ -109,7 +109,7 @@ fn header(bytes: &[u8], count_name: &str, head_crc: bool) -> anyhow::Result<Vec<
 }
 
 /// Rows of 16 bytes over `from..to`, the first titled `title`.
-fn rows_of<'a>(from: usize, to: usize, title: &'a str) -> Vec<Row<'a>> {
+fn rows_of(from: usize, to: usize, title: &str) -> Vec<Row<'_>> {
     (from..to)
         .step_by(16)
         .enumerate()

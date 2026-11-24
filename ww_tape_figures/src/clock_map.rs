@@ -6,6 +6,7 @@
 use anyhow::{Context, ensure};
 use example_drive::{BOOT_UNIX_NS, CRASH_MINUTE, definitions};
 use shrink_wrap::prelude::*;
+use std::fmt::Write as _;
 use ww_tape::{Describe, MapSegment, Rounding, segments_increasing};
 
 use crate::OrDebug;
@@ -122,12 +123,13 @@ pub fn clock_map() -> anyhow::Result<String> {
     let mut d = String::new();
     for m in 0..=60 {
         let ms = offset_ms(&seg, i64::from(m) * US_PER_MINUTE)?;
-        d.push_str(&format!(
+        write!(
+            d,
             "{}{:.1} {:.1} ",
             if m == 0 { "M" } else { "L" },
             x(f64::from(m)),
             y(ms)
-        ));
+        )?;
     }
     s.path(&d, "line blue");
     s.text(
@@ -161,12 +163,13 @@ pub fn clock_map() -> anyhow::Result<String> {
     let mut d = String::new();
     for m in STEP_MINUTE..=60 {
         let ms = offset_ms(&after, i64::from(u8::try_from(m)?) * US_PER_MINUTE)?;
-        d.push_str(&format!(
+        write!(
+            d,
             "{}{:.1} {:.1} ",
             if m == STEP_MINUTE { "M" } else { "L" },
             x(m as f64),
             y(ms)
-        ));
+        )?;
     }
     s.path(&d, "line accent dash");
     let jump_from = y(offset_ms(&before, step_us - 1)?);

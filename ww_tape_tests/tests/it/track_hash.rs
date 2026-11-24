@@ -138,11 +138,8 @@ fn write(shape: Shape) -> (Vec<Closed>, Vec<u8>) {
         let w = c.writer().unwrap();
         for n in [2 * k as i64, 2 * k as i64 + 1] {
             match shape.way {
-                Way::Write => {
-                    w.write_block(&defs, &records(w.next_id(), n)).unwrap();
-                }
                 Way::Defer if n % 2 == 0 => w.defer_block(&defs, records(id(0), n)).unwrap(),
-                Way::Defer => {
+                Way::Write | Way::Defer => {
                     w.write_block(&defs, &records(w.next_id(), n)).unwrap();
                 }
                 Way::Replace => {
