@@ -16,11 +16,12 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use ww_tape_fuzz::case::{Capped, hex as to_hex, minimize, run};
+use ww_tape_fuzz::case::{CAPPED, hex as to_hex, minimize, run};
 use ww_tape_fuzz::{seeds, targets};
+use ww_tape_testalloc::Counting;
 
 #[global_allocator]
-static ALLOCATOR: Capped = Capped;
+static ALLOCATOR: Counting = CAPPED;
 
 fn target(name: &str) -> Result<targets::Target, String> {
     targets::by_name(name).ok_or_else(|| format!("no target {name}"))

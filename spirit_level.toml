@@ -479,15 +479,15 @@ allow = ["codecs", "core", "summary", "mux", "fs", "examples"]
 
 [map.layers.fuzz]
 desc = "Fuzz target bodies, hostile block builders and the seeds"
-allow = ["codecs", "core", "summary", "mux", "fs", "fuzz"]
+allow = ["codecs", "core", "summary", "mux", "fs", "tests", "fuzz"]
 
 [map.layers.tests]
-desc = "Integration tests through the public API and the book's code blocks"
+desc = "Integration tests through the public API and the book's code blocks, and the counting allocator of tests and tools"
 allow = ["codecs", "core", "summary", "mux", "fs", "examples", "tests"]
 
 [map.layers.benches]
 desc = "The bench binaries, what they share and their report"
-allow = ["codecs", "core", "summary", "mux", "fs", "examples", "benches"]
+allow = ["codecs", "core", "summary", "mux", "fs", "examples", "tests", "benches"]
 
 [map.layers.figures]
 desc = "The book's figures, drawn from blocks ww_tape writes and from bench reports"
@@ -506,11 +506,12 @@ example_images = { layer = "examples" }
 example_rf = { layer = "examples" }
 example_thermal = { layer = "examples" }
 example_wideband = { layer = "examples" }
-ww_tape_fuzz = { layer = "fuzz", unsafe = true }
+ww_tape_fuzz = { layer = "fuzz" }
 ww_tape_tests = { layer = "tests" }
+ww_tape_testalloc = { layer = "tests", unsafe = true }
 ww_tape_bench_report = { layer = "benches" }
 ww_tape_bench = { layer = "benches" }
-ww_tape_benchmarks = { layer = "benches", unsafe = true }
+ww_tape_benchmarks = { layer = "benches" }
 ww_tape_codecs_benchmarks = { layer = "benches" }
 ww_tape_figures = { layer = "figures" }
 
@@ -541,11 +542,11 @@ level = "allow"
 reason = "ww_tape and ww_tape_codecs are published, and applications take the crates by git: a workspace-hack would reach their builds"
 expires = "2027-06-30"
 
-# Their unsafe code is in tests/ (a counting GlobalAlloc, a pre_exec between fork and exec), which unsafe-allow-list
-# does not read: the map cannot mark them, and their own [lints] set unsafe_code = "deny" over the workspace's forbid.
+# ww_tape_tests' unsafe code is in tests/ (a pre_exec between fork and exec), which unsafe-allow-list does not read:
+# the map cannot mark it, and its own [lints] set unsafe_code = "deny" over the workspace's forbid.
 [[exceptions]]
 lint = "workspace-lints"
-paths = ["ww_tape_summary/Cargo.toml", "ww_tape_tests/Cargo.toml"]
+paths = ["ww_tape_tests/Cargo.toml"]
 level = "allow"
 reason = "unsafe code in tests/ needs unsafe_code = \"deny\" in the crate's own [lints]; unsafe-allow-list reads only src/"
 expires = "2027-06-30"

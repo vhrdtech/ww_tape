@@ -69,6 +69,7 @@ crate's module docs.
 | [`example_thermal`](examples/example_thermal) | examples | The ww_tape book's thermal field: a plate of sensors on a 2-D grid over time, read by box, region and level |
 | [`example_wideband`](examples/example_wideband) | examples | The ww_tape book's wideband receiver: 1 GS/s of IQ in channels over several muxes, captured into memory and triaged |
 | [`ww_tape_fuzz`](ww_tape_fuzz) | fuzz | Fuzz target bodies, hostile block builders and seed replay for ww_tape's decoders |
+| [`ww_tape_testalloc`](ww_tape_testalloc) | tests | Tests and tools only: a global allocator over the system's that counts the heap live, its peak and each thread's largest allocation |
 | [`ww_tape_tests`](ww_tape_tests) | tests | Integration tests of ww_tape and its file layer, through their public API |
 | [`ww_tape_bench`](ww_tape_bench) | benches | What every ww_tape bench binary shares: its command line, its timing loop, and its report with the build, machine and load |
 | [`ww_tape_bench_report`](ww_tape_bench_report) | benches | The report of a ww_tape bench run as its JSON holds it: build, commit, machine, tables and load |

@@ -503,6 +503,7 @@ Crates, checks, fuzzing and benches.
   - The crate map puts every crate in a layer, from the codecs up to the figures. spl checks each edge of cargo's graph against it.
   - `ww_tape_codecs`, `ww_tape` and `ww_tape_summary` are marked no_std and wasm, and spl builds them so.
   - The workspace forbids unsafe code. The crates the map marks unsafe allow it in their own `[lints]`.
+  - Heap tests, the memory bench and fuzz cases count allocations through one allocator, `ww_tape_testalloc`.
   - Clippy's pedantic and cargo groups are on.
 
 - 🚧 **REPO-1 Crates by what they touch**
