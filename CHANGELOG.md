@@ -26,6 +26,7 @@ benchmarks, golden files and book pages.
 - Fuzz targets `tape-keyed` and `tape-keyed-hostile` check keyed items, entries, lookups and resume (TRACK-8).
 - A cut carries every live key of a keyed track; a piece read alone holds them, or says it doesn't (TRACK-8).
 - A put by key past the carry's limit, or of another live key's id, is refused (TRACK-8).
+- The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
 
 ## [0.9.0] - 2026-11-24
 
