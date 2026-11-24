@@ -1,7 +1,8 @@
 //! Tests and tools only: [Counting], a global allocator over the system's that counts the heap.
 //!
-//! It counts the bytes live and their peak over the whole process ([live_bytes], [peak_of]), and the largest single
-//! allocation of each thread ([take_largest]). [Counting::refusing_over] also refuses an allocation past a size, which
+//! It counts the heap a call adds on the calling thread ([thread_heap_of]), as a heap test measures it; the bytes live
+//! and their peak over the whole process ([live_bytes], [baseline], [peak_bytes]), as a tool measuring alone does;
+//! and the largest single allocation of each thread ([take_largest]). [Counting::refusing_over] also refuses an allocation past a size, which
 //! aborts the process. A `realloc` is an allocation of the new size, a copy and a free, so its peak holds both.
 
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -17,6 +18,10 @@ static PEAK: AtomicUsize = AtomicUsize::new(0);
 std::thread_local! {
     /// The largest single allocation this thread made since [take_largest], 0 for none.
     static LARGEST: Cell<usize> = const { Cell::new(0) };
+    /// Bytes this thread allocated less those it freed, since it started; below 0 once it frees another thread's.
+    static NET: Cell<isize> = const { Cell::new(0) };
+    /// The highest [NET] since [thread_heap_of] last set it.
+    static NET_PEAK: Cell<isize> = const { Cell::new(0) };
 }
 
 /// The system allocator, counting the heap. Install it as a binary's `#[global_allocator]`.
@@ -55,10 +60,22 @@ impl Default for Counting {
     }
 }
 
-/// Adds `size` bytes to the live count and raises the peak to it.
+/// Adds `size` bytes to the live count and raises the peak to it, over the process and on this thread.
 fn add_live(size: usize) {
     let live = LIVE.fetch_add(size, Ordering::Relaxed).saturating_add(size);
     PEAK.fetch_max(live, Ordering::Relaxed);
+    // a layout's size is at most isize::MAX; a thread being torn down has no slots left: its bytes belong to no test
+    _ = NET.try_with(|n| {
+        let net = n.get().wrapping_add(size.cast_signed());
+        n.set(net);
+        _ = NET_PEAK.try_with(|p| p.set(p.get().max(net)));
+    });
+}
+
+/// Takes `size` freed bytes off the live count, over the process and on this thread.
+fn sub_live(size: usize) {
+    LIVE.fetch_sub(size, Ordering::Relaxed);
+    _ = NET.try_with(|n| n.set(n.get().wrapping_sub(size.cast_signed())));
 }
 
 #[expect(
@@ -95,16 +112,17 @@ unsafe impl GlobalAlloc for Counting {
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         // SAFETY: the caller's pointer and layout, as GlobalAlloc::dealloc requires.
         unsafe { System.dealloc(ptr, layout) };
-        LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
+        sub_live(layout.size());
     }
 }
 
-/// Bytes live now, over every thread.
+/// Bytes live now, over every thread: for a binary measuring alone. A test's harness allocates on threads of its own
+/// at any time, so a test measures with [thread_heap_of].
 pub fn live_bytes() -> usize {
     LIVE.load(Ordering::Relaxed)
 }
 
-/// The most bytes live at once since the last [baseline].
+/// The most bytes live at once since the last [baseline], over every thread.
 pub fn peak_bytes() -> usize {
     PEAK.load(Ordering::Relaxed)
 }
@@ -116,11 +134,30 @@ pub fn baseline() -> usize {
     live
 }
 
-/// The peak heap `f` adds to what is live before it.
-pub fn peak_of<T>(f: impl FnOnce() -> T) -> (T, usize) {
-    let live = baseline();
+/// The heap a call adds on the thread that makes it: see [thread_heap_of].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThreadHeap {
+    /// The most bytes the call held at once.
+    pub peak_bytes: usize,
+    /// Bytes the call left live: those it allocated less those it freed, 0 where it freed more.
+    pub held_bytes: usize,
+}
+
+/// The heap `f` adds on this thread: its peak and what it leaves live.
+///
+/// Only this thread's allocations count. A test's harness allocates on a thread of its own while the test runs
+/// (libtest's main thread queues the test's timeout entry just after spawning it), and on a loaded host those bytes
+/// would land inside the measurement. So `f` must make its allocations on this thread, not hand them to another.
+pub fn thread_heap_of<T>(f: impl FnOnce() -> T) -> (T, ThreadHeap) {
+    let start = NET.with(Cell::get);
+    NET_PEAK.with(|p| p.set(start));
     let out = f();
-    (out, peak_bytes().saturating_sub(live))
+    let above = |net: isize| net.wrapping_sub(start).max(0).cast_unsigned();
+    let heap = ThreadHeap {
+        peak_bytes: above(NET_PEAK.with(Cell::get)),
+        held_bytes: above(NET.with(Cell::get)),
+    };
+    (out, heap)
 }
 
 /// The largest single allocation this thread made since the last call, 0 for none; starts the next span.
