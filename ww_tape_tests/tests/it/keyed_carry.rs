@@ -434,6 +434,81 @@ fn keys_before_a_damaged_piece_dont_make_its_keys_whole() {
     assert!(!whole);
 }
 
+/// The offsets of the blocks of kind `kind` in the piece `bytes`.
+fn blocks_of(bytes: &[u8], kind: ww_tape::BlockKind) -> Vec<usize> {
+    boundaries(bytes)
+        .into_iter()
+        .filter(|at| {
+            bytes
+                .get(*at..)
+                .and_then(|b| ww_tape::Block::read(b).ok())
+                .is_some_and(|b| b.kind == kind)
+        })
+        .collect()
+}
+
+/// Piece `key` of `mem` with byte `at` flipped.
+fn flip(mem: &MemPieces, key: u64, at: usize) {
+    let mut bytes = piece_bytes(mem, key);
+    bytes[at] ^= 0x55;
+    let mut sink = mem.reopen(&key).unwrap().unwrap();
+    sink.truncate(0).unwrap();
+    sink.write_all(&bytes).unwrap();
+    drop(sink);
+}
+
+/// A closed piece written on again alone whose final index doesn't read (a chain's resume refuses it): its keys
+/// can't be read through the index, so the next cut counts the track ([Closed::keys_unknown](ww_tape::Closed)) and
+/// a reader of the next piece names them not whole.
+#[test]
+fn a_closed_piece_whose_index_doesnt_read_leaves_its_keys_unknown() {
+    let defs = defs();
+    let (mem, mut chain) = chain_with(wide_options());
+    let mut model = Model::new();
+    fill(&mut chain, &mut model);
+    chain.cut_now(&defs).unwrap();
+    apply(&mut chain, &mut model, 3000, &key(1), None);
+    chain.close().unwrap();
+    let mut bytes = piece_bytes(&mem, 1);
+    let index = blocks_of(&bytes, ww_tape::BlockKind::Index);
+    bytes[index.last().unwrap() + 40] ^= 0x55;
+    let mut sink = MemSink::new();
+    sink.write_all(&bytes).unwrap();
+    let (mut w, _) = TapeWriter::resume_on(sink, wide_options().writer).unwrap();
+    w.put_key(&defs, KEYED, 7000, b"/y", b"resumed").unwrap();
+    let next = MemSink::new();
+    let tape = next.tape();
+    let (closed, mut w) = w.cut_on(&defs, next).map_err(|e| e.error).unwrap();
+    assert_eq!(closed.keys_unknown, 1);
+    w.put_key(&defs, KEYED, 7001, b"/z", b"next").unwrap();
+    w.close().unwrap();
+    let (_, whole) = keys_of(&tape.to_vec().unwrap(), 0);
+    assert!(!whole);
+}
+
+/// A piece whose checkpoint doesn't read, with good blocks after it: the bytes are junk to a resume, which may hide
+/// keyed records, so the next cut counts the track and a reader of the next piece names its keys not whole.
+#[test]
+fn junk_in_a_resumed_piece_leaves_its_keys_unknown() {
+    let defs = defs();
+    let (mem, last, bytes, at) = deletion_chain(false);
+    let checkpoint = blocks_of(&bytes, ww_tape::BlockKind::Index)
+        .into_iter()
+        .find(|c| *c > at)
+        .unwrap();
+    flip(&mem, last, checkpoint + 40);
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain
+        .put_key(&defs, KEYED, 7000, b"/y", b"resumed")
+        .unwrap();
+    chain.cut_now(&defs).unwrap();
+    let pieces = chain.close().unwrap();
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(pieces[0].piece.keys_unknown, 1);
+    let (_, whole) = keys_of(&piece_bytes(&mem, pieces[1].tape), 0);
+    assert!(!whole);
+}
+
 /// A crash right after a cut drops the piece's carry, and a resume of that piece alone, without its chain, can't
 /// put the keys again: the first call is refused ([ResumeError::KeysUnknown]).
 #[test]
