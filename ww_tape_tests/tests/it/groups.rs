@@ -338,3 +338,46 @@ fn a_follower_hands_out_a_group_whole() {
     let last = after.last().copied().unwrap();
     assert!(last < w.end as u64 && after.len() >= 3);
 }
+
+fn raw() -> ww_tape::OpenOptions {
+    ww_tape::OpenOptions {
+        medium: ww_tape::Medium::Raw,
+        ..Default::default()
+    }
+}
+
+/// A piece closed with no data after its head: its head's puts, marked to go with the next block, end whole at the
+/// close. The final index and a scan list the same blocks, the layout and the producer among them.
+#[test]
+fn a_piece_closed_without_data_keeps_its_head_puts_in_both_readers() {
+    let mut w = TapeWriter::create_on(MemSink::new(), ww_tape::SyncPolicy::None);
+    w.set_layout(ww_tape::Layout::UNALIGNED).unwrap();
+    w.set_producer("groups");
+    let owner = ww_tape::OwnerId([9; 32]);
+    w.begin_piece(
+        &ww_tape::PieceHead {
+            ident: ww_tape::PieceIdent {
+                id: ww_tape::PieceId::first(&owner),
+                owner,
+                seq: 0,
+            },
+            prev: None,
+            prev_session: ww_tape::SessionTag::NONE,
+            integrity: ww_tape::Integrity::Full,
+        },
+        &[],
+    )
+    .unwrap();
+    let tape = w.sink().tape();
+    w.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let by_index = TapeReader::open(&bytes[..]).unwrap();
+    let by_scan = TapeReader::open_with(&bytes[..], raw()).unwrap();
+    assert!(by_scan.pieces()[0].dropped_runs.is_empty());
+    assert_eq!(by_index.entries(0).unwrap(), by_scan.entries(0).unwrap());
+    for r in [&by_index, &by_scan] {
+        let defs = r.definitions_at(0, u64::MAX).unwrap();
+        assert!(defs.items.contains_key(&Slot::Layout));
+        assert!(defs.items.contains_key(&Slot::Producer));
+    }
+}

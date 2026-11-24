@@ -44,6 +44,7 @@ use crate::{
 };
 
 mod grid;
+mod runs;
 mod state;
 mod verify;
 pub use grid::GridTile;
@@ -1109,9 +1110,8 @@ impl<S: ByteSource> TapeReader<S> {
         piece.end = piece.end.max(from);
         // offset in the piece of the last block taken that is in the seq order: the one a replacement replaces
         let mut last_counted: Option<u64> = None;
-        // the blocks marked FLAG_WITH_NEXT since the last block taken without it: listed with the block they belong
-        // with, dropped when anything else ends the run
-        let mut run: Option<HeldRun> = None;
+        // the blocks marked FLAG_WITH_NEXT since the last block taken without it ([runs])
+        let mut runs = runs::Runs::new();
         while at < hi {
             let mut replaces = false;
             let got = self.good_block(at, hi)?;
@@ -1142,7 +1142,7 @@ impl<S: ByteSource> TapeReader<S> {
                 if replaces {
                     piece.replaced.pop();
                 }
-                drop_run(&mut piece, &mut run);
+                runs.drop_torn(&mut piece);
                 if piece.end > piece.start {
                     set_scanned(&mut piece, since(at, from));
                     piece.settle_close();
@@ -1159,7 +1159,7 @@ impl<S: ByteSource> TapeReader<S> {
                 if let Some(next) = self.past_gap(at, hi, &walk)?
                     && let Some(len) = next.checked_sub(at)
                 {
-                    drop_run(&mut piece, &mut run);
+                    runs.drop_torn(&mut piece);
                     piece.gaps.push((at, len));
                     at = next;
                     continue;
@@ -1178,16 +1178,20 @@ impl<S: ByteSource> TapeReader<S> {
             let block = ob.block();
             walk.take(&block);
             if replaces && let Some(gone) = last_counted {
-                forget_replaced(&mut piece, run.as_mut(), gone);
+                runs.forget(&mut piece, gone);
             }
             // the piece starts at or before every block of it the scan takes
             let in_piece = at.checked_sub(piece.start);
             if !is_free(&block) {
                 last_counted = in_piece;
             }
-            if crate::index::is_structural(block.kind) {
-                // a block a run never holds: the run ended without the block it belongs with
-                drop_run(&mut piece, &mut run);
+            match block.kind {
+                // the writer's own blocks, never written inside a run: it ended whole
+                BlockKind::Close | BlockKind::CloseSummary | BlockKind::Index => {
+                    runs.end_whole(&mut piece);
+                }
+                k if crate::index::is_structural(k) => runs.drop_torn(&mut piece),
+                _ => {}
             }
             match block.kind {
                 BlockKind::PieceHead if at != piece.start => {
@@ -1222,7 +1226,7 @@ impl<S: ByteSource> TapeReader<S> {
                     at = end;
                     continue;
                 }
-                _ => list_or_hold(&mut piece, &mut run, (at, end), in_piece, &block),
+                _ => runs.take(&mut piece, (at, end), in_piece, &block),
             }
             // a piece of a level this build refuses is read no further, as one of another version
             if block.kind == BlockKind::PieceHead && piece.refused().is_some() {
@@ -1235,7 +1239,7 @@ impl<S: ByteSource> TapeReader<S> {
             at = end;
             piece.end = at;
         }
-        drop_run(&mut piece, &mut run);
+        runs.drop_torn(&mut piece);
         let scanned = since(piece.end.max(at), from);
         set_scanned(&mut piece, scanned);
         piece.settle_close();
@@ -2273,64 +2277,6 @@ fn read_len(left: u64, buf: usize) -> usize {
 fn since(to: u64, from: u64) -> u64 {
     debug_assert!(to >= from, "a scan only goes forward");
     to.saturating_sub(from)
-}
-
-/// The blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) a scan took since the last block without it.
-struct HeldRun {
-    /// Where the run starts and ends in the source
-    at: u64,
-    end: u64,
-    /// The entries of its blocks, listed once the block they belong with is taken
-    entries: Vec<IndexEntry>,
-}
-
-/// End `run` without the block it belongs with: its blocks are listed in [PieceInfo::dropped_runs], not as entries.
-fn drop_run(piece: &mut PieceInfo, run: &mut Option<HeldRun>) {
-    if let Some(r) = run.take() {
-        piece.dropped_runs.push((r.at, r.end.saturating_sub(r.at)));
-    }
-}
-
-/// The entries of the block at `gone` in the piece, which a later copy replaces, taken out of `piece` and `run`.
-fn forget_replaced(piece: &mut PieceInfo, run: Option<&mut HeldRun>, gone: u64) {
-    if let Some(list) = piece.entries.as_mut() {
-        list.retain(|e| e.offset != gone);
-    }
-    if let Some(r) = run {
-        r.entries.retain(|e| e.offset != gone);
-    }
-}
-
-/// Take `block` of data, from `place.0` to `place.1` in the source and at `in_piece` in the piece: held in `run` when
-/// marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), else listed with the run it ends.
-fn list_or_hold(
-    piece: &mut PieceInfo,
-    run: &mut Option<HeldRun>,
-    (at, end): (u64, u64),
-    in_piece: Option<u64>,
-    block: &crate::Block<'_>,
-) {
-    if block.flags & crate::FLAG_WITH_NEXT != 0 {
-        let r = run.get_or_insert_with(|| HeldRun {
-            at,
-            end,
-            entries: Vec::new(),
-        });
-        r.end = end;
-        if let Some(off) = in_piece {
-            r.entries.extend(IndexEntry::all_of_block(off, block));
-        }
-        return;
-    }
-    let held = run.take();
-    if let Some(off) = in_piece
-        && let Some(list) = piece.entries.as_mut()
-    {
-        if let Some(h) = held {
-            list.extend(h.entries);
-        }
-        list.extend(IndexEntry::all_of_block(off, block));
-    }
 }
 
 fn set_scanned(p: &mut PieceInfo, n: u64) {
