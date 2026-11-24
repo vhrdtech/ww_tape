@@ -609,7 +609,6 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         tracks: &[TrackNum],
     ) -> Result<(), WriteError<S::Error>> {
-        self.load_keys(defs, false);
         self.admit(defs, tracks, 0)
     }
 
