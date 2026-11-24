@@ -44,6 +44,7 @@ use crate::{
 };
 
 mod grid;
+mod runs;
 mod state;
 mod verify;
 pub use grid::GridTile;
@@ -221,6 +222,9 @@ pub struct OpenOptions {
     /// for the newest piece.
     pub medium: Medium,
     /// Where a [Medium::Raw] walk starts: the medium's start, or a hint the medium layer gives (its own superblock).
+    ///
+    /// A start inside a run of blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) shows the run's tail, taken as a
+    /// run: the blocks before the start are not read, so a group of puts there shows only its later items.
     pub start: u64,
     /// The gap rules of a [Medium::Raw] from its start, before the definitions say them; None: none until then.
     pub layout: Option<Layout>,
@@ -341,6 +345,12 @@ pub struct PieceInfo {
     /// Blocks a scan took in place of the block before them: the same session and seq with other bytes (the later
     /// copy wins); their offsets. A copy with the same bytes is dropped silently.
     pub replaced: Vec<u64>,
+    /// Runs of blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) a scan met without the block they belong with
+    /// after them: offset and length of each. A crash inside a group of puts
+    /// ([TapeWriter::put_group](crate::TapeWriter::put_group)) or a unit of chunks leaves one at the end of the
+    /// piece; damage, a gap or a piece's end met inside a run leave one too. The scan lists none of their blocks in
+    /// [TapeReader::entries], so a lookup takes a run whole or not at all.
+    pub dropped_runs: Vec<(u64, u64)>,
     /// The format version of a piece of another one: its first block met is good and of that version, and the
     /// stretch from it to the end of the scan is read no further ([ReadError::Version] from every lookup).
     pub version: Option<u8>,
@@ -390,6 +400,7 @@ impl PieceInfo {
             cut: None,
             gaps: Vec::new(),
             replaced: Vec::new(),
+            dropped_runs: Vec::new(),
             version: None,
             entries: Some(Vec::new()),
             cut_walk: None,
@@ -1102,6 +1113,8 @@ impl<S: ByteSource> TapeReader<S> {
         piece.end = piece.end.max(from);
         // offset in the piece of the last block taken that is in the seq order: the one a replacement replaces
         let mut last_counted: Option<u64> = None;
+        // the blocks marked FLAG_WITH_NEXT since the last block taken without it ([runs])
+        let mut runs = runs::Runs::new();
         while at < hi {
             let mut replaces = false;
             let got = self.good_block(at, hi)?;
@@ -1132,6 +1145,7 @@ impl<S: ByteSource> TapeReader<S> {
                 if replaces {
                     piece.replaced.pop();
                 }
+                runs.drop_torn(&mut piece);
                 if piece.end > piece.start {
                     set_scanned(&mut piece, since(at, from));
                     piece.settle_close();
@@ -1148,6 +1162,7 @@ impl<S: ByteSource> TapeReader<S> {
                 if let Some(next) = self.past_gap(at, hi, &walk)?
                     && let Some(len) = next.checked_sub(at)
                 {
+                    runs.damaged(&mut piece);
                     piece.gaps.push((at, len));
                     at = next;
                     continue;
@@ -1165,16 +1180,21 @@ impl<S: ByteSource> TapeReader<S> {
             };
             let block = ob.block();
             walk.take(&block);
-            if replaces
-                && let Some(gone) = last_counted
-                && let Some(list) = piece.entries.as_mut()
-            {
-                list.retain(|e| e.offset != gone);
+            if replaces && let Some(gone) = last_counted {
+                runs.forget(&mut piece, gone);
             }
             // the piece starts at or before every block of it the scan takes
             let in_piece = at.checked_sub(piece.start);
             if !is_free(&block) {
                 last_counted = in_piece;
+            }
+            match block.kind {
+                // the writer's own blocks, never written inside a run: it ended whole
+                BlockKind::Close | BlockKind::CloseSummary | BlockKind::Index => {
+                    runs.end_whole(&mut piece);
+                }
+                k if crate::index::is_structural(k) => runs.drop_torn(&mut piece),
+                _ => {}
             }
             match block.kind {
                 BlockKind::PieceHead if at != piece.start => {
@@ -1209,13 +1229,7 @@ impl<S: ByteSource> TapeReader<S> {
                     at = end;
                     continue;
                 }
-                _ => {
-                    if let Some(off) = in_piece
-                        && let Some(list) = piece.entries.as_mut()
-                    {
-                        list.extend(IndexEntry::all_of_block(off, &block));
-                    }
-                }
+                _ => runs.take(&mut piece, (at, end), in_piece, &block),
             }
             // a piece of a level this build refuses is read no further, as one of another version
             if block.kind == BlockKind::PieceHead && piece.refused().is_some() {
@@ -1228,6 +1242,7 @@ impl<S: ByteSource> TapeReader<S> {
             at = end;
             piece.end = at;
         }
+        runs.drop_torn(&mut piece);
         let scanned = since(piece.end.max(at), from);
         set_scanned(&mut piece, scanned);
         piece.settle_close();

@@ -124,7 +124,8 @@ off size field
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
          without it refuses the block), bit 7 on a block of puts definitions written twice at once
-         (FLAG_TWICE); others 0, and a reader ignores them
+         (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9 on a group's first block
+         (FLAG_GROUP_START); others 0, and a reader ignores them
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -189,6 +190,8 @@ moves the block's body behind the tile, so a reader without it refuses the block
 | 4 | `FLAG_RELATION_BREAK` | an events chunk where a track's monotone relations start again ([below](#relation-breaks)) |
 | 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
 | 7 | `FLAG_TWICE` | a block of puts of definitions written twice at once, or its copy ([below](#definitions-written-twice-at-once)) |
+| 8 | `FLAG_GROUP` | a block of puts of a group, taken whole or not at all ([Groups of puts](#groups-of-puts)); it only marks, and a reader that doesn't know it reads the block as any block of puts |
+| 9 | `FLAG_GROUP_START` | the first block of a group, with `FLAG_GROUP`; it only marks, as bit 8 |
 
 ### 3.3 Records blocks {#records-blocks}
 
@@ -839,18 +842,100 @@ A block of puts that belongs with the block after it is also marked **`FLAG_WITH
 appears on a block marked `FLAG_REPEAT` and on a chunk of a unit (`TapeWriter::write_chunk_unit`), such as a grid tile
 chunk and its overviews ([Space overviews](#space-overviews)).
 
-A block belongs with the next one in three cases:
+A block belongs with the next one in four cases:
 
 - it serves the block of data after it;
 - the next block holds the rest of a put too long for one block;
+- it is a block of a group of puts but the last ([Groups of puts](#groups-of-puts));
 - it is a chunk of a unit but the last.
 
-A run of such blocks ends in the block they belong to, all from one writer call.
+A **run** is such blocks in a row and the block they belong to, all from one writer call. It has at most
+`RUN_BLOCKS_MAX` (4096) blocks, and a writer refuses a call that would make a longer one (`InputError::RunTooLong`).
+Readers take a run whole or not at all:
+
+| Reader | A run |
+|---|---|
+| a scan of a piece | its entries only once the block it belongs to is taken, or a close, a close summary or an index, which the writer never writes inside a run; the rest are listed in `PieceInfo::dropped_runs` and their blocks in no entry |
+| a follower (`ChainFollower`) | its blocks only with the last one; until then it keeps their places, at most `RUN_BLOCKS_MAX`, and reads their bytes again then (`FollowError::RunTooLong` past it); a damaged group none, as a scan |
+| a resume | drops a run at the end of what it keeps (`Resumed::dropped_run`) |
+| a lookup through the index of a closed piece | a block of a group only when every block of its group reads; any other block alone |
+
+A scan drops a run that the end of the bytes, a tail or a piece head cuts: what a crash tears. So no reader shows
+part of a run that a crash tore. A scan also drops a run longer than `RUN_BLOCKS_MAX`, up to its first unmarked block,
+as a follower stops at one.
+
+A raw medium's scan from `OpenOptions::start` inside a run takes the run's tail as a run. It doesn't read the blocks
+before its start.
+
+Damage inside a run hurts its blocks only, unless they are of a group of puts ([Groups of puts](#groups-of-puts)).
+A group is taken whole or not at all, damaged too: a block of it that doesn't read drops the whole group. The state
+before the group stays in force, and each reader lists what it dropped.
+
+A block that doesn't read hides its own marks, so readers drop what may belong with it:
+
+- a scan or a follower, after damage, the blocks of a group without `FLAG_GROUP_START` up to the first one not
+  marked `FLAG_WITH_NEXT`;
+- a lookup through the index, a block of a group whose blocks back to its start don't all read.
+
+A group that starts after the damage carries its start mark, so it stays whole.
 
 `TapeWriter::put_block` puts a producer's block of puts by the writer's own rule. `relay_block` passes a live producer's
 stream on.
 
-### 5.3 Deferred blocks {#deferred-blocks}
+### 5.3 Groups of puts {#groups-of-puts}
+
+`TapeWriter::put_group` puts items on several state tracks as one **group**: a reader takes all of them or none.
+Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close
+behind. The records it writes and the definitions they need go into blocks of puts one after the other, every block
+but the last marked `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of
+puts, each block of a group marked `FLAG_GROUP` (bit 8) and its first block `FLAG_GROUP_START` (bit 9).
+
+The flag only marks. A reader that doesn't know it reads the blocks as any blocks of puts. It loses nothing a crash
+leaves, since a group is a run. A reader that knows it also drops a damaged group whole ([Marking blocks of puts](#marking-blocks-of-puts)).
+
+The writer checks the whole group before it writes the first block:
+
+| Check | Refusal |
+|---|---|
+| every track a state track the definitions hold | `DescribeError::NotState`, `UnknownTrack` |
+| each item at most `STATE_ITEM_MAX` bytes | `DescribeError::TooLong` |
+| no track twice in the group | `InputError::Group(GroupRefusal::SlotTwice)` |
+| the items at most `GROUP_BYTES_MAX` (64 MiB) together | `InputError::Group(GroupRefusal::TooLong)` |
+| its blocks of puts, with its definitions, at most `RUN_BLOCKS_MAX` | `InputError::RunTooLong` |
+| the piece's room for the state entries of all it writes | `IndexError::StateEntries` |
+
+A group of `GROUP_BYTES_MAX` of items of `MAX_RECORD_HEAD` (25) bytes or more always fits a run. One of many shorter
+items may take more blocks than its bytes say, and the writer refuses it whole.
+
+`PieceChain::put_group` cuts before a group that the piece has no room for and puts it whole into the next piece.
+No cut falls inside a group, nor a checkpoint or a deferred block.
+
+A group on a track defined twice ([above](#definitions-written-twice-at-once)) opens with its block marked
+`FLAG_TWICE`. That block is one of the group: it carries `FLAG_GROUP` and `FLAG_GROUP_START` and counts toward
+`RUN_BLOCKS_MAX`. Its copy follows the group's last block and carries neither mark. It is so no block of the group, and
+a damaged copy leaves the group whole.
+
+A relay (`TapeWriter::relay_block`) holds a producer's group from its first block to its last, then puts its
+records as one group. It holds a group per producer, by the session tag of its blocks. Another producer's blocks
+between a group's blocks so go through and leave the group whole. A cut carries the groups held to the next piece.
+
+The relay holds groups of at most `RELAY_GROUPS_MAX` (16) producers at once, costing at most `RELAY_HELD_BYTES_MAX`
+(128 MiB) together. A record costs its bytes and `RELAY_RECORD_OVERHEAD` (512). As `put_group`, a relayed group puts
+one item per state track. The relay never drops a group without an error naming it (`InputError::Group`):
+
+| Block | Error |
+|---|---|
+| a block of the group's producer that isn't a group's, or another group's first | `GroupRefusal::Torn`, after the block is put |
+| a block of a group whose first block the relay didn't hold | `GroupRefusal::NoStart` |
+| a first block while groups of 16 producers are held | `GroupRefusal::TooManyHeld` |
+| a block past `RELAY_HELD_BYTES_MAX` held | `GroupRefusal::HeldTooLong` |
+| a second item on a state track in the group | `GroupRefusal::SlotTwice` |
+
+A crash inside a group leaves a run of marked blocks at the end of the piece. The resume drops it and names it in
+`Resumed::dropped_run`, and the application gives the group again. The group given again writes the bytes the run
+without the crash has.
+
+### 5.4 Deferred blocks {#deferred-blocks}
 
 `TapeWriter::defer_block` puts the definitions of a deferred block when the block is deferred, and places the block
 later with no puts.
@@ -1421,7 +1506,8 @@ is a torn end. A torn end may hold a final index, or a close without its tail.
 It also drops blocks marked `FLAG_WITH_NEXT` at the end of what it keeps. The call they belong to is given again whole
 and writes them again.
 
-`Resumed` says what the resume kept: `kept_bytes`, `dropped_bytes`, and `cut`, where the reader stopped taking blocks.
+`Resumed` says what the resume kept: `kept_bytes`, `dropped_bytes`, `cut`, where the reader stopped taking blocks,
+and `dropped_run`, the marked blocks dropped from `kept_bytes` on.
 
 ### 9.2 What counts as a torn end {#what-counts-as-a-torn-end}
 
@@ -2121,9 +2207,11 @@ chunks as written) is no unit and gains none. A relay passes another writer's un
 
 What a reader shows of a unit:
 
+A unit is a run ([Marking blocks of puts](#marking-blocks-of-puts)), so a reader shows all of its chunks or none:
+
 | Reader | A unit's chunks |
 |---|---|
-| a scan of a piece | each as it comes: a torn piece may show a tile chunk without its last overviews, which `grid_tiles` then lacks |
+| a scan of a piece | only with the last one: a torn unit is listed in `PieceInfo::dropped_runs`, and `grid_tiles` lacks its tile chunk |
 | a follower (`ChainFollower`, `TrackFollower`) | the marked chunks only with the last one: a live view never shows a tile chunk before its overviews |
 | the index of a closed piece (`grid_tiles`, `track_entries`) | every chunk of each unit, an entry each: only a resume closes a crashed piece, and it drops the torn unit first |
 
@@ -2407,6 +2495,10 @@ would pass one:
 | `RESYNC_SEQS_MAX` | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
 | `DEFERRED_BYTES_MAX` | 1 MiB | the deferred blocks a writer keeps before it writes them out |
 | `UNIT_CHUNKS_MAX` | 17 | the chunks of one unit a writer writes or relays: a tile chunk and its overviews |
+| `RUN_BLOCKS_MAX` | 4096 | the blocks of one run marked `FLAG_WITH_NEXT` and the block it belongs with, a writer writes or a follower holds |
+| `RELAY_GROUPS_MAX` | 16 | the producers whose groups of puts a relay holds at once |
+| `RELAY_HELD_BYTES_MAX` | 128 MiB | what the groups of puts a relay holds at once cost: each record's bytes and overhead |
+| `RELAY_RECORD_OVERHEAD` | 512 | what a record of a group a relay holds costs besides its bytes |
 | `VERIFY_LISTS_MAX` | 466432 | the track lists of a final index one verify takes |
 | `TRACKS_PER_PIECE_MAX` | 466430 | the tracks with data in one piece, so its close fits a block |
 | `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |

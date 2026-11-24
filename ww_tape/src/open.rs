@@ -729,7 +729,12 @@ impl Definitions {
     /// producer's: its track-0 records, checked as one batch; a producer, a layout, a typed item or a kind this crate
     /// doesn't know is passed over. How many are held.
     pub fn take_block(&mut self, b: &Block<'_>) -> Result<usize, DescribeError> {
-        let mut batch: Vec<(Describe<'_>, &[u8])> = Vec::new();
+        // one allocation of the size the block's records need: a block of many definitions doubles no buffer
+        let n = b
+            .records()
+            .filter(|r| r.as_ref().is_ok_and(|r| r.track.is_definitions()))
+            .count();
+        let mut batch: Vec<(Describe<'_>, &[u8])> = Vec::with_capacity(n);
         for r in b.records() {
             let r = r.map_err(DescribeError::Block)?;
             if !r.track.is_definitions() {

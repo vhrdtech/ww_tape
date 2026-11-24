@@ -440,7 +440,7 @@ fn state_readers() -> [OpenOptions; 5] {
 /// The model of a piece damaged where a CRC finds it, or cut, nothing forged behind a good CRC: a lookup that
 /// doesn't hand out what the template holds there names why, a block it lost, a stretch the index doesn't cover or
 /// a budget spent. Each slot's record in force, every definition and each item by its hash are asked for. The
-/// template's records past a cut aren't asked for at the piece's end.
+/// template's records past a cut, or in a run of puts the cut tore, aren't asked for at the piece's end.
 fn model(r: &TapeReader<&[u8]>, len: u64) {
     let Some(p) = r
         .pieces()
@@ -456,14 +456,30 @@ fn model(r: &TapeReader<&[u8]>, len: u64) {
     let mut slots: Vec<Slot> = entries.iter().map(|(_, s)| s.slot).collect();
     slots.sort();
     slots.dedup();
+    // a run of puts a cut tore at the piece's end: no block after its start is listed, and none of it is in force
+    let last = r
+        .entries(0)
+        .ok()
+        .and_then(|l| l.iter().map(|e| e.offset).max());
+    let torn = p
+        .dropped_runs
+        .iter()
+        .map(|(at, _)| *at)
+        .filter(|at| last.is_none_or(|l| l < *at))
+        .min()
+        .unwrap_or(u64::MAX);
     // the end of the piece found: where the bytes stop, unless the piece reads past a cut
-    let end = p.end.min(len);
+    let end = p.end.min(len).min(torn);
     let places = entries
         .iter()
         .map(|(e, _)| e.offset.saturating_add(1))
         .chain([u64::MAX]);
     for place in places.step_by(3) {
-        let held = if place == u64::MAX { end } else { place };
+        let held = if place == u64::MAX {
+            end
+        } else {
+            place.min(torn)
+        };
         for slot in &slots {
             let want = truth
                 .state_at(0, *slot, held)

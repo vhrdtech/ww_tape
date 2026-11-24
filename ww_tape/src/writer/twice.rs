@@ -5,7 +5,8 @@
 //! [FLAG_TWICE](crate::FLAG_TWICE), linked into its run of blocks belonging together as any block of puts. The copy of
 //! that block follows right after the block that ends the run: the same records, marked [FLAG_REPEAT](crate::FLAG_REPEAT)
 //! and [FLAG_TWICE](crate::FLAG_TWICE), never [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT). It so belongs with no other
-//! block, and never ends or joins a run.
+//! block, and never ends or joins a run. In a group of puts the block is the group's first, marked
+//! [FLAG_GROUP](crate::FLAG_GROUP); its copy is none of the group's.
 //!
 //! [Twice] follows every block the writer writes or a resume replays, in order, and says which copies are due. A
 //! resume whose bytes stop between a run and its copies writes them itself, so the piece gets the bytes it would have

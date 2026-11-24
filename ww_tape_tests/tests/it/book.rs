@@ -573,6 +573,13 @@ fn walk_caps() -> Vec<(&'static str, u64)> {
             ww_tape::writer::DEFERRED_BYTES_MAX as u64,
         ),
         ("UNIT_CHUNKS_MAX", ww_tape::writer::UNIT_CHUNKS_MAX as u64),
+        ("RUN_BLOCKS_MAX", ww_tape::RUN_BLOCKS_MAX as u64),
+        ("RELAY_GROUPS_MAX", ww_tape::RELAY_GROUPS_MAX as u64),
+        ("RELAY_HELD_BYTES_MAX", ww_tape::RELAY_HELD_BYTES_MAX as u64),
+        (
+            "RELAY_RECORD_OVERHEAD",
+            ww_tape::RELAY_RECORD_OVERHEAD as u64,
+        ),
         ("VERIFY_LISTS_MAX", ww_tape::reader::VERIFY_LISTS_MAX as u64),
         ("TRACKS_PER_PIECE_MAX", ww_tape::TRACKS_PER_PIECE_MAX as u64),
         ("HEAD_TRACKS_MAX", ww_tape::HEAD_TRACKS_MAX as u64),

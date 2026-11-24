@@ -32,6 +32,7 @@ mod files;
 mod follow;
 mod grid_summaries;
 mod grids;
+mod groups;
 mod head_copies;
 mod integrity;
 mod iq8;

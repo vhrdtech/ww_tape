@@ -23,7 +23,8 @@
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
 //!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
 //!          without it refuses the block), bit 7 on a block of puts definitions written twice at once
-//!          (FLAG_TWICE); others 0, and a reader ignores them
+//!          (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9 on a group's first block
+//!          (FLAG_GROUP_START); others 0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -103,6 +104,10 @@
 //! | [MAX_BLOCK_LEN] | 64 MiB | a block's length |
 //! | [DECODED_BODY_MAX](body::DECODED_BODY_MAX) | 64 MiB - 36 | a coded body's decoded length |
 //! | [LZ4_DECODED_MAX](lz4::LZ4_DECODED_MAX) | 64 MiB | an lz4 column's decoded length |
+//! | [RUN_BLOCKS_MAX] | 4096 | the blocks of one run marked FLAG_WITH_NEXT and the block it belongs with |
+//! | [RELAY_GROUPS_MAX] | 16 | the producers whose groups of puts a relay holds at once |
+//! | [RELAY_HELD_BYTES_MAX] | 128 MiB | what the groups of puts a relay holds at once cost: each record's bytes and overhead |
+//! | [RELAY_RECORD_OVERHEAD] | 512 | what a record of a group a relay holds costs besides its bytes |
 //! | [MAX_BLOCK_CLOCKS] | 16 | the clocks of one block's clock table |
 //! | [MAX_RECORD_HEAD] | 25 | a record head's bytes |
 //! | [MAX_CLOCK_TABLE] | 81 | a clock table's bytes |
@@ -298,8 +303,9 @@ pub use clock::{Clock, ClockRef};
 pub mod writer;
 #[cfg(feature = "alloc")]
 pub use writer::{
-    CARRIED_BLOCK_LEN, Closed, CutError, DEFER_WINDOW, HEAD_ENTRIES, InputError, NearPolicy,
-    Placed, PutWork, RemovedRefusal, ResumeError, Resumed, SealError, Sealed, SyncPolicy,
+    CARRIED_BLOCK_LEN, Closed, CutError, DEFER_WINDOW, GROUP_BYTES_MAX, GroupPut, GroupRefusal,
+    HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork, RELAY_GROUPS_MAX, RELAY_HELD_BYTES_MAX,
+    RELAY_RECORD_OVERHEAD, RemovedRefusal, ResumeError, Resumed, SealError, Sealed, SyncPolicy,
     TapeWriter, UnitChunk, WriteError, WriterOptions,
 };
 
@@ -335,6 +341,29 @@ pub const FLAG_REPEAT: u16 = 1 << 1;
 /// A writer resumed after a crash drops such blocks at the end of what it keeps, and the call given again writes them
 /// as it did. A reader takes the block as any other; a follower hands it out with the block it belongs to.
 pub const FLAG_WITH_NEXT: u16 = 1 << 2;
+
+/// Most blocks of one run: the blocks marked [FLAG_WITH_NEXT] in a row and the block they belong with.
+///
+/// A writer refuses a call that would make a longer run ([InputError::RunTooLong]). A unit of
+/// [UNIT_CHUNKS_MAX](writer::UNIT_CHUNKS_MAX) chunks, each with its puts, never reaches it. Nor does a group of puts
+/// ([TapeWriter::put_group]) of [GROUP_BYTES_MAX] bytes of items of [MAX_RECORD_HEAD] bytes or more: its items fill at
+/// least half of each block, so it takes at most `2 * GROUP_BYTES_MAX / DEFINITION_BLOCK_LEN + 1` blocks. A group of
+/// many shorter items may take more blocks than its bytes say, and the writer refuses it whole.
+///
+/// A follower holds a run's places until its last block comes and stops at a longer run; a scan drops one.
+pub const RUN_BLOCKS_MAX: usize = 4096;
+/// Header flag on blocks of puts: the block is one of a group of puts ([TapeWriter::put_group]), taken whole or not
+/// at all.
+///
+/// It only marks: a reader that doesn't know it reads the block as any block of puts. A reader that knows it drops a
+/// whole group when one of its blocks doesn't read ([FLAG_WITH_NEXT]), and only a group: a run of other puts loses
+/// only the block that doesn't read.
+pub const FLAG_GROUP: u16 = 1 << 8;
+/// Header flag on the first block of a group of puts, with [FLAG_GROUP].
+///
+/// It only marks. After damage a reader that knows it takes a group that starts with it whole: the damage hit no block
+/// of it. A block of a group without it may be the rest of a group the damage hit, and goes with it.
+pub const FLAG_GROUP_START: u16 = 1 << 9;
 /// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk a writer of
 /// [Integrity::None] encodes.
 ///
@@ -1067,7 +1096,7 @@ pub(crate) fn mark_with_next_trusted(block: &mut [u8]) -> Result<(), BlockError>
 }
 
 /// The copy of the good block of puts `block`, its CRCs known good, as the block of id `id` that belongs with no
-/// other: [FLAG_WITH_NEXT] cleared, its CRCs rewritten ([FLAG_TWICE]).
+/// other: [FLAG_WITH_NEXT], [FLAG_GROUP] and [FLAG_GROUP_START] cleared, its CRCs rewritten ([FLAG_TWICE]).
 #[cfg(feature = "alloc")]
 pub(crate) fn copy_trusted(block: &[u8], id: BlockId) -> Result<alloc::vec::Vec<u8>, BlockError> {
     let mut out = block.to_vec();
@@ -1075,7 +1104,8 @@ pub(crate) fn copy_trusted(block: &[u8], id: BlockId) -> Result<alloc::vec::Vec<
         needed: HEADER_LEN + CRC_LEN,
     };
     let flags = bytes::le_u16(&out, 6).ok_or(short)?;
-    bytes::put_u16(&mut out, 6, flags & !FLAG_WITH_NEXT).ok_or(short)?;
+    let alone = flags & !(FLAG_WITH_NEXT | FLAG_GROUP | FLAG_GROUP_START);
+    bytes::put_u16(&mut out, 6, alone).ok_or(short)?;
     restamp(&mut out, id, 0, Reread::Head)?;
     Ok(out)
 }
@@ -1083,6 +1113,14 @@ pub(crate) fn copy_trusted(block: &[u8], id: BlockId) -> Result<alloc::vec::Vec<
 /// [set_id], and mark the block as one of put or copied state records ([FLAG_REPEAT]).
 pub fn mark_repeat(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
     restamp(block, id, FLAG_REPEAT, Reread::Whole)
+}
+
+/// Mark the whole, good block `block` as the first of a group of puts ([FLAG_GROUP_START]), its CRCs rewritten.
+#[cfg(feature = "alloc")]
+pub(crate) fn mark_group_start(block: &mut [u8]) -> Result<(), BlockError> {
+    let b = Block::read(block)?;
+    let id = BlockId::new(b.session, b.seq);
+    restamp(block, id, FLAG_GROUP_START, Reread::Whole)
 }
 
 /// Mark the whole, good events chunk block `block` as a break in its track's monotone relations.
