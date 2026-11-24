@@ -251,7 +251,7 @@ The writing thread and its handles, in the crate `ww_tape_mux`.
 
 - ✅ **MUX-4 A producer's own chunks, receipts and carried items**
 
-  A sender from `TapeMux::summarized_chunks` takes each chunk a producer encoded with its summary leaves. The writing thread joins them into the track's tree, ends it at its cuts and rebuilds it after a resume. `ChunkSender::send_placed` gives a receipt naming the chunk's piece, offset, length and unit hash. `TapeMux::put_item` puts a typed item again in each piece a cut starts: every piece, or those carrying a track of its owner.
+  A sender from `TapeMux::summarized_chunks` takes each chunk a producer encoded with its summary leaves. The writing thread joins them into the track's tree, ends it at its cuts and rebuilds it after a resume. `ChunkSender::send_placed` gives a receipt naming the chunk's piece, offset, length and unit hash. `TapeMux::put_item` puts a typed item again in each piece a cut starts: every piece, or those holding a track of its owner. Carrying never cuts, and the held items are capped.
 
   Read more: [A producer's own chunks](docs/own_chunks.md). Tests `mux_leaves.rs`, `mux_placing.rs`, `mux_items.rs`.
 
