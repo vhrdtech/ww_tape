@@ -888,8 +888,10 @@ stream on.
 ### 5.3 Groups of puts {#groups-of-puts}
 
 `TapeWriter::put_group` puts items on several state tracks as one **group**: a reader takes all of them or none.
-Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close
-behind. The records it writes and the definitions they need go into blocks of puts one after the other, every block
+A put of a group is an item (`GroupItem::State`) or a key's value or deletion on a keyed track (`GroupItem::Key`,
+[Keyed state tracks](#keyed-state-tracks)). Each put decides by the near rule as `TapeWriter::put` does, so a group
+writes only the items not in force close behind. A group's keyed records go into blocks of their own, marked
+`FLAG_KEYED`, among its other blocks. The records it writes and the definitions they need go into blocks of puts one after the other, every block
 but the last marked `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of
 puts, each block of a group marked `FLAG_GROUP` (bit 8) and its first block `FLAG_GROUP_START` (bit 9).
 
@@ -901,9 +903,11 @@ The writer checks the whole group before it writes the first block:
 | Check | Refusal |
 |---|---|
 | every track a state track the definitions hold | `DescribeError::NotState`, `UnknownTrack` |
+| an item on a track that isn't keyed, a key on one that is | `DescribeError::Keyed`, `NotKeyed` |
 | each item at most `STATE_ITEM_MAX` bytes | `DescribeError::TooLong` |
-| no track twice in the group | `InputError::Group(GroupRefusal::SlotTwice)` |
-| the items at most `GROUP_BYTES_MAX` (64 MiB) together | `InputError::Group(GroupRefusal::TooLong)` |
+| no track twice in the group, no key of a keyed track twice | `InputError::Group(GroupRefusal::SlotTwice)` |
+| the items at most `GROUP_BYTES_MAX` (64 MiB) together, a key's item as written | `InputError::Group(GroupRefusal::TooLong)` |
+| the group's keys, all at once, as `put_key` checks one | `DescribeError::KeyCollision`, `InputError::CarryFull` |
 | its blocks of puts, with its definitions, at most `RUN_BLOCKS_MAX` | `InputError::RunTooLong` |
 | the piece's room for the state entries of all it writes | `IndexError::StateEntries` |
 
@@ -924,7 +928,8 @@ between a group's blocks so go through and leave the group whole. A cut carries 
 
 The relay holds groups of at most `RELAY_GROUPS_MAX` (16) producers at once, costing at most `RELAY_HELD_BYTES_MAX`
 (128 MiB) together. A record costs its bytes and `RELAY_RECORD_OVERHEAD` (512). As `put_group`, a relayed group puts
-one item per state track. The relay never drops a group without an error naming it (`InputError::Group`):
+one item per state track and per key. Its last block brings the check of its keys, all at once, before any of the
+group is written; a refusal drops the group. The relay never drops a group without an error naming it:
 
 | Block | Error |
 |---|---|
@@ -932,11 +937,17 @@ one item per state track. The relay never drops a group without an error naming 
 | a block of a group whose first block the relay didn't hold | `GroupRefusal::NoStart` |
 | a first block while groups of 16 producers are held | `GroupRefusal::TooManyHeld` |
 | a block past `RELAY_HELD_BYTES_MAX` held | `GroupRefusal::HeldTooLong` |
-| a second item on a state track in the group | `GroupRefusal::SlotTwice` |
+| a second item on a state track or a key in the group | `GroupRefusal::SlotTwice` |
+| at the last block, a key of another live key's id, or the carry past its limit | `KeyCollision`, `CarryFull` |
 
 A crash inside a group leaves a run of marked blocks at the end of the piece. The resume drops it and names it in
 `Resumed::dropped_run`, and the application gives the group again. The group given again writes the bytes the run
 without the crash has.
+
+Damage inside a piece may hit a block of a group, and a reader then drops the whole group. A resume does the same: it
+holds a group's records until its last block. A damaged block voids the group, so the resume takes none of its items,
+keys or records as lying near. It doubts the keys of the group's keyed tracks, since the damaged block may have held
+more of them ([After damage inside a piece](#after-damage-inside-a-piece)).
 
 ### 5.4 Keyed state tracks {#keyed-state-tracks}
 
@@ -944,7 +955,8 @@ A track whose `repeat` is `TrackRepeat::Keyed` holds many slots, one per **key**
 (1024) bytes, and the newest record of each key is in force.
 
 The application puts a key's value with `TapeWriter::put_key` and ends the key with `delete_key`. A deletion is a
-record too, so the older values stay in the file.
+record too, so the older values stay in the file. A [group of puts](#groups-of-puts) puts several keys, and items of
+other state tracks, all or none.
 
 The writer keeps each key near its use and copies it as `StatePolicy` says, per key, as for any slot. A plain `put`
 on a keyed track is refused, and so is `put_key` on a plain one.
@@ -1017,7 +1029,8 @@ hold yet needs more for them, so it is refused (`InputError::CarriedEntries`) un
 
 The writer also refuses a `put_key` whose key has the key id of another live key of the track
 (`DescribeError::KeyCollision`). So a listing never hides a live key. The relay of a producer's block of keyed records
-is checked the same way.
+is checked the same way. A group's keys are checked all at once, in order: against the live keys, and against each
+other. A group may delete a key and put another key of the same id after it.
 
 The check knows only the keys the writer knows. While the track's row would stay unmarked, a key whose id only an
 older piece's key holds is not refused. The two keys then share a slot as in a file of another writer, and a lookup
