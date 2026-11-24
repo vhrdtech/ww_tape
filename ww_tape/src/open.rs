@@ -609,6 +609,8 @@ pub struct Definitions {
     numbers: Numbers,
     /// The tracks held whose definitions are written twice at once ([TrackDef::defined_twice](crate::TrackDef))
     twice: BTreeSet<TrackNum>,
+    /// The definitions those tracks need ([Self::needs]), kept as definitions are held and closed
+    twice_slots: BTreeSet<Slot>,
 }
 
 impl Definitions {
@@ -841,7 +843,13 @@ impl Definitions {
     /// Whether the definition in `slot` is written twice at once: a track held as
     /// [defined_twice](crate::TrackDef::defined_twice) needs it ([Self::needs]).
     pub(crate) fn defined_twice(&self, slot: &Slot) -> bool {
-        self.twice.iter().any(|t| self.needs(*t).contains(slot))
+        self.twice_slots.contains(slot)
+    }
+
+    /// Gather [Self::twice_slots] again from the tracks written twice and what they need.
+    fn gather_twice(&mut self) {
+        let slots = self.twice.iter().flat_map(|t| self.needs(*t)).collect();
+        self.twice_slots = slots;
     }
 
     /// The maps held from clock `c`.
@@ -984,6 +992,7 @@ impl Definitions {
         };
         let old = self.defs.insert(slot, held).map_or(0, |o| o.item.len());
         self.bytes = self.bytes.saturating_sub(old).saturating_add(item.len());
+        self.gather_twice();
         Some(slot)
     }
 
@@ -1036,6 +1045,7 @@ impl Definitions {
                 }
             }
         }
+        self.gather_twice();
         true
     }
 
