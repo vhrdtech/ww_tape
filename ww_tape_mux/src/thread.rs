@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
-    ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, PieceStore, Slot as DefSlot,
+    ChainPiece, CloseReason, ColumnSpec, Definitions, GroupPut, PieceChain, PieceStore, Slot as DefSlot,
     UnitChunk, WriteError,
 };
 
@@ -174,6 +174,7 @@ fn writes<T: PieceStore>(work: &Work<T>) -> bool {
         Work::Chunk { .. }
             | Work::Block { .. }
             | Work::Put { .. }
+            | Work::PutGroup { .. }
             | Work::Cut { .. }
             | Work::Flush { sync: true, .. }
             | Work::Close { .. }
@@ -342,6 +343,23 @@ fn place<T: PieceStore>(
                 Counters::add(&shared.counters.lost, 1);
             }
             from.give_back(item);
+        }
+        Work::PutGroup { from, puts } => {
+            if !failed {
+                let group: Vec<GroupPut<'_>> = puts
+                    .iter()
+                    .map(|(track, ticks, item)| GroupPut {
+                        track: *track,
+                        ticks: *ticks,
+                        item,
+                    })
+                    .collect();
+                let r = chain.put_group(defs, &group).map(drop);
+                placed(chain, shared, &from, r, bytes);
+            } else {
+                Counters::add(&shared.counters.lost, 1);
+            }
+            puts.into_iter().for_each(|(_, _, item)| from.give_back(item));
         }
         Work::DefineTrack { item, reply } => reply.send(define::hold_track(defs, &item)),
         Work::DefineClock { items, reply } => reply.send(define::hold_clock(defs, &items)),

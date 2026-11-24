@@ -25,6 +25,8 @@ pub enum Unit {
     Block(Vec<u8>),
     /// A put of a [StateHandle](crate::StateHandle).
     Put { ticks: i64, item: Vec<u8> },
+    /// A group of puts of a [GroupHandle](crate::GroupHandle): track, time and item each.
+    Group(Vec<(TrackNum, i64, Vec<u8>)>),
 }
 
 /// What a handle refuses at the call, before anything is sent.
