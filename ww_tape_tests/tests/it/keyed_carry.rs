@@ -579,6 +579,18 @@ fn a_keyed_track_defined_after_junk_is_carried() {
     assert!(r.keys_at(0, later, b"", u64::MAX).unwrap().is_whole());
 }
 
+/// A deletion in a block that doesn't read leaves the key live to the writer, so the next cut carries its older
+/// record in a piece whose row is unmarked: a lookup that finds that carried record says it may be stale.
+#[test]
+fn a_carried_record_in_an_unmarked_piece_is_not_whole() {
+    let (mem, pieces) = resume_damaged(true);
+    let next = piece_bytes(&mem, pieces[2].tape);
+    let r = TapeReader::open(&next[..]).unwrap();
+    let k = r.key_at(0, KEYED, &key(1), u64::MAX).unwrap();
+    assert!(k.item.is_some(), "the carry holds the key");
+    assert!(k.not_carried && !k.is_whole());
+}
+
 /// A crash right after a cut drops the piece's carry, and a resume of that piece alone, without its chain, can't
 /// put the keys again: the first call is refused ([ResumeError::KeysUnknown]).
 #[test]
@@ -728,10 +740,11 @@ fn a_piece_without_its_keys_reads_as_not_whole() {
         .unwrap();
     w.begin_piece(&head, &[row]).unwrap();
     w.put_key(&defs, KEYED, 0, b"/a", b"1").unwrap();
-    let (closed, next) = w.cut_on(&defs, MemSink::new()).unwrap();
+    let (closed, mut next) = w.cut_on(&defs, MemSink::new()).unwrap();
     assert_eq!(closed.keys_unknown, 1);
     assert!(!closed.tracks.iter().any(|t| t.keys_carried));
     let tape = next.sink().tape();
+    next.put_key(&defs, KEYED, 1, b"/b", b"2").unwrap();
     next.close().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
@@ -740,8 +753,11 @@ fn a_piece_without_its_keys_reads_as_not_whole() {
     assert!(at.items.contains_key(&b"/a"[..]));
     let missing = r.key_at(0, KEYED, b"/zz", u64::MAX).unwrap();
     assert!(missing.item.is_none() && missing.not_carried && !missing.is_whole());
-    let found = r.key_at(0, KEYED, b"/a", u64::MAX).unwrap();
-    assert!(found.item.is_some() && !found.not_carried && found.is_whole());
+    // a record the carry holds may be stale; one put in the piece is the key's newest
+    let carried = r.key_at(0, KEYED, b"/a", u64::MAX).unwrap();
+    assert!(carried.item.is_some() && carried.not_carried && !carried.is_whole());
+    let put = r.key_at(0, KEYED, b"/b", u64::MAX).unwrap();
+    assert!(put.item.is_some() && !put.not_carried && put.is_whole());
 }
 
 /// A put by key that would bring the keys every cut carries past the index policy's state entries is refused,

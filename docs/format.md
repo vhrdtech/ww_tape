@@ -869,7 +869,8 @@ the row of a track that isn't keyed is passed over, by the writer as by a reader
 
 A piece that follows another may leave the track's row unmarked. A reader of it can't know the keys in force at the
 piece's start. `KeysAt::not_carried` says so, and so does `Lookup::not_carried` of a key it found no record of; their
-`is_whole()` is false then. A first piece, or a track without a row in the head, holds every record of the track.
+`is_whole()` is false then. A record found in the piece's carry, the blocks after its head that belong with the next,
+may be stale there too: a key found only there reads as not whole. A first piece, or a track without a row in the head, holds every record of the track.
 
 A keyed track is never left out of a cut ([Carried definitions](carried_definitions.md#when-they-dont-fit)). The
 writer refuses a `put_key` that would make the carry too large for a piece. Its `InputError::CarryFull` names the

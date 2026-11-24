@@ -243,8 +243,9 @@ pub struct Lookup {
     /// The lookup's budget ([OpenOptions::state_read_max](super::OpenOptions::state_read_max)) ran out before it found a record that reads: older candidates were
     /// not read.
     pub spent: bool,
-    /// A key lookup ([TapeReader::key_at], [TapeReader::state_at] of a [Slot::Keyed]) found no record, and the piece doesn't carry the keys in force at its
-    /// start ([TrackStart::keys_carried]): the key's record may lie only in the pieces before.
+    /// A key lookup ([TapeReader::key_at], [TapeReader::state_at] of a [Slot::Keyed]) found no record, or only one the
+    /// piece's carry holds, and the piece doesn't carry the keys in force at its start
+    /// ([TrackStart::keys_carried]): the key's newest record may lie only in the pieces before.
     pub not_carried: bool,
 }
 
@@ -516,7 +517,7 @@ impl<S: ByteSource> TapeReader<S> {
         let from = found.item.as_ref().map_or(0, |s| s.offset);
         found.uncovered = uncovered(self.piece(i)?, from..offset);
         if let Slot::Keyed { track, .. } = slot {
-            found.not_carried = found.item.is_none() && self.keys_not_carried(i, track)?;
+            found.not_carried = self.key_not_carried(i, track, &found)?;
         }
         Ok(found)
     }
@@ -675,7 +676,7 @@ impl<S: ByteSource> TapeReader<S> {
         }
         let from = found.item.as_ref().map_or(0, |s| s.offset);
         found.uncovered = uncovered(self.piece(i)?, from..offset);
-        found.not_carried = found.item.is_none() && self.keys_not_carried(i, track)?;
+        found.not_carried = self.key_not_carried(i, track, &found)?;
         Ok(found)
     }
 
@@ -790,6 +791,45 @@ impl<S: ByteSource> TapeReader<S> {
     /// Whether piece `i` may lack the keys of keyed state track `track` in force at its start: its head doesn't read,
     /// or it follows another piece and its head's row of the track isn't marked [TrackStart::keys_carried]. A
     /// track without a row has no records before the piece.
+    /// Whether the key lookup `found` in piece `i` may miss a newer record in the pieces before: the piece doesn't
+    /// carry the keys of `track` in force at its start, and it found no record or only one the piece's carry holds,
+    /// which may be stale.
+    fn key_not_carried(&self, i: usize, track: TrackNum, found: &Lookup) -> R<bool, S> {
+        if !self.keys_not_carried(i, track)? {
+            return Ok(false);
+        }
+        match &found.item {
+            None => Ok(true),
+            Some(item) => self.in_carry(i, item.offset),
+        }
+    }
+
+    /// Whether the block at `offset` in piece `i` lies in the blocks after the piece head that all belong with the
+    /// next ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)), the carry a cut puts before the first call's own block. A block
+    /// on the way that doesn't read counts the record as carried. The walk reads the blocks before `offset` alone.
+    fn in_carry(&self, i: usize, offset: u64) -> R<bool, S> {
+        let p = self.piece(i)?;
+        let target = p.start.saturating_add(offset);
+        let mut at = p.start;
+        let mut head = true;
+        while at <= target {
+            let Ok((b, end)) = self.good_block(at, p.end)? else {
+                return Ok(true);
+            };
+            let b = b.block();
+            if head {
+                if b.kind != crate::BlockKind::PieceHead {
+                    return Ok(false);
+                }
+                head = false;
+            } else if b.flags & crate::FLAG_WITH_NEXT == 0 {
+                return Ok(false);
+            }
+            at = end;
+        }
+        Ok(true)
+    }
+
     fn keys_not_carried(&self, i: usize, track: TrackNum) -> R<bool, S> {
         let piece = self.piece(i)?;
         if piece.head_error.is_some() {
