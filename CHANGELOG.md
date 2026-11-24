@@ -19,6 +19,7 @@ benchmarks, golden files and book pages.
 - `TileLayout::overview`, `overview_levels` and `level_for` give a grid's space overview levels and pick one (FMT-15).
 - `Overview` reads an overview chunk's min, max and mean columns in place (FMT-15).
 - `grid_tiles` finds the overview chunks of the level its box's layout is of (FMT-15).
+- `OverviewCells` halves a tile's cells level by level: min, max and means rounded ties to even (FMT-15).
 
 ## [0.8.1] - 2026-11-24
 
