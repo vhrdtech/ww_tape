@@ -1,14 +1,17 @@
 //! Definitions written twice at once ([TrackDef::defined_twice]): in a piece too small for the copies spaced apart,
-//! every definition such a track needs reads after any one damaged block, a crash anywhere included.
+//! every definition such a track needs reads after any one damaged block, and a crash at any block boundary resumes
+//! to the bytes written without it.
 
 use ww_tape::index::IndexPolicy;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    Block, ClockNum, Definitions, Describe, FLAG_WITH_NEXT, FileBlocks, Layout, MemSink, Recovery,
-    Slot, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, TrackNum, WriterOptions,
+    Block, ClockNum, Definitions, Describe, FLAG_TWICE, FLAG_WITH_NEXT, FileBlocks, Layout,
+    MemSink, Recovery, Slot, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, TrackNum,
+    UnitChunk, WriterOptions,
 };
 
 use crate::definitions::{CLOCK, clock, held, on_tracks, record_blocks, track, writes_of};
+use crate::pieces::{chunk, column};
 use crate::resume::head;
 
 /// The track that asks for its definitions twice, and one beside it on the same clock that doesn't.
@@ -104,14 +107,19 @@ fn damaged(bytes: &[u8], offset: u64) -> Vec<u8> {
     out
 }
 
-/// Where each of [NEEDED] reads from in `bytes`; None where it doesn't read.
-fn needed_at(bytes: &[u8]) -> Vec<Option<u64>> {
+/// Where each of `slots` reads from in `bytes`; None where it doesn't read.
+fn read_at(bytes: &[u8], slots: &[Slot]) -> Vec<Option<u64>> {
     let r = TapeReader::open(bytes).unwrap();
     let at = r.definitions_at(0, u64::MAX).unwrap();
-    NEEDED
+    slots
         .iter()
         .map(|s| at.items.get(s).map(|i| i.offset))
         .collect()
+}
+
+/// Where each of [NEEDED] reads from in `bytes`.
+fn needed_at(bytes: &[u8]) -> Vec<Option<u64>> {
+    read_at(bytes, &NEEDED)
 }
 
 /// The blocks of puts in `bytes`, by offset.
@@ -123,15 +131,32 @@ fn puts(bytes: &[u8]) -> Vec<u64> {
         .collect()
 }
 
-/// Whether every one of [NEEDED] reads from `bytes` with any one of its blocks of puts damaged.
-fn survives_any_one(bytes: &[u8]) -> bool {
-    puts(bytes)
-        .into_iter()
-        .all(|at| needed_at(&damaged(bytes, at)).iter().all(Option::is_some))
+/// Whether every one of `slots` reads from `bytes` with any one of its blocks of puts damaged.
+fn survives(bytes: &[u8], slots: &[Slot]) -> bool {
+    puts(bytes).into_iter().all(|at| {
+        read_at(&damaged(bytes, at), slots)
+            .iter()
+            .all(Option::is_some)
+    })
 }
 
-/// Each definition the track needs is written twice at once, in two blocks one after the other; the copy belongs with
-/// no other block. The track beside it on the same clock has its own definition once.
+/// [survives] for [NEEDED].
+fn survives_any_one(bytes: &[u8]) -> bool {
+    survives(bytes, &NEEDED)
+}
+
+/// The header flags of the record block at `offset` of `bytes`.
+fn flags_at(bytes: &[u8], offset: u64) -> u16 {
+    let b = record_blocks(bytes)
+        .into_iter()
+        .find(|b| b.offset == offset)
+        .unwrap();
+    Block::read(&b.bytes).unwrap().flags
+}
+
+/// Each definition the track needs is written twice at once: its first record in a block marked [FLAG_TWICE], its
+/// copy after the run that block belongs to, marked the same but never [FLAG_WITH_NEXT]. The track beside it on the
+/// same clock has its own definition once.
 #[test]
 fn the_definitions_are_written_in_two_blocks() {
     let bytes = piece(true);
@@ -146,12 +171,26 @@ fn the_definitions_are_written_in_two_blocks() {
         },
     );
     assert_eq!(track.len(), 2, "{track:?}");
-    let copy = record_blocks(&bytes)
-        .into_iter()
-        .find(|b| b.offset == track[0])
-        .unwrap();
-    let flags = Block::read(&copy.bytes).unwrap().flags;
-    assert_eq!(flags & FLAG_WITH_NEXT, 0, "the copy belongs with no block");
+    let (first, copy) = (flags_at(&bytes, track[0]), flags_at(&bytes, track[1]));
+    assert_ne!(first & FLAG_TWICE, 0);
+    assert_ne!(
+        first & FLAG_WITH_NEXT,
+        0,
+        "the first record serves the data after it"
+    );
+    assert_eq!(
+        copy & (FLAG_TWICE | FLAG_WITH_NEXT),
+        FLAG_TWICE,
+        "the copy belongs with no block"
+    );
+    // the run in between: the first record's block, then the block of data it serves
+    let blocks: Vec<u64> = record_blocks(&bytes).iter().map(|b| b.offset).collect();
+    let i = blocks.iter().position(|o| *o == track[0]).unwrap();
+    assert_eq!(
+        blocks[i + 2],
+        track[1],
+        "the copy follows the run's data block"
+    );
     let once = writes_of(
         &bytes,
         Slot::Track {
@@ -176,7 +215,7 @@ fn either_record_reads_when_the_other_is_damaged() {
         number: TrackNum::new(TWICE),
     };
     let at = writes_of(&bytes, slot);
-    let (copy, first) = (at[0], at[1]);
+    let (first, copy) = (at[0], at[1]);
     assert_eq!(needed_at(&damaged(&bytes, copy))[1], Some(first));
     assert_eq!(needed_at(&damaged(&bytes, first))[1], Some(copy));
 }
@@ -189,30 +228,243 @@ fn every_definition_reads_after_one_damaged_block() {
     assert!(!survives_any_one(&piece(false)));
 }
 
-/// A crash at any block boundary, then a resume that writes on: the piece still holds each definition twice.
-#[test]
-fn a_crash_anywhere_keeps_the_definitions_twice() {
-    let whole = piece(true);
-    let mut ends = Vec::new();
-    let mut rd = FileBlocks::with_recovery(&whole[..], Recovery::Prefix);
+/// A state track written twice at once, beside [TWICE] and [ONCE].
+const STATE: u32 = 12;
+
+/// [batch], track 1 of the chunks and the state track [STATE], both written twice at once.
+fn calls_batch() -> Vec<Describe<'static>> {
+    let mut out = batch(true);
+    for d in [track(1, CLOCK), crate::definitions::state(STATE)] {
+        let Describe::Track(t) = d else {
+            unreachable!("a track")
+        };
+        out.push(Describe::Track(TrackDef {
+            defined_twice: true,
+            ..t
+        }));
+    }
+    out
+}
+
+/// A call of the producer, given again after a resume from where [TapeWriter::next_seq] says.
+#[derive(Clone, Copy, Debug)]
+enum Call {
+    /// A record block on a track, at a tick
+    Records(u32, i64),
+    /// A put on [STATE] at a tick
+    Put(i64),
+    /// A unit of two chunks of track 1, from chunk k
+    Unit(u64),
+    /// A chunk of track `t + 1`, chunk k
+    Chunk(u64, u64),
+}
+
+/// Make `call` on `w`.
+fn make(w: &mut TapeWriter<MemSink>, defs: &Definitions, call: Call) {
+    match call {
+        Call::Records(on, k) => {
+            let block = on_tracks(w.next_id(), &[(on, k, &[k as u8; 40])]);
+            w.write_block(defs, &block).unwrap();
+        }
+        Call::Put(k) => {
+            w.put(defs, TrackNum::new(STATE), k, &[k as u8; 8]).unwrap();
+        }
+        Call::Unit(k) => {
+            let (h0, c0) = chunk(0, k);
+            let (h1, c1) = chunk(0, k + 1);
+            let (col0, col1) = (column(&c0), column(&c1));
+            let unit = [
+                UnitChunk {
+                    head: &h0,
+                    columns: &col0,
+                    payload_hash: None,
+                },
+                UnitChunk {
+                    head: &h1,
+                    columns: &col1,
+                    payload_hash: None,
+                },
+            ];
+            w.write_chunk_unit(defs, &unit).unwrap();
+        }
+        Call::Chunk(t, k) => {
+            let (h, c) = chunk(t, k);
+            w.write_chunk(defs, &h, &column(&c)).unwrap();
+        }
+    }
+}
+
+/// Where a call was made: the seq it started at and the bytes of the piece after it.
+#[derive(Clone, Copy, Debug)]
+struct Made {
+    seq: u64,
+    end: u64,
+}
+
+/// Make `calls` on `w`; where each was made.
+fn make_all(w: &mut TapeWriter<MemSink>, defs: &Definitions, calls: &[Call]) -> Vec<Made> {
+    calls
+        .iter()
+        .map(|c| {
+            let seq = w.next_seq();
+            make(w, defs, *c);
+            let end = w.sink().tape().held().unwrap();
+            Made { seq, end }
+        })
+        .collect()
+}
+
+/// Whether a resume whose kept bytes end at `kept` and whose next seq is `next` is given `call`, made as `made`
+/// before the crash: a call of data from the next seq on; a put whose bytes the crash cut, as a put of an item that
+/// changed since is not given again.
+fn given_again(call: Call, made: Made, next: u64, kept: u64) -> bool {
+    match call {
+        Call::Put(_) => made.seq >= next && made.end > kept,
+        _ => made.seq >= next,
+    }
+}
+
+/// Each block of `bytes`: where it starts, its kind, flags and seq, and the slots of its records.
+fn blocks_of(bytes: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
+    while let Some(Ok(b)) = rd.next_block() {
+        let slots: Vec<Option<Slot>> = match b.kind {
+            ww_tape::BlockKind::Records => Block::read(b.bytes())
+                .unwrap()
+                .records()
+                .filter_map(Result::ok)
+                .map(|r| Slot::of(r.track, r.item))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let line = format!("{:?} {:#x} seq {} {slots:?}", b.kind, b.flags, b.seq);
+        out.push(format!("{} {line}", rd.offset()));
+    }
+    out
+}
+
+/// Where each block of `bytes` ends, past `from`.
+fn block_ends(bytes: &[u8], from: u64) -> Vec<u64> {
+    let mut out = Vec::new();
+    let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
     while let Some(Ok(b)) = rd.next_block() {
         let len = b.bytes().len() as u64;
         let end = rd.offset() + len;
-        if end > 2048 {
-            break;
+        if end > from {
+            out.push(end);
         }
-        ends.push(end);
     }
-    assert!(ends.len() > 6, "{ends:?}");
+    out
+}
+
+/// `whole`, a piece written by `calls` (each made as `made` says) and closed, cut at every block boundary
+/// past `from` as a crash leaves it, resumed, given again the calls from [TapeWriter::next_seq] on and closed: the
+/// bytes of `whole` each time.
+fn same_bytes_after_any_crash(
+    whole: &[u8],
+    from: u64,
+    defs: &Definitions,
+    calls: &[Call],
+    made: &[Made],
+) {
+    let ends = block_ends(whole, from);
+    assert!(ends.len() > 8, "{ends:?}");
     for end in ends {
         let mut sink = MemSink::new();
         sink.write_all(&whole[..end as usize]).unwrap();
-        let (mut w, _) = TapeWriter::resume_on(sink, options()).unwrap();
+        let (mut w, resumed) = TapeWriter::resume_on(sink, options()).unwrap();
         let tape = w.sink().tape();
-        let defs = held(&batch(true));
-        write_from(&mut w, &defs, 1000, 8192);
+        let next = w.next_seq();
+        for (call, m) in calls.iter().zip(made) {
+            if given_again(*call, *m, next, resumed.kept_bytes) {
+                make(&mut w, defs, *call);
+            }
+        }
         w.close().unwrap();
-        let bytes = tape.to_vec().unwrap();
-        assert!(survives_any_one(&bytes), "crash at {end}");
+        let again = tape.to_vec().unwrap();
+        assert_eq!(blocks_of(&again), blocks_of(whole), "crash at {end}");
+        assert!(again == whole, "crash at {end} of {}", whole.len());
     }
+}
+
+/// The calls of the tests: records on both tracks, puts, a unit and chunks.
+const CALLS: [Call; 10] = [
+    Call::Records(ONCE, 0),
+    Call::Records(TWICE, 1),
+    Call::Put(2),
+    Call::Put(3),
+    Call::Unit(0),
+    Call::Records(TWICE, 4),
+    Call::Put(5),
+    Call::Chunk(0, 2),
+    Call::Records(ONCE, 6),
+    Call::Put(7),
+];
+
+/// A first piece: a crash at any block boundary and a resume give the bytes of the piece written without the crash,
+/// the copies due at the crash written by the resume. Every definition written twice reads after any one damaged
+/// block, a copy after a unit or a put among them.
+#[test]
+fn a_crash_at_any_block_boundary_gives_the_same_bytes() {
+    let defs = held(&calls_batch());
+    let mut w = begin();
+    let tape = w.sink().tape();
+    let made = make_all(&mut w, &defs, &CALLS);
+    w.close().unwrap();
+    let whole = tape.to_vec().unwrap();
+    let mut slots = NEEDED.to_vec();
+    for t in [1, STATE] {
+        slots.push(Slot::Track {
+            number: TrackNum::new(t),
+        });
+    }
+    assert!(survives(&whole, &slots));
+    for slot in &slots {
+        for at in writes_of(&whole, *slot).into_iter().skip(1).take(1) {
+            assert_eq!(
+                flags_at(&whole, at) & FLAG_WITH_NEXT,
+                0,
+                "{slot:?}: a copy is in no run"
+            );
+        }
+    }
+    same_bytes_after_any_crash(&whole, 0, &defs, &CALLS, &made);
+}
+
+/// A new piece carrying tracks written twice: their carried definitions have copies after the run the piece head's
+/// puts start. A crash at any block boundary of the new piece and a resume give its bytes; every carried definition
+/// reads after any one damaged block of puts, a copy among them.
+#[test]
+fn a_piece_carrying_tracks_written_twice_resumes_to_the_same_bytes() {
+    let defs = held(&calls_batch());
+    let mut w = begin();
+    // no state in the first piece: a writer resumed alone has no newest state to carry beside its definition
+    let first: Vec<Call> = CALLS
+        .into_iter()
+        .filter(|c| !matches!(c, Call::Put(_)))
+        .collect();
+    make_all(&mut w, &defs, &first);
+    let (_, mut next) = w.cut_on(&defs, MemSink::new()).unwrap();
+    let tape = next.sink().tape();
+    let calls = [
+        Call::Records(ONCE, 20),
+        Call::Put(21),
+        Call::Chunk(0, 9),
+        Call::Records(TWICE, 22),
+    ];
+    let made = make_all(&mut next, &defs, &calls);
+    next.close().unwrap();
+    let whole = tape.to_vec().unwrap();
+    let carried: Vec<Slot> = [TWICE, 1]
+        .into_iter()
+        .map(|t| Slot::Track {
+            number: TrackNum::new(t),
+        })
+        .chain([Slot::Clock {
+            number: ClockNum::new(CLOCK),
+        }])
+        .collect();
+    assert!(survives(&whole, &carried));
+    same_bytes_after_any_crash(&whole, 0, &defs, &calls, &made);
 }

@@ -14,6 +14,7 @@ benchmarks, golden files and book pages.
 ### Features
 
 - A track with `defined_twice` has each definition it needs written in two blocks at once (TRACK-9).
+- Header bit 7 `FLAG_TWICE` marks such blocks; each copy follows its run, and a resume writes missing copies (TRACK-9).
 
 ## [0.9.0] - 2026-11-24
 

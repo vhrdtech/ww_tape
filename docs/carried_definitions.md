@@ -30,7 +30,8 @@ One damaged block so costs only its own tracks, never another block's clock. A l
 bundle.
 
 A track defined twice at once ([format](format.md#definitions-written-twice-at-once)) loses nothing to one damaged
-block. Each carried block that holds its definitions is preceded by a block of its own holding those records again.
+block. Its carried definitions go into a block of their own, and a copy of that block follows the run the piece
+head's puts start.
 
 ## State tracks
 

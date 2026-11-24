@@ -9,7 +9,8 @@
 //!   [NearPolicy::copy_spacing] behind. Nothing is scheduled ahead: a copy is written only where the item is used.
 //! - **Twice at once.** A definition a track asks to have written twice
 //!   ([TrackDef::defined_twice](crate::TrackDef::defined_twice)) is written while fewer than two records of it lie in
-//!   the piece: a put writes it in two blocks at once, and its copies spaced apart come on top of those two.
+//!   the piece. Its first record gets a copy after its run ([FLAG_TWICE](crate::FLAG_TWICE)); one written once before (a clock a track
+//!   that asked nothing put) is written once more. Its copies spaced apart come on top of those two.
 //! - **Cap.** The memory holds at most [NearPolicy::memory_max] slots and forgets the one written longest ago first;
 //!   a slot forgotten costs one more write, never a wrong read. The layout and the producer, two slots every call
 //!   uses, are held besides and never forgotten. A slot whose newest record lies in a damaged block
@@ -132,6 +133,15 @@ impl Near {
             };
             self.slots.remove(&oldest);
         }
+    }
+
+    /// Records of the item `hash` in `slot` the piece holds, the newest of the slot among them; 0 when the slot's
+    /// newest record is another item, unknown, or not remembered.
+    pub fn records_of(&self, slot: &Slot, hash: ItemHash) -> u32 {
+        self.slots
+            .get(slot)
+            .filter(|w| w.hash == Some(hash))
+            .map_or(0, |w| w.records)
     }
 
     /// Slots remembered.

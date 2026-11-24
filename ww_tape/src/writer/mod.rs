@@ -70,6 +70,7 @@ pub mod near;
 mod relations;
 pub mod resume;
 mod seal;
+mod twice;
 pub use carried::CARRIED_BLOCK_LEN;
 pub use error::{CutError, InputError, RemovedRefusal, ResumeError, WriteError};
 pub use kept::KEPT_BYTES_MAX;
@@ -198,6 +199,10 @@ pub struct TapeWriter<S: TapeSink> {
     unit_open: bool,
     /// The chunks of the open unit so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
     unit_chunks: usize,
+    /// The blocks of definitions written twice at once and the copies due ([twice])
+    twice: twice::Twice,
+    /// The copies due are being written
+    twice_writing: bool,
     last_checkpoint: Option<u64>,
     /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash; untouched below
     /// [Integrity::Full]
@@ -400,6 +405,8 @@ impl<S: TapeSink> TapeWriter<S> {
             index_due: false,
             unit_open: false,
             unit_chunks: 0,
+            twice: twice::Twice::default(),
+            twice_writing: false,
             last_checkpoint: now,
             hash: blake3::Hasher::new(),
             level: Integrity::Full,
@@ -700,11 +707,11 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut all: Vec<Candidate<'_>> = self.head_items.iter().take(copies).cloned().collect();
         all.extend_from_slice(cands);
         let mut chosen = self.choose(&all)?;
-        if self.room(entries(&all, &chosen), false).is_err() {
+        if self.room(self.entries(&all, &chosen), false).is_err() {
             all.drain(..copies);
             chosen = self.choose(&all)?;
         }
-        self.room(entries(&all, &chosen), false)?;
+        self.room(self.entries(&all, &chosen), false)?;
         let writes = !cands.is_empty() && chosen.last().copied().unwrap_or(false);
         self.write_chosen(&all, &chosen, with_next)?;
         Ok(writes)
@@ -785,10 +792,10 @@ impl<S: TapeSink> TapeWriter<S> {
         loop {
             let end = self
                 .offset()
-                .saturating_add(wide(chosen_len(cands, &chosen)?));
+                .saturating_add(wide(self.chosen_len(cands, &chosen)?));
             let mut more = false;
             for (c, pick) in cands.iter().zip(chosen.iter_mut()) {
-                if !*pick && self.near.writes(&c.slot, c.hash, end, c.rule) {
+                if !*pick && self.near.writes(&c.slot, c.hash, end, self.rule_now(c)) {
                     *pick = true;
                     more = true;
                 }
@@ -799,23 +806,89 @@ impl<S: TapeSink> TapeWriter<S> {
         }
     }
 
-    /// Write the records of `cands` that `chosen` marks, in order. Those written twice at once ([Rule::twice]) go
-    /// first into blocks of their own that belong with no other block, so a reader that drops a run of blocks
-    /// belonging together ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)) keeps them when the run is damaged, and the run
-    /// keeps them when they are.
+    /// Write the records of `cands` that `chosen` marks, in order. The first records of definitions written twice at
+    /// once ([Self::first_twice]) go first, into blocks of their own marked [FLAG_TWICE](crate::FLAG_TWICE): their
+    /// copies follow the run they end or belong to ([twice]).
     fn write_chosen(
         &mut self,
         cands: &[Candidate<'_>],
         chosen: &[bool],
         with_next: bool,
     ) -> Result<(), WriteError<S::Error>> {
-        let twice = twice_records(cands, chosen);
-        let records = chosen_records(cands, chosen);
-        for r in twice.iter().chain(&records) {
+        let (first, rest) = self.split_twice(cands, chosen);
+        let first = chosen_records(cands, &first);
+        let rest = chosen_records(cands, &rest);
+        for r in first.iter().chain(&rest) {
             self.work.copy(r.item.len());
         }
-        self.write_puts(&twice, false)?;
-        self.write_puts(&records, with_next)
+        self.write_puts(&first, crate::FLAG_TWICE, with_next || !rest.is_empty())?;
+        self.write_puts(&rest, 0, with_next)
+    }
+
+    /// The rule `c` is put by now: one written twice at once whose copy is due ([twice]) has the two records it asks,
+    /// and is written again only as a copy spaced apart or past `near`.
+    fn rule_now(&self, c: &Candidate<'_>) -> Rule {
+        if c.rule.twice && self.twice.copy_due(&c.slot) {
+            Rule {
+                twice: false,
+                copies: exact_units::Count::new(c.rule.copies.get().saturating_add(1)),
+                ..c.rule
+            }
+        } else {
+            c.rule
+        }
+    }
+
+    /// Of the records of `cands` that `chosen` marks, those written twice at once that are the first of their item in
+    /// the piece ([Rule::twice], [Near::records_of]), and the others.
+    fn split_twice(&self, cands: &[Candidate<'_>], chosen: &[bool]) -> (Vec<bool>, Vec<bool>) {
+        cands
+            .iter()
+            .zip(chosen)
+            .map(|(c, pick)| {
+                let first = *pick && c.rule.twice && self.near.records_of(&c.slot, c.hash) == 0;
+                (first, *pick && !first)
+            })
+            .unzip()
+    }
+
+    /// Bytes of the blocks of puts [Self::write_chosen] writes for the records of `cands` that `chosen` marks: the
+    /// copies come after the run, past where its data lands.
+    fn chosen_len(
+        &self,
+        cands: &[Candidate<'_>],
+        chosen: &[bool],
+    ) -> Result<usize, WriteError<S::Error>> {
+        let (first, rest) = self.split_twice(cands, chosen);
+        let first = puts_len(&chosen_records(cands, &first))?;
+        let rest = puts_len(&chosen_records(cands, &rest))?;
+        Ok(first.saturating_add(rest))
+    }
+
+    /// The state entries the records of `cands` that `chosen` marks take: two of a first record written twice at
+    /// once, its copy's included.
+    fn entries(&self, cands: &[Candidate<'_>], chosen: &[bool]) -> usize {
+        let (first, rest) = self.split_twice(cands, chosen);
+        let count = |m: &[bool]| m.iter().filter(|p| **p).count();
+        count(&first).saturating_mul(2).saturating_add(count(&rest))
+    }
+
+    /// Write the copies due ([twice]), each as the block of puts it copies, belonging with no other block.
+    fn write_copies(&mut self) -> Result<(), WriteError<S::Error>> {
+        if self.twice_writing {
+            return Ok(());
+        }
+        self.twice_writing = true;
+        let mut out = Ok(());
+        while let Some(due) = self.twice.next_due() {
+            let copy = crate::copy_trusted(due, self.structural_id()).map_err(WriteError::Block);
+            if let Err(e) = copy.and_then(|c| self.write_own(&c).map(drop)) {
+                out = Err(e);
+                break;
+            }
+        }
+        self.twice_writing = false;
+        out
     }
 
     /// Before a block of data needing `cands`: put them, belonging with it.
@@ -972,7 +1045,7 @@ impl<S: TapeSink> TapeWriter<S> {
     fn put_carried(&mut self, blocks: &[Vec<Candidate<'_>>]) -> Result<(), WriteError<S::Error>> {
         let n = blocks
             .iter()
-            .map(|b| entries(b, &vec![true; b.len()]))
+            .map(|b| self.entries(b, &vec![true; b.len()]))
             .sum();
         self.room(n, !self.head_put)?;
         self.ensure_head()?;
@@ -994,7 +1067,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let items = self.head_candidates()?;
         self.head_items.clone_from(&items);
         // they belong with the call's block; at a piece head a resume puts them again when nothing follows
-        self.write_puts(&chosen_records(&items, &[true, true]), true)
+        self.write_puts(&chosen_records(&items, &[true, true]), 0, true)
     }
 
     /// The layout and the producer as candidates to put, on track 0 by its rule.
@@ -1024,10 +1097,11 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Write `records` as blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT), with the seq of the last counted block,
     /// not counted themselves; the call that writes them checked their room first ([Self::room]).
     /// Every block but the last is marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the last one too with `with_next`:
-    /// the call goes on with a block of data they serve.
+    /// the call goes on with a block of data they serve. `flags` go on every block besides.
     fn write_puts(
         &mut self,
         records: &[RecordRef<'_>],
+        flags: u16,
         with_next: bool,
     ) -> Result<(), WriteError<S::Error>> {
         if records.is_empty() {
@@ -1038,7 +1112,7 @@ impl<S: TapeSink> TapeWriter<S> {
         write_records(
             records,
             DEFINITION_BLOCK_LEN,
-            crate::FLAG_REPEAT,
+            crate::FLAG_REPEAT | flags,
             || id,
             |b| {
                 blocks.push(b.to_vec());
@@ -1293,6 +1367,8 @@ impl<S: TapeSink> TapeWriter<S> {
         if due {
             self.sync()?;
         }
+        self.twice.saw(block);
+        self.write_copies()?;
         Ok(Placed { offset, len, unit })
     }
 
@@ -1962,8 +2038,8 @@ impl<S: TapeSink> TapeWriter<S> {
         // right before the chunk, after every counted block this call places: a resume after one of them puts the
         // same
         let chosen = self.choose(&needs)?;
-        self.room(entries(&needs, &chosen), false)?;
-        let puts = chosen_len(&needs, &chosen)?;
+        self.room(self.entries(&needs, &chosen), false)?;
+        let puts = self.chosen_len(&needs, &chosen)?;
         let at = self.at()?.saturating_add(wide(puts));
         let padding = crate::chunk::chunk_padding(at, head_len, self.alignment())
             .ok_or(WriteError::Input(InputError::Alignment(self.alignment())))?;
@@ -2956,33 +3032,6 @@ fn chosen_records<'c>(cands: &'c [Candidate<'_>], chosen: &[bool]) -> Vec<Record
             item: c.item.bytes(),
         })
         .collect()
-}
-
-/// The records of `cands` that `chosen` marks and that are written twice at once ([Rule::twice]), in order.
-fn twice_records<'c>(cands: &'c [Candidate<'_>], chosen: &[bool]) -> Vec<RecordRef<'c>> {
-    let twice: Vec<bool> = cands
-        .iter()
-        .zip(chosen)
-        .map(|(c, pick)| *pick && c.rule.twice)
-        .collect();
-    chosen_records(cands, &twice)
-}
-
-/// Bytes of the blocks of puts [TapeWriter::write_chosen] writes for the records of `cands` that `chosen` marks.
-fn chosen_len<E>(cands: &[Candidate<'_>], chosen: &[bool]) -> Result<usize, WriteError<E>> {
-    let once = puts_len(&chosen_records(cands, chosen))?;
-    let twice = puts_len(&twice_records(cands, chosen))?;
-    Ok(once.saturating_add(twice))
-}
-
-/// The state entries the records of `cands` that `chosen` marks take: two of one written twice at once.
-fn entries(cands: &[Candidate<'_>], chosen: &[bool]) -> usize {
-    cands
-        .iter()
-        .zip(chosen)
-        .filter(|(_, pick)| **pick)
-        .map(|(c, _)| if c.rule.twice { 2 } else { 1 })
-        .fold(0usize, usize::saturating_add)
 }
 
 /// A block waiting for the gap before an aligned chunk payload, its definitions put when it came, and where the
