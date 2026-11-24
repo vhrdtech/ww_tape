@@ -51,8 +51,8 @@ pub(crate) struct Keys {
     pub(crate) key: TrackIdent,
     /// The newest record of each live key, by key: its keyed item
     pub(crate) live: BTreeMap<Vec<u8>, State>,
-    /// The live keys by their id: a key of another key's id collides
-    ids: BTreeMap<KeyId, Vec<u8>>,
+    /// The live keys by their id, each of them: a key of another key's id collides
+    ids: BTreeMap<KeyId, BTreeSet<Vec<u8>>>,
     /// The keys deleted while the keys are not complete: older keys taken after these ([Kept::after]) stay deleted
     gone: BTreeSet<Vec<u8>>,
     /// Bytes of the keys in [Self::gone], counted under the bytes kept ([Kept::trim])
@@ -80,16 +80,16 @@ impl Keys {
         }
     }
 
-    /// The live key other than `key` that has its id ([KeyId]): a put of `key` would share its slot.
-    pub(crate) fn collides(&self, key: &[u8]) -> bool {
-        KeyId::of(key)
-            .and_then(|id| self.ids.get(&id))
-            .is_some_and(|k| k.as_slice() != key)
+    /// The live keys of id `id`: more than one only where records put without the writer's check hold them.
+    pub(crate) fn id_keys(&self, id: KeyId) -> impl Iterator<Item = &[u8]> {
+        self.ids.get(&id).into_iter().flatten().map(Vec::as_slice)
     }
 
-    /// The live key of id `id`.
-    pub(crate) fn id_key(&self, id: KeyId) -> Option<&[u8]> {
-        self.ids.get(&id).map(Vec::as_slice)
+    /// Key `key` is live: listed under its id.
+    fn list_id(&mut self, key: &[u8]) {
+        if let Some(id) = KeyId::of(key) {
+            self.ids.entry(id).or_default().insert(key.to_vec());
+        }
     }
 
     /// The live keys.
@@ -109,9 +109,7 @@ impl Keys {
         if self.gone.remove(keyed.key) {
             self.gone_bytes = self.gone_bytes.saturating_sub(keyed.key.len());
         }
-        if let Some(id) = KeyId::of(keyed.key) {
-            self.ids.insert(id, keyed.key.to_vec());
-        }
+        self.list_id(keyed.key);
         self.bytes = self.bytes.saturating_add(item.len());
         self.live.insert(
             keyed.key.to_vec(),
@@ -129,9 +127,12 @@ impl Keys {
         if let Some(old) = self.live.remove(key) {
             self.bytes = self.bytes.saturating_sub(old.item.len());
             if let Some(id) = KeyId::of(key)
-                && self.ids.get(&id).is_some_and(|k| k.as_slice() == key)
+                && let Some(keys) = self.ids.get_mut(&id)
             {
-                self.ids.remove(&id);
+                keys.remove(key);
+                if keys.is_empty() {
+                    self.ids.remove(&id);
+                }
             }
         }
     }
@@ -159,9 +160,7 @@ impl Keys {
         for (k, st) in self.live {
             out.remove(&k);
             out.gone.remove(&k);
-            if let Some(id) = KeyId::of(&k) {
-                out.ids.insert(id, k.clone());
-            }
+            out.list_id(&k);
             out.bytes = out.bytes.saturating_add(st.item.len());
             out.live.insert(k, st);
         }
@@ -516,5 +515,23 @@ mod tests {
         );
         assert_eq!(k.gone_bytes, 0);
         assert!(k.keyed.values().all(|k| k.gone.is_empty()));
+    }
+
+    /// Two live keys of one id, which records put without the writer's check may hold: deleting one leaves the other
+    /// listed under the id.
+    #[test]
+    fn every_live_key_of_an_id_stays_listed() {
+        // two keys of one id, from the collision pair of ww_tape_tests' keyed_carry.rs
+        let a = 0x2f73_746f_7265_2f6b_dc4f_5a16_d038_5228u128.to_be_bytes();
+        let b = 0x2f73_746f_7265_2f6b_c181_e23c_3f48_f913u128.to_be_bytes();
+        let id = KeyId::of(&a).unwrap();
+        assert_eq!(KeyId::of(&b), Some(id), "the pair shares an id");
+        let n = TrackNum::new(1);
+        let mut k = Kept::default();
+        k.key_placed(n, KEY, None, &keyed(&a, Some(b"1")), true, 1 << 20);
+        k.key_placed(n, KEY, None, &keyed(&b, Some(b"2")), true, 1 << 20);
+        k.key_placed(n, KEY, None, &keyed(&b, None), true, 1 << 20);
+        let keys = k.keys(n, KEY).unwrap();
+        assert_eq!(keys.id_keys(id).collect::<Vec<_>>(), [&a[..]]);
     }
 }

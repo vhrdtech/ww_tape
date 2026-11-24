@@ -82,10 +82,11 @@ pub(crate) fn check<E>(
             && let Some(id) = KeyId::of(key)
         {
             let other_put = ids.get(&(p.track, id)).is_some_and(|k| *k != key);
-            let other_kept = keys.is_some_and(|k| k.collides(key))
-                && keys
-                    .and_then(|k| k.id_key(id))
-                    .is_some_and(|k| after.get(&(p.track, k)).is_none_or(Option::is_some));
+            // a live key of its id, unless a put before deleted it
+            let other_kept = keys.is_some_and(|k| {
+                k.id_keys(id)
+                    .any(|k| k != key && after.get(&(p.track, k)).is_none_or(Option::is_some))
+            });
             if other_put || other_kept {
                 return Err(DescribeError::KeyCollision { track: p.track }.into());
             }
