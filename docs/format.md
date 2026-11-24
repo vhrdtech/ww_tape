@@ -799,18 +799,56 @@ A block of puts that belongs with the block after it is also marked **`FLAG_WITH
 appears on a block marked `FLAG_REPEAT` and on a chunk of a unit (`TapeWriter::write_chunk_unit`), such as a grid tile
 chunk and its overviews ([Space overviews](#space-overviews)).
 
-A block belongs with the next one in three cases:
+A block belongs with the next one in four cases:
 
 - it serves the block of data after it;
 - the next block holds the rest of a put too long for one block;
+- it is a block of a group of puts but the last ([Groups of puts](#groups-of-puts));
 - it is a chunk of a unit but the last.
 
-A run of such blocks ends in the block they belong to, all from one writer call.
+A **run** is such blocks in a row and the block they belong to, all from one writer call. It has at most
+`RUN_BLOCKS_MAX` (4096) blocks, and a writer refuses a call that would make a longer one (`InputError::RunTooLong`).
+Readers take a run whole or not at all:
+
+| Reader | A run |
+|---|---|
+| a scan of a piece | its entries only once the block it belongs to is taken; a run cut by the end of the bytes, damage, a gap or the end of a piece is listed in `PieceInfo::dropped_runs` and its blocks in no entry |
+| a follower (`ChainFollower`) | its blocks only with the last one; until then it keeps their places, at most `RUN_BLOCKS_MAX`, and reads their bytes again then (`FollowError::RunTooLong` past it) |
+| a resume | drops a run at the end of what it keeps (`Resumed::dropped_run`) |
+| the index of a closed piece | every block: only a resume closes a crashed piece, and it drops the torn run first |
+
+So no reader shows part of a run that a crash tore. Damage inside a run of a closed piece is damage to its blocks
+only: a lookup lists the block it lost, as for any other block.
 
 `TapeWriter::put_block` puts a producer's block of puts by the writer's own rule. `relay_block` passes a live producer's
 stream on.
 
-### 5.3 Deferred blocks {#deferred-blocks}
+### 5.3 Groups of puts {#groups-of-puts}
+
+`TapeWriter::put_group` puts items on several state tracks as one **group**: a reader takes all of them or none.
+Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close
+behind. The records it writes and the definitions they need go into blocks of puts one after the other, every block
+but the last marked `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of
+puts; a group adds no new field.
+
+The writer checks the whole group before it writes the first block:
+
+| Check | Refusal |
+|---|---|
+| every track a state track the definitions hold | `DescribeError::NotState`, `UnknownTrack` |
+| each item at most `STATE_ITEM_MAX` bytes | `DescribeError::TooLong` |
+| no track twice in the group | `InputError::Group(GroupRefusal::SlotTwice)` |
+| the items at most `GROUP_BYTES_MAX` (64 MiB) together | `InputError::Group(GroupRefusal::TooLong)` |
+| the piece's room for the state entries of all it writes | `IndexError::StateEntries` |
+
+`PieceChain::put_group` cuts before a group that the piece has no room for and puts it whole into the next piece.
+No cut falls inside a group, nor a checkpoint or a deferred block.
+
+A crash inside a group leaves a run of marked blocks at the end of the piece. The resume drops it and names it in
+`Resumed::dropped_run`, and the application gives the group again. The group given again writes the bytes the run
+without the crash has.
+
+### 5.4 Deferred blocks {#deferred-blocks}
 
 `TapeWriter::defer_block` puts the definitions of a deferred block when the block is deferred, and places the block
 later with no puts.
@@ -1381,7 +1419,8 @@ is a torn end. A torn end may hold a final index, or a close without its tail.
 It also drops blocks marked `FLAG_WITH_NEXT` at the end of what it keeps. The call they belong to is given again whole
 and writes them again.
 
-`Resumed` says what the resume kept: `kept_bytes`, `dropped_bytes`, and `cut`, where the reader stopped taking blocks.
+`Resumed` says what the resume kept: `kept_bytes`, `dropped_bytes`, `cut`, where the reader stopped taking blocks,
+and `dropped_run`, the marked blocks dropped from `kept_bytes` on.
 
 ### 9.2 What counts as a torn end {#what-counts-as-a-torn-end}
 
@@ -2081,9 +2120,11 @@ chunks as written) is no unit and gains none. A relay passes another writer's un
 
 What a reader shows of a unit:
 
+A unit is a run ([Marking blocks of puts](#marking-blocks-of-puts)), so a reader shows all of its chunks or none:
+
 | Reader | A unit's chunks |
 |---|---|
-| a scan of a piece | each as it comes: a torn piece may show a tile chunk without its last overviews, which `grid_tiles` then lacks |
+| a scan of a piece | only with the last one: a torn unit is listed in `PieceInfo::dropped_runs`, and `grid_tiles` lacks its tile chunk |
 | a follower (`ChainFollower`, `TrackFollower`) | the marked chunks only with the last one: a live view never shows a tile chunk before its overviews |
 | the index of a closed piece (`grid_tiles`, `track_entries`) | every chunk of each unit, an entry each: only a resume closes a crashed piece, and it drops the torn unit first |
 

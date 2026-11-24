@@ -6,6 +6,18 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- A scan holds a run's records until its last block: a torn group or unit reads as none of it (WRITE-17).
+- `FollowError::RunTooLong`: a follower stops at a run of more than `RUN_BLOCKS_MAX` blocks (WRITE-17).
+
+### Features
+
+- `TapeWriter::put_group` and `PieceChain::put_group` put items on several state tracks, taken whole or not at all (WRITE-17).
+- `TapeMux::group` gives a `GroupHandle` that sends a group of puts through the mux (WRITE-17).
+- `PieceInfo::dropped_runs` and `Resumed::dropped_run` name the runs a reader or a resume dropped (WRITE-17).
+- A follower keeps a run's block places, not bytes, and takes definitions as it hands blocks out (WRITE-17).
+
 ## [0.9.0] - 2026-11-24
 
 ### Breaking
