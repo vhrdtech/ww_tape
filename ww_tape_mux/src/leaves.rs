@@ -7,6 +7,7 @@
 //! blocks.
 
 use exact_units::Magnitude;
+use ww_tape::chunk::ChunkHead;
 use ww_tape::{ItemNum, Ratio64, Sample, SampleShape, SeriesGrid, TileCoords, TrackDef, TrackKind};
 use ww_tape_summary::{
     BuildError, EventFields, EventRuns, ItemRun, Scalar, SeriesLeaf, SeriesSummarySpec,
@@ -115,13 +116,15 @@ impl SummaryOf {
         }
     }
 
-    /// The summary of a chunk of tile `tile` from `leaves`; None when they are not of this track's kind or fields.
+    /// The summary of the chunk of `head` from `leaves`; refused when they are not of this track's kind or fields,
+    /// or don't cover exactly the chunk's items.
     pub(crate) fn summary(
         &self,
         leaves: Leaves,
-        tile: TileCoords,
+        head: &ChunkHead,
     ) -> Result<ChunkSummary, CallError> {
-        match (*self, leaves.0) {
+        let tile = head.tile;
+        let summary = match (*self, leaves.0) {
             (Self::Events(want), Of::Events { fields, runs }) if fields == want => {
                 Ok(ChunkSummary::Events { fields, runs })
             }
@@ -141,6 +144,11 @@ impl SummaryOf {
                 tile_cells: 1,
             }),
             _ => Err(CallError::WrongLeaves),
+        }?;
+        if summary.covers(head) {
+            Ok(summary)
+        } else {
+            Err(CallError::WrongLeaves)
         }
     }
 }

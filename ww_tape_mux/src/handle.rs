@@ -348,7 +348,7 @@ impl<T: PieceStore> ChunkSender<T> {
         let (mut work, bytes) = self.unit(head, columns, Some(tx))?;
         if let Work::Chunk { head, summary, .. } = &mut work {
             *summary = match (self.summary, leaves) {
-                (Some(s), Some(l)) => Some(Box::new(s.summary(l, head.tile)?)),
+                (Some(s), Some(l)) => Some(Box::new(s.summary(l, head)?)),
                 (None, None) => None,
                 _ => return Err(CallError::WrongLeaves.into()),
             };

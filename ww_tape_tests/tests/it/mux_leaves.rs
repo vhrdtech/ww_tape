@@ -313,3 +313,71 @@ fn leaves_go_only_with_a_summarized_sender() {
     drop(plain);
     mux.close().unwrap();
 }
+
+/// Leaves of fewer or more items than their chunk holds are refused at the call, before anything reaches the tree;
+/// the next chunk with its own leaves goes on in the same tree.
+#[test]
+fn leaves_of_other_items_than_the_chunk_are_refused() {
+    let mem = MemPieces::new();
+    let mux =
+        TapeMux::create(mem.clone(), OWNER, 0, &[], options(), MuxOptions::default()).unwrap();
+    let t = define(&mux);
+    let sender = mux.summarized_chunks(t.0).unwrap();
+    let chunk = |first: u64, n: u64| {
+        let items: Vec<Event<'_>> = (first..first + n).map(event).collect();
+        let starts: Vec<i64> = items.iter().map(|e| e.start).collect();
+        let ends: Vec<i64> = items.iter().map(|e| e.end).collect();
+        let flags: Vec<u32> = items.iter().map(|e| e.flags).collect();
+        let times = EncodedTimes::encode(&starts, Some(&ends), Some(&flags)).unwrap();
+        let head = times.head.chunk_head(t.1, t.0, ItemNum::new(first));
+        let columns: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
+        (head, columns, items)
+    };
+    let leaves = |items: &[Event<'_>], first: u64| {
+        let mut runs = sender.event_runs(ItemNum::new(first)).unwrap();
+        for e in items {
+            runs.push(e.start, e.end, e.flags).unwrap();
+        }
+        Leaves::events(&mut runs)
+    };
+    let refused =
+        |r: Result<_, MuxError<_>>| matches!(r, Err(MuxError::Call(CallError::WrongLeaves)));
+    let (head, columns, items) = chunk(0, 100);
+    let fewer = leaves(&items[..50], 0);
+    assert!(
+        refused(
+            sender
+                .send_placed(head, columns.clone(), Some(fewer))
+                .map(|_| ())
+        ),
+        "50 items of leaves for 100"
+    );
+    let (_, _, more) = chunk(0, 150);
+    let more = leaves(&more, 0);
+    assert!(
+        refused(
+            sender
+                .send_placed(head, columns.clone(), Some(more))
+                .map(|_| ())
+        ),
+        "150 items of leaves for 100"
+    );
+    let late = leaves(&items, 1);
+    assert!(
+        refused(
+            sender
+                .send_placed(head, columns.clone(), Some(late))
+                .map(|_| ())
+        ),
+        "leaves from another first item"
+    );
+    let whole = leaves(&items, 0);
+    sender
+        .send_placed(head, columns, Some(whole))
+        .unwrap()
+        .unwrap()
+        .wait()
+        .unwrap();
+    drop(sender);
+    mux.close().unwrap();
+}
