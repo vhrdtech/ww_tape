@@ -11,6 +11,8 @@ benchmarks, golden files and book pages.
 - The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
 - `ChainFollower::track_of` and `TrackItems::owned` follow one owner's track; `ChainFollower::owner` names the piece's owner (READ-6).
 - `ChunkSender::send_placed` gives a `Placing` receipt: the chunk's piece, offset, length and unit hash once placed (MUX-4).
+- `TapeMux::summarized_chunks` gives a `ChunkSender` whose chunks carry `Leaves`: the mux's summary tree, as a typed handle's (MUX-4).
+- `ChunkSender::event_runs` and `sample_leaves` compute a chunk's leaves on the caller's thread; `EventRuns::fields` names its fields (MUX-4).
 - `Definitions::track_key` is public: a held track's id and owner (READ-6).
 
 ## [0.9.0] - 2026-11-24

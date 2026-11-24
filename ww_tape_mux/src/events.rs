@@ -475,7 +475,7 @@ where
 }
 
 /// The fields of the item tree of events track `def`; None for another kind of track.
-fn event_fields(def: &TrackDef<'_>) -> Option<EventFields> {
+pub(crate) fn event_fields(def: &TrackDef<'_>) -> Option<EventFields> {
     let TrackKind::Events(e) = &def.kind else {
         return None;
     };

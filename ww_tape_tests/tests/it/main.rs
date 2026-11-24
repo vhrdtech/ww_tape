@@ -44,6 +44,7 @@ mod mux_grid_overviews;
 mod mux_grid_summaries;
 mod mux_grids;
 mod mux_handles;
+mod mux_leaves;
 mod mux_multi;
 mod mux_placing;
 mod mux_resume;

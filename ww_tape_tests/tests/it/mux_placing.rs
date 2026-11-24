@@ -23,7 +23,7 @@ fn send_and_read(
     for k in from..from + n {
         let (head, columns) = events_chunk(1, k);
         let placing = s
-            .send_placed(head, columns)
+            .send_placed(head, columns, None)
             .unwrap()
             .expect("a waiting sender drops nothing");
         let p = placing.wait().unwrap();

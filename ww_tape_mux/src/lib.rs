@@ -94,6 +94,7 @@ mod error;
 mod events;
 mod grid;
 mod handle;
+mod leaves;
 mod open;
 mod overview;
 mod placing;
@@ -123,6 +124,7 @@ pub use events::{
 };
 pub use grid::{CHUNK_STEPS_DEFAULT, GridHandle, GridOptions};
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
+pub use leaves::{Leaves, SampleLeaves};
 pub use placing::{Placement, Placing, Unplaced};
 pub use progress::{Progress, ProgressWatch, TrackProgress, WaitPast};
 pub use shared::{RETURNED_BUFFERS_MAX, RelayMode};
@@ -379,8 +381,34 @@ where
         match self.facts(track).await? {
             Some(f) if f.state.is_none() => {
                 self.plain(track).await?;
-                Ok(ChunkSender::new(self.shared.clone(), track, f))
+                Ok(ChunkSender::new(self.shared.clone(), track, f, None))
             }
+            _ => Err(CallError::Kind { track }.into()),
+        }
+    }
+
+    /// A sender of chunks of events or series track `track` whose chunks go with their summary leaves
+    /// ([ChunkSender::send_placed]): the writing thread joins them into the track's tree as it does a typed
+    /// handle's, ends it before each cut and at the close, and a resumed mux rebuilds it from the chunks kept.
+    /// Refused for a track without summaries, a grid of tiles or a media track ([CallError::Kind]).
+    pub fn summarized_chunks(&self, track: TrackNum) -> Result<ChunkSender<T>, MuxError<T::Error>> {
+        block_on(self.summarized_chunks_async(track))
+    }
+
+    /// [Self::summarized_chunks] as a future.
+    pub async fn summarized_chunks_async(
+        &self,
+        track: TrackNum,
+    ) -> Result<ChunkSender<T>, MuxError<T::Error>> {
+        let facts = self.facts(track).await?.filter(|f| f.state.is_none());
+        let bytes = self.track_def(track).await?;
+        let summary =
+            match <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(&bytes) {
+                Ok(Describe::Track(def)) => leaves::SummaryOf::of(&def),
+                _ => None,
+            };
+        match (facts, summary) {
+            (Some(f), Some(s)) => Ok(ChunkSender::new(self.shared.clone(), track, f, Some(s))),
             _ => Err(CallError::Kind { track }.into()),
         }
     }

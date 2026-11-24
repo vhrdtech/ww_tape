@@ -57,6 +57,9 @@ pub enum CallError {
     /// One time step of a tile takes `bytes` bytes, more than a chunk holds: `max`, the smaller of the handle's
     /// chunk bytes and what fits a block.
     StepTooLarge { bytes: Bytes<u64>, max: Bytes<u64> },
+    /// Summary leaves that don't fit the chunk sender: given to a sender without summaries, missing on a summarized
+    /// one, of another kind or fields than the track's tree, or of a grid's tile.
+    Leaves,
 }
 
 /// Why a typed handle refuses an item.
@@ -180,6 +183,7 @@ impl core::fmt::Display for CallError {
                 bytes.get(),
                 max.get()
             ),
+            Self::Leaves => f.write_str("summary leaves that don't fit the chunk sender's track"),
         }
     }
 }
