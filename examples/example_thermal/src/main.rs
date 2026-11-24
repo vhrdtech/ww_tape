@@ -10,15 +10,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let plate = Thermal::plate();
     let story = plate.story()?;
     println!(
-        "{} × {} sensors, {} readings: {} as written, {} in the chain with its overviews",
-        plate.width,
+        "{} × {} sensors (rows × columns), {} readings: {} as written, {} in the chain with its overviews",
         plate.height,
+        plate.width,
         plate.steps,
         about(story.raw_bytes),
         about(story.chain_bytes)
     );
     println!(
-        "{} × {} tiles, {} bits of tile number, {} overview levels",
+        "{} × {} tiles (rows × columns), {} bits of tile number, {} overview levels",
         story.tiles.0, story.tiles.1, story.tile_bits, story.levels
     );
     println!(
@@ -29,8 +29,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "level {}: {} × {} cells, {} chunks, {}",
             row.level,
-            row.cells.1,
             row.cells.0,
+            row.cells.1,
             row.chunks,
             about(row.bytes)
         );
@@ -40,8 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{} cells a pixel: level {}, {} × {} cells, {} chunks, {}",
             view.cells_per_pixel,
             view.level,
-            view.cells.1,
             view.cells.0,
+            view.cells.1,
             view.chunks,
             about(view.bytes)
         );

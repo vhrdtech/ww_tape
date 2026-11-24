@@ -1,6 +1,6 @@
 //! The book's thermal field: a plate of temperature sensors on a 2-D grid, read over time.
 //!
-//! The plate is 128 sensors wide and 96 high. It reads once per 100 ms, in 0.01 °C. A hot spot of the plate's tool
+//! The plate is 96 rows of 128 sensors. It reads once per 100 ms, in 0.01 °C. A hot spot of the plate's tool
 //! crosses it from left to right, and a heater near the lower right corner stays warm. The plate is one grid track:
 //! two fixed axes, `y` and `x`, beside time. [Thermal::record] writes it through a mux, and the functions after it
 //! read it the three ways the chapter shows: by box ([Thermal::box_query]), by region over time
@@ -51,6 +51,13 @@ pub const BASE_SHIFT: u8 = 4;
 pub const PERIOD_NS: u64 = 100_000_000;
 /// The plate's rest temperature, in 0.01 °C.
 pub const AMBIENT: i16 = 2_000;
+/// Readings the hot spot takes to cross one cell.
+pub const SPOT_READINGS_PER_CELL: u64 = 5;
+/// The rows and columns of the box the chapter queries: 16 rows and 40 columns, which meet two tiles.
+pub const BOX_ROWS: Range<u32> = 40..56;
+pub const BOX_COLUMNS: Range<u32> = 20..60;
+/// Readings of the first stretch the box is queried over: 10 s.
+pub const FIRST_READINGS: u64 = 100;
 
 /// The plate: its size, its tiles and how long it is read.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -151,7 +158,7 @@ impl Thermal {
     /// along the plate's middle row at one cell per 5 steps, and a heater of the lower right corner.
     pub fn value(&self, step: u64, y: u32, x: u32) -> i16 {
         let noise = (hash(7, (step << 24) | (u64::from(y) << 12) | u64::from(x)) % 11) as i16;
-        let spot = (14 + step / 5) as i64;
+        let spot = (14 + step / SPOT_READINGS_PER_CELL) as i64;
         let heat = |cy: i64, cx: i64, reach: i64, per: i64| {
             let (dy, dx) = (i64::from(y) - cy, i64::from(x) - cx);
             (reach - dy * dy - dx * dx).max(0) * per
@@ -460,9 +467,8 @@ impl Thermal {
                 })
                 .collect())
         };
-        let (_, tile_x) = (self.height, self.tile);
         let hot_row = self.tile..2 * self.tile;
-        let part = self.box_query(&rec, 0..self.tick(100), 40..56, 20..60)?;
+        let part = self.box_query(&rec, 0..self.tick(FIRST_READINGS), BOX_ROWS, BOX_COLUMNS)?;
         Ok(Story {
             tiles: (l.tiles()[0], l.tiles()[1]),
             tile_bits: l.bits(),
@@ -470,14 +476,16 @@ impl Thermal {
             raw_bytes: self.steps * u64::from(h) * u64::from(w) * 2,
             chain_bytes: rec.pieces.iter().map(|p| p.len() as u64).sum(),
             whole: self.box_query(&rec, 0..self.ticks(), 0..h, 0..w)?.len(),
-            whole_first: self.box_query(&rec, 0..self.tick(100), 0..h, 0..w)?.len(),
+            whole_first: self
+                .box_query(&rec, 0..self.tick(FIRST_READINGS), 0..h, 0..w)?
+                .len(),
             one_tile: self
-                .box_query(&rec, 0..self.ticks(), hot_row.clone(), 0..tile_x)?
+                .box_query(&rec, 0..self.ticks(), hot_row.clone(), 0..self.tile)?
                 .len(),
             box_chunks: part.len(),
             level_rows,
             views,
-            sweep_peaks: peaks(hot_row, 0..tile_x)?,
+            sweep_peaks: peaks(hot_row, 0..self.tile)?,
             heater_peaks: peaks(h - self.tile..h, w - self.tile..w)?,
         })
     }

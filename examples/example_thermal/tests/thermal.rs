@@ -14,7 +14,9 @@
 )]
 
 use example_capture::about;
-use example_thermal::Thermal;
+use example_thermal::{
+    BASE_SHIFT, BOX_COLUMNS, BOX_ROWS, FIRST_READINGS, PERIOD_NS, SPOT_READINGS_PER_CELL, Thermal,
+};
 use ww_tape_summary::{Value, overview::div_even};
 
 /// The text of the book page `name`, its line breaks as spaces.
@@ -54,9 +56,9 @@ fn the_same_plate_gives_the_same_bytes() {
 fn a_box_finds_the_tiles_it_meets() {
     let plate = Thermal::plate();
     let rec = plate.record().expect("records");
-    let first_ten_s = 0..plate.tick(100);
+    let first_ten_s = 0..plate.tick(FIRST_READINGS);
     let found = plate
-        .box_query(&rec, first_ten_s.clone(), 40..56, 20..60)
+        .box_query(&rec, first_ten_s.clone(), BOX_ROWS, BOX_COLUMNS)
         .expect("queries");
     let mut tiles: Vec<_> = found.iter().map(|t| t.tile.as_slice().to_vec()).collect();
     tiles.sort();
@@ -148,11 +150,19 @@ fn the_page_says_what_the_plate_measures() {
     let story = plate.story().expect("story");
     let page = page("grids.md");
     let cells = u64::from(plate.width) * u64::from(plate.height);
+    let secs = |ns: u64| ns / 1_000_000_000;
+    let box_tiles = story.box_chunks;
+    let peak = story.sweep_peaks[0];
     let mut phrases = vec![
         format!("A plate of {} temperature sensors", grouped(cells)),
         format!(
-            "The plate has {} sensors along `x` and {} along `y`.",
-            plate.width, plate.height
+            "The plate has {} rows of {} sensors.",
+            plate.height, plate.width
+        ),
+        format!(
+            "once per {} ms, for {} s.",
+            PERIOD_NS / 1_000_000,
+            secs(plate.steps * PERIOD_NS)
         ),
         format!(
             "The run is {} readings of {} cells. The cells take {} as written.",
@@ -161,8 +171,13 @@ fn the_page_says_what_the_plate_measures() {
             about(story.raw_bytes)
         ),
         format!(
-            "so the plate has {} tiles along `y` and {} along `x`.",
-            story.tiles.0, story.tiles.1
+            "along cell row {}, one cell every {} readings.",
+            plate.height / 2,
+            SPOT_READINGS_PER_CELL
+        ),
+        format!(
+            "The plate's tiles are {} cells on each side, so the plate has {} tile rows and {} tile columns.",
+            plate.tile, story.tiles.0, story.tiles.1
         ),
         format!(
             "the plate's {} tiles take {} bits.",
@@ -174,17 +189,24 @@ fn the_page_says_what_the_plate_measures() {
             plate.chunk_steps, story.one_tile, story.whole
         ),
         format!(
-            "It finds {} chunks in the first 10 s, where the whole plate has {} of them.",
-            story.box_chunks, story.whole_first
+            "A box of {} rows and {} columns meets {box_tiles} tiles.",
+            BOX_ROWS.end - BOX_ROWS.start,
+            BOX_COLUMNS.end - BOX_COLUMNS.start
         ),
         format!(
-            "The tile in the hot row's first column holds {} chunks over the whole run.",
+            "It finds {} chunks in the first {} s, where the whole plate has {} of them.",
+            story.box_chunks,
+            secs(FIRST_READINGS * PERIOD_NS),
+            story.whole_first
+        ),
+        format!(
+            "The tile at row 1, column 0 holds {} chunks over the whole run.",
             story.one_tile
         ),
+        format!("per tile for every {} readings", 1u64 << BASE_SHIFT),
         format!(
-            "the largest value of node 0 is {}, which is {:.2} °C.",
-            story.sweep_peaks[0],
-            f64::from(i32::try_from(story.sweep_peaks[0]).expect("small")) / 100.0
+            "the largest value of node 0 is {peak}, which is {:.2} °C.",
+            f64::from(i32::try_from(peak).expect("small")) / 100.0
         ),
         format!(
             "from node {}, when the spot has left the tile",
@@ -203,16 +225,40 @@ fn the_page_says_what_the_plate_measures() {
             "The chain with its overviews takes {}, twice the cells as written.",
             about(story.chain_bytes)
         ),
+        format!(
+            "The chunks also hold {} other readings, since `chunk_steps` is {}.",
+            plate.chunk_steps - 1,
+            plate.chunk_steps
+        ),
+        format!("reads {} for one reading", about(story.views[0].bytes)),
+        format!(
+            "draws the whole plate in {} columns of pixels",
+            story.views[2].cells.1
+        ),
     ];
     // a tile of 32 halves 5 times
     assert_eq!(story.levels, 5);
     assert_eq!(story.chain_bytes / story.raw_bytes, 2);
+    assert_eq!(box_tiles, 2);
+    assert_eq!(story.views[2].cells_per_pixel, 16.0);
+    assert!(
+        story
+            .views
+            .iter()
+            .all(|v| v.chunks == story.tiles.0 as u64 * story.tiles.1 as u64)
+    );
+    // "the levels above level 0 add up to about the size of the cells as written": within 5 %
+    let above: u64 = story.level_rows[1..].iter().map(|r| r.bytes).sum();
+    let base = story.level_rows[0].bytes;
+    assert!(above.abs_diff(base) * 20 < base, "{above} against {base}");
+    // one view of one reading reads chunks of `chunk_steps` readings: the level-0 view's bytes are those
+    assert!(story.views[0].bytes > u64::from(plate.chunk_steps) * cells * 2);
     for r in &story.level_rows {
         phrases.push(format!(
             "| {} | {} × {} | {} | {} |",
             r.level,
-            r.cells.1,
             r.cells.0,
+            r.cells.1,
             r.chunks,
             about(r.bytes)
         ));
@@ -222,8 +268,8 @@ fn the_page_says_what_the_plate_measures() {
             "| {} | {} | {} × {} | {} | {} |",
             v.cells_per_pixel,
             v.level,
-            v.cells.1,
             v.cells.0,
+            v.cells.1,
             v.chunks,
             about(v.bytes)
         ));

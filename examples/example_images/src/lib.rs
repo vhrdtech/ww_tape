@@ -1,4 +1,4 @@
-//! The book's image sequence: frames of 640 × 480 pixels on a 2-D grid over time.
+//! The book's image sequence: frames of 480 × 640 pixels (rows × columns) on a 2-D grid over time.
 //!
 //! Each pixel is a cell of three channels (red, green, blue, a byte each), and a frame is one time step of the
 //! grid. A bright square moves along a gradient. [Images::record] writes the frames through a mux, in tiles of any
@@ -43,6 +43,13 @@ pub const API_ROOT: u64 = 0x1a9e_0001;
 pub const OWNER: OwnerId = OwnerId([0x1a; 32]);
 /// Ticks (ns) between two frames: 100 ms, 10 frames a second.
 pub const PERIOD_NS: u64 = 100_000_000;
+/// The frame the story reads, counting from 0.
+pub const STORY_FRAME: u64 = 3;
+/// Cells a pixel of the story's thumbnail covers along each axis.
+pub const THUMB_CELLS_PER_PIXEL: f64 = 16.0;
+/// The pixels the story reads at full size: where the bright square is in [STORY_FRAME].
+pub const SQUARE_ROWS: Range<u32> = 190..290;
+pub const SQUARE_COLUMNS: Range<u32> = 120..220;
 /// Bytes of a pixel: red, green and blue.
 pub const CHANNELS: u32 = 3;
 
@@ -71,7 +78,7 @@ pub struct Recording {
 }
 
 impl Images {
-    /// 10 frames of 640 × 480 in tiles of 64 × 64, a chunk a frame.
+    /// 10 frames of 480 × 640 in tiles of 64 × 64, a chunk a frame.
     pub const fn frames() -> Self {
         Self {
             height: 480,
@@ -351,18 +358,26 @@ pub struct Story {
 }
 
 impl Images {
-    /// The tile sizes the chapter compares: 64 × 64, 60 × 60 and 240 × 320.
+    // --8<-- [start:tiles]
+    /// The tile sizes the chapter compares, rows × columns: 64 × 64, 60 × 60 and 240 × 320.
     pub const TILES: [(u32, u32); 3] = [(64, 64), (60, 60), (240, 320)];
+    // --8<-- [end:tiles]
 
-    /// Record the frames in each of [Self::TILES] and measure the two reads on frame 3.
+    /// Record the frames in each of [Self::TILES] and measure the two reads on [STORY_FRAME].
     pub fn story(&self) -> Result<Story, Box<dyn Error>> {
         let mut rows = Vec::new();
         for (tile_y, tile_x) in Self::TILES {
             let images = self.tiles(tile_y, tile_x);
             let rec = images.record()?;
             let l = rec.layout;
-            let thumb = images.view(&rec, 3, 0..self.height, 0..self.width, 16.0)?;
-            let square = images.view(&rec, 3, 190..290, 120..220, 1.0)?;
+            let thumb = images.view(
+                &rec,
+                STORY_FRAME,
+                0..self.height,
+                0..self.width,
+                THUMB_CELLS_PER_PIXEL,
+            )?;
+            let square = images.view(&rec, STORY_FRAME, SQUARE_ROWS, SQUARE_COLUMNS, 1.0)?;
             rows.push(TileRow {
                 tile: (tile_y, tile_x),
                 tiles: (l.tiles()[0], l.tiles()[1]),

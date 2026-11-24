@@ -12,7 +12,9 @@
 )]
 
 use example_capture::about;
-use example_images::{CHANNELS, Images};
+use example_images::{
+    CHANNELS, Images, SQUARE_COLUMNS, SQUARE_ROWS, STORY_FRAME, THUMB_CELLS_PER_PIXEL,
+};
 use ww_tape_summary::overview::div_even;
 
 /// The text of the book page `name`, its line breaks as spaces.
@@ -50,7 +52,7 @@ fn the_same_frames_give_the_same_bytes() {
 fn a_view_holds_the_pixels_and_their_means() {
     let images = Images::frames();
     let rec = images.record().expect("records");
-    let frame = 3;
+    let frame = STORY_FRAME;
     for (cells_per_pixel, level) in [(1.0, 0), (4.0, 2), (16.0, 4), (64.0, 6)] {
         let view = images
             .view(
@@ -89,18 +91,26 @@ fn a_view_holds_the_pixels_and_their_means() {
 fn a_box_reads_its_tiles_only() {
     let images = Images::frames();
     let rec = images.record().expect("records");
-    let square = images.view(&rec, 3, 190..290, 120..220, 1.0).expect("view");
+    let square = images
+        .view(&rec, STORY_FRAME, SQUARE_ROWS, SQUARE_COLUMNS, 1.0)
+        .expect("view");
     // rows 190..290 meet the tile rows 2, 3 and 4, and columns 120..220 the tile columns 1, 2 and 3
     assert_eq!(square.chunks, 9);
-    let whole = images.view(&rec, 3, 0..480, 0..640, 1.0).expect("view");
+    let whole = images
+        .view(&rec, STORY_FRAME, 0..images.height, 0..images.width, 1.0)
+        .expect("view");
     assert_eq!(whole.chunks, 80);
     assert!(square.bytes * 8 < whole.bytes);
     // the square's pixels are the pixels written
-    for y in 190..290 {
-        for x in 120..220 {
+    for y in SQUARE_ROWS {
+        for x in SQUARE_COLUMNS {
             for ch in 0..CHANNELS {
                 let at = ((y * 640 + x) * CHANNELS + ch) as usize;
-                assert_eq!(square.mean[at], images.pixel(3, y, x, ch), "pixel {y}, {x}");
+                assert_eq!(
+                    square.mean[at],
+                    images.pixel(STORY_FRAME, y, x, ch),
+                    "pixel {y}, {x}"
+                );
             }
         }
     }
@@ -120,15 +130,24 @@ fn the_page_says_what_the_camera_measures() {
         ),
         format!(
             "Its frames are {} × {} pixels, and each pixel has three channels.",
-            images.width, images.height
+            images.height, images.width
         ),
         format!(
-            "The same {} frames, {} each, in three tile sizes:",
+            "The same {} frames, {} each, in three tile sizes, rows × columns:",
             images.frames,
             about(story.frame_bytes)
         ),
     ];
     assert_eq!(CHANNELS, 3);
+    phrases.push(format!(
+        "The thumbnail is the whole frame at {THUMB_CELLS_PER_PIXEL} cells per pixel."
+    ));
+    phrases.push(format!(
+        "The square is the {} × {} pixels it covers in the fourth frame.",
+        SQUARE_ROWS.end - SQUARE_ROWS.start,
+        SQUARE_COLUMNS.end - SQUARE_COLUMNS.start
+    ));
+    assert_eq!(STORY_FRAME, 3, "the fourth frame");
     for r in &story.rows {
         phrases.push(format!(
             "| {} × {} | {} × {} | {} | {} | level {}, {} chunks, {} | {} chunks, {} |",

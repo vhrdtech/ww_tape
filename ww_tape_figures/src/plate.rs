@@ -8,15 +8,13 @@
 )]
 
 use anyhow::{Context, ensure};
-use example_thermal::Thermal;
+use example_thermal::{BOX_COLUMNS, BOX_ROWS, Thermal};
 use ww_tape::TileCoords;
 
 use crate::svg::Svg;
 
 /// Width and height of a tile as drawn.
 const TILE: (f64, f64) = (72.0, 54.0);
-/// The cells of the box the figure queries: rows and columns.
-const BOX: ([u32; 2], [u32; 2]) = ([40, 56], [20, 60]);
 
 pub fn plate_tiles() -> anyhow::Result<String> {
     let plate = Thermal {
@@ -26,12 +24,7 @@ pub fn plate_tiles() -> anyhow::Result<String> {
     let rec = plate.record().ok().context("the plate records")?;
     let layout = rec.layout;
     let found = plate
-        .box_query(
-            &rec,
-            0..plate.ticks(),
-            BOX.0[0]..BOX.0[1],
-            BOX.1[0]..BOX.1[1],
-        )
+        .box_query(&rec, 0..plate.ticks(), BOX_ROWS, BOX_COLUMNS)
         .ok()
         .context("the box query")?;
     ensure!(!found.is_empty(), "the box meets tiles");
@@ -88,12 +81,12 @@ pub fn plate_tiles() -> anyhow::Result<String> {
     );
     s.rect(
         (
-            left + f64::from(BOX.1[0]) * cw,
-            top + f64::from(BOX.0[0]) * ch,
+            left + f64::from(BOX_COLUMNS.start) * cw,
+            top + f64::from(BOX_ROWS.start) * ch,
         ),
         (
-            f64::from(BOX.1[1] - BOX.1[0]) * cw,
-            f64::from(BOX.0[1] - BOX.0[0]) * ch,
+            f64::from(BOX_COLUMNS.end - BOX_COLUMNS.start) * cw,
+            f64::from(BOX_ROWS.end - BOX_ROWS.start) * ch,
         ),
         0.0,
         "hollow dash accent-line",
@@ -105,10 +98,10 @@ pub fn plate_tiles() -> anyhow::Result<String> {
         "small",
         &format!(
             "box: rows {}..{}, columns {}..{}: {} tiles",
-            BOX.0[0],
-            BOX.0[1],
-            BOX.1[0],
-            BOX.1[1],
+            BOX_ROWS.start,
+            BOX_ROWS.end,
+            BOX_COLUMNS.start,
+            BOX_COLUMNS.end,
             found
                 .iter()
                 .map(|t| t.tile)

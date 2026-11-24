@@ -230,7 +230,7 @@ chapter = "../series/"
 [[term]]
 name = "grid track"
 forms = ["grid tracks"]
-short = "A series track with fixed axes beside time, such as a thermal field or an image sequence; a series is the grid track of none."
+short = "A series track with fixed axes beside time, such as a thermal field or an image sequence."
 chapter = "../grids/"
 
 [[term]]

@@ -10,10 +10,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let images = Images::frames();
     let story = images.story()?;
     println!(
-        "{} frames of {} × {} pixels, {} a frame as written",
+        "{} frames of {} × {} pixels (rows × columns), {} a frame as written",
         images.frames,
-        images.width,
         images.height,
+        images.width,
         about(story.frame_bytes)
     );
     for row in &story.rows {
