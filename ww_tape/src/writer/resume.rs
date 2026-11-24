@@ -90,7 +90,7 @@ const JUNK_READ_MAX: usize = 1 << 20;
 /// Take into `kept` the live keys of each keyed state track of piece `i` of `reader` in force at `before`: the
 /// tracks with keyed records in the piece and those whose head row `rows` marks [TrackStart::keys_carried]. A
 /// track's keys are complete when every record read and the piece carries the keys in force at its start
-/// ([KeysAt::is_whole](crate::reader::KeysAt::is_whole)). `idents` gives the track each number stands for; a track
+/// ([KeysAt::is_whole](crate::reader::KeysAt::is_whole)); else they are doubted, since they hold no deletions. `idents` gives the track each number stands for; a track
 /// it doesn't name is passed over. The keys count under `bytes_max`, the plain items of `kept` forgotten first.
 pub(crate) fn read_keys<B: ByteSource>(
     reader: &TapeReader<B>,
@@ -117,7 +117,13 @@ pub(crate) fn read_keys<B: ByteSource>(
         for s in items {
             kept.key_placed(n, ident, s.at, &s.item, true, bytes_max);
         }
-        kept.keys_known(n, ident, keys.is_whole());
+        if keys.is_whole() {
+            kept.keys_known(n, ident, true);
+        } else {
+            // the live keys alone: the piece's deletions of older keys aren't among them, so older keys never make
+            // these complete
+            kept.keys_doubted(n, ident);
+        }
     }
     Ok(())
 }

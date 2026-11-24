@@ -509,6 +509,41 @@ fn junk_in_a_resumed_piece_leaves_its_keys_unknown() {
     assert!(!whole);
 }
 
+/// A piece resumed past junk, so its cut leaves the next piece's row unmarked; that piece deletes a live key and
+/// closes; a chain resume writes on it, reading its keys through its index over the whole keys of the piece before.
+/// The deleted key doesn't come back: the keys read from an index that aren't whole stay doubted, so the next cut
+/// doesn't mark them carried and a reader names them not whole.
+#[test]
+fn a_key_deleted_after_a_doubted_cut_stays_deleted() {
+    let defs = defs();
+    let (mem, last, bytes, at) = deletion_chain(true);
+    let checkpoint = blocks_of(&bytes, ww_tape::BlockKind::Index)
+        .into_iter()
+        .find(|c| *c > at)
+        .unwrap();
+    flip(&mem, last, checkpoint + 40);
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain
+        .put_key(&defs, KEYED, 7000, b"/y", b"resumed")
+        .unwrap();
+    chain.cut_now(&defs).unwrap();
+    chain.delete_key(&defs, KEYED, 7001, &key(2)).unwrap();
+    let pieces = chain.close().unwrap();
+    assert_eq!(pieces.len(), 3);
+    let (_, whole) = keys_of(&piece_bytes(&mem, pieces[2].tape), 0);
+    assert!(!whole, "the piece after the doubted cut");
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain.put_key(&defs, KEYED, 8000, b"/z", b"again").unwrap();
+    chain.cut_now(&defs).unwrap();
+    let pieces = chain.close().unwrap();
+    let (keys, whole) = keys_of(&piece_bytes(&mem, pieces.last().unwrap().tape), 0);
+    assert!(
+        !(whole && keys.contains_key(&key(2))),
+        "the deleted key came back as whole"
+    );
+    assert!(!whole);
+}
+
 /// A crash right after a cut drops the piece's carry, and a resume of that piece alone, without its chain, can't
 /// put the keys again: the first call is refused ([ResumeError::KeysUnknown]).
 #[test]
