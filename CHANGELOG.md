@@ -9,6 +9,7 @@ benchmarks, golden files and book pages.
 ### Fixes
 
 - A chain resume reads its numbers from every closed piece present, also when it starts a new piece (TRACK-7).
+- A chain resumed after its close keeps the numbers of tracks and clocks its last piece defined (TRACK-7).
 
 ## [0.8.0] - 2026-11-24
 

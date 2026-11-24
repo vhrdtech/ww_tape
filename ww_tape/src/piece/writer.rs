@@ -242,7 +242,11 @@ impl<T: PieceStore> PieceChain<T> {
             }
         };
         let Walk {
-            closed, gaps, seq, ..
+            closed,
+            gaps,
+            seq,
+            numbers,
+            ..
         } = walk;
         let newest = newest_in(&closed, |done, e, buf| {
             let src = store
@@ -297,8 +301,7 @@ impl<T: PieceStore> PieceChain<T> {
             }
         };
         writer.take_newest(&newest);
-        let mut resumed = resumed;
-        resumed.numbers = numbers_in(&closed, &resumed.numbers);
+        let resumed = numbers.under(resumed);
         Ok((
             Self {
                 store,
@@ -330,7 +333,7 @@ impl<T: PieceStore> PieceChain<T> {
         let size = sink
             .size()
             .map_err(crate::sink::sink_err("reading the length to resume"))?;
-        let mut closed = closed_in(&sink, &key)?;
+        let (mut closed, numbers) = closed_in(&sink, &key)?;
         // a last piece the chain doesn't go on from is written on, after its last close record
         if closed.last().is_some_and(|(_, last)| !last.continued) {
             closed.pop();
@@ -383,8 +386,7 @@ impl<T: PieceStore> PieceChain<T> {
             (w, resumed)
         };
         writer.take_newest(&newest);
-        let mut resumed = resumed;
-        resumed.numbers = numbers_in(&closed, &resumed.numbers);
+        let resumed = numbers.under(resumed);
         // the pieces before the first at hand may be dropped: the seq is the head's
         let seq = writer
             .piece_head()
@@ -847,6 +849,8 @@ struct Walk<K> {
     seq: u64,
     /// The last piece, as a reader finds it; None when there is none and it is to be started
     last_seen: Option<Seen>,
+    /// The numbers of the pieces read, the last one's up to its last close
+    numbers: ChainNumbers,
 }
 
 /// A piece the resume goes on in, read before it is touched: its head and the removed pieces its close in force names.
@@ -865,6 +869,7 @@ fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T:
         repair: Vec::new(),
         seq: 0,
         last_seen: None,
+        numbers: ChainNumbers::default(),
     };
     // a head cut starts the chain at hand: the lowest piece there
     walk.seq = store
@@ -879,11 +884,12 @@ fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T:
         // a piece the chain goes on from: cut, closed by its last close record
         let (cut, seen) = match &named {
             Some(src) => {
-                let cut = cut_piece(src)?;
+                let cut = cut_piece(src, &mut walk.numbers)?;
                 if cut.as_ref().is_some_and(|c| c.torn) {
                     walk.repair.push(key.clone());
                 }
-                (cut, Some(seen_in(src)?))
+                let seen = seen_in(src, cut.is_none().then_some(&mut walk.numbers))?;
+                (cut, Some(seen))
             }
             // a store that marks pieces closed may hold one a crash left unmarked: read through its sink
             None => match store
@@ -892,11 +898,12 @@ fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T:
             {
                 Some(sink) => {
                     let src = SinkSource(&sink);
-                    let cut = cut_piece(&src)?;
+                    let cut = cut_piece(&src, &mut walk.numbers)?;
                     if cut.is_some() {
                         walk.repair.push(key.clone());
                     }
-                    (cut, Some(seen_in(&src)?))
+                    let seen = seen_in(&src, cut.is_none().then_some(&mut walk.numbers))?;
+                    (cut, Some(seen))
                 }
                 None => (None, None),
             },
@@ -929,9 +936,16 @@ fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T:
 }
 
 /// The head and the removed pieces of the piece in `src`, as a reader finds them; a head the reader doesn't take (cut
-/// off or damaged) is None. A reader's refusal of the bytes is kept.
-fn seen_in<B: ByteSource>(src: &B) -> Result<Seen, WriteError<B::Error>> {
+/// off or damaged) is None. A reader's refusal of the bytes is kept. Into `numbers`, when given, the piece's numbers
+/// up to its last close: its resume reads only what follows it.
+fn seen_in<B: ByteSource>(
+    src: &B,
+    numbers: Option<&mut ChainNumbers>,
+) -> Result<Seen, WriteError<B::Error>> {
     let reader = TapeReader::open(src).map_err(WriteError::Read)?;
+    if let Some(numbers) = numbers {
+        numbers.take(&reader, 0)?;
+    }
     Ok(reader
         .pieces()
         .first()
@@ -986,11 +1000,12 @@ fn too_many<E>() -> WriteError<E> {
 }
 
 /// The closed pieces at the start of the tape `key` in `sink`, in order, read from their tails: every piece but
-/// an unclosed last one. A piece without its end before another is refused.
+/// an unclosed last one. A piece without its end before another is refused. With them the numbers of every piece,
+/// an unclosed last one's up to its last close.
 fn closed_in<S: TapeSink, K: Clone>(
     sink: &S,
     key: &K,
-) -> Result<Vec<Done<K>>, WriteError<S::Error>> {
+) -> Result<(Vec<Done<K>>, ChainNumbers), WriteError<S::Error>> {
     let src = SinkSource(sink);
     let reader = TapeReader::open(&src).map_err(WriteError::Read)?;
     let pieces = reader.pieces();
@@ -1000,18 +1015,19 @@ fn closed_in<S: TapeSink, K: Clone>(
             "an unclosed piece before the last one in a file of pieces",
         )));
     }
-    (0..done)
-        .map(|i| {
-            let (piece, last) = read_closed_at(&reader, i)?;
-            Ok((
-                ChainPiece {
-                    tape: key.clone(),
-                    piece,
-                },
-                last,
-            ))
-        })
-        .collect()
+    let mut numbers = ChainNumbers::default();
+    let mut closed = Vec::new();
+    for i in 0..done {
+        let (piece, last) = read_closed_at(&reader, i)?;
+        numbers.take(&reader, i)?;
+        let tape = key.clone();
+        closed.push((ChainPiece { tape, piece }, last));
+    }
+    // an unclosed last piece written on after a close: its resume reads only what follows that close
+    if done < pieces.len() {
+        numbers.take(&reader, done)?;
+    }
+    Ok((closed, numbers))
 }
 
 /// A closed piece of a chain, and what the piece after it starts from.
@@ -1036,8 +1052,6 @@ struct LastPiece {
     kept: Kept,
     /// The pieces of the chain its close in force names as removed on purpose
     removed: Vec<RemovedPiece>,
-    /// Which number stands for which track and clock in it ([numbers_of])
-    numbers: crate::Numbers,
 }
 
 /// A piece the chain goes on from, read by [cut_piece].
@@ -1050,8 +1064,11 @@ struct CutPiece {
 }
 
 /// The piece in `src` when the chain goes on from it: closed by a cut (its last close record names the next piece);
-/// None for any other.
-fn cut_piece<B: ByteSource>(src: &B) -> Result<Option<CutPiece>, WriteError<B::Error>> {
+/// None for any other. The numbers of a piece it returns go into `numbers`.
+fn cut_piece<B: ByteSource>(
+    src: &B,
+    numbers: &mut ChainNumbers,
+) -> Result<Option<CutPiece>, WriteError<B::Error>> {
     let reader = TapeReader::open(src).map_err(WriteError::Read)?;
     let end = match reader.pieces().first() {
         Some(p)
@@ -1068,6 +1085,7 @@ fn cut_piece<B: ByteSource>(src: &B) -> Result<Option<CutPiece>, WriteError<B::E
         .map_err(crate::sink::sink_err("reading a piece's length"))?;
     let torn = reader.pieces().len() > 1 || size > end;
     let (piece, last) = read_closed_at(&reader, 0)?;
+    numbers.take(&reader, 0)?;
     Ok(Some(CutPiece { piece, last, torn }))
 }
 
@@ -1107,7 +1125,6 @@ fn read_closed_at<B: ByteSource>(
     let next_tracks = crate::index::next_starts(starts, ranges);
     let (newest, last_chunks) = last_chunks_of(reader, i, ranges)?;
     let kept = kept_of(reader, i, &next_tracks)?;
-    let numbers = numbers_of(reader, i)?;
     Ok((
         Closed {
             hash: close.hash,
@@ -1128,50 +1145,61 @@ fn read_closed_at<B: ByteSource>(
             last_chunks,
             kept,
             removed: p.removed.clone(),
-            numbers,
         },
     ))
 }
 
-/// Which number stands for which track and clock in piece `i` of `reader`: its head's rows, then the track and clock
-/// definitions in force at its end, then its close's rows. A definition that doesn't read, or past the reader's
-/// budget, gives none.
-fn numbers_of<B: ByteSource>(
-    reader: &TapeReader<B>,
-    i: usize,
-) -> Result<crate::Numbers, WriteError<B::Error>> {
-    let mut numbers = crate::Numbers::new();
-    let Some(p) = reader.pieces().get(i) else {
-        return Ok(numbers);
-    };
-    for r in p.head.iter().flat_map(|(_, rows)| rows) {
-        numbers.take_track(r.track_number, r.track_id, r.owner.0);
-    }
-    let defs = reader
-        .definitions_at(i, u64::MAX)
-        .map_err(WriteError::Read)?;
-    for s in defs.items.values() {
-        match <crate::Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(&s.item) {
-            Ok(crate::Describe::Track(t)) => numbers.take_track(t.number, t.id(), t.owner),
-            Ok(crate::Describe::Clock(c)) => numbers.take_clock(c.number, c.key),
-            _ => {}
-        }
-    }
-    for r in p.close.iter().flat_map(|(_, rows)| rows) {
-        numbers.take_track(r.track_number, r.track_id, r.owner.0);
-    }
-    Ok(numbers)
+/// The numbers a chain's resume reads from its pieces, oldest first.
+#[derive(Default)]
+struct ChainNumbers {
+    numbers: crate::Numbers,
 }
 
-/// The numbers of the closed pieces `closed`, oldest first, then `own` (the resumed piece's) over them: what an
-/// application numbers the tracks and clocks it defines again by ([Resumed::numbers]).
-fn numbers_in<K>(closed: &[Done<K>], own: &crate::Numbers) -> crate::Numbers {
-    let mut numbers = crate::Numbers::new();
-    for (_, last) in closed {
-        numbers.take_all(&last.numbers);
+impl ChainNumbers {
+    /// Take the numbers of piece `i` of `reader` up to its last close, over those taken: its head's rows, the track
+    /// and clock definitions in force at that close, then the close's rows. A piece without a close gives none: its
+    /// resume reads it whole.
+    fn take<B: ByteSource>(
+        &mut self,
+        reader: &TapeReader<B>,
+        i: usize,
+    ) -> Result<(), WriteError<B::Error>> {
+        let Some(p) = reader.pieces().get(i) else {
+            return Ok(());
+        };
+        let Some(close_at) = p.close_offset else {
+            return Ok(());
+        };
+        for r in p.head.iter().flat_map(|(_, rows)| rows) {
+            self.numbers
+                .take_track(r.track_number, r.track_id, r.owner.0);
+        }
+        let defs = reader
+            .definitions_at(i, close_at)
+            .map_err(WriteError::Read)?;
+        for s in defs.items.values() {
+            match <crate::Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(
+                &s.item,
+            ) {
+                Ok(crate::Describe::Track(t)) => self.numbers.take_track(t.number, t.id(), t.owner),
+                Ok(crate::Describe::Clock(c)) => self.numbers.take_clock(c.number, c.key),
+                _ => {}
+            }
+        }
+        for r in p.close.iter().flat_map(|(_, rows)| rows) {
+            self.numbers
+                .take_track(r.track_number, r.track_id, r.owner.0);
+        }
+        Ok(())
     }
-    numbers.take_all(own);
-    numbers
+
+    /// `resumed` with the numbers of the resumed piece over these: what an application numbers the tracks and clocks
+    /// it defines again by ([Resumed::numbers]).
+    fn under(mut self, mut resumed: Resumed) -> Resumed {
+        self.numbers.take_all(&resumed.numbers);
+        resumed.numbers = self.numbers;
+        resumed
+    }
 }
 
 /// The newest item of each state track of rows `rows` in piece `i` of `reader` that reads, oldest first: what the

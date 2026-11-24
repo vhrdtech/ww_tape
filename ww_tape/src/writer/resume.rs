@@ -122,8 +122,9 @@ pub struct Resumed {
     pub after_close: Option<Close>,
     /// Which number stands for which track and clock in the definitions the resume read: the walked blocks, and the
     /// puts after the head of a piece written on after its close. A chain's resume ([crate::PieceChain::resume_on])
-    /// takes those of its closed pieces present first, also when it starts a new piece. An application numbers with
-    /// them ([crate::Definitions::with_numbers]), so the tracks and clocks it defines again keep their numbers.
+    /// takes those of its pieces present first, the last one's up to its last close, also when it starts a new
+    /// piece. An application numbers with them ([crate::Definitions::with_numbers]), so the tracks and clocks it
+    /// defines again keep their numbers.
     pub numbers: crate::Numbers,
 }
 

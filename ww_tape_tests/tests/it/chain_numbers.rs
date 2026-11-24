@@ -1,6 +1,7 @@
 //! A chain resume gives every track and clock the number it had ([ww_tape::Resumed::numbers]), also when it starts
 //! a new piece and reads none of the pieces before it as its own: after a crash between pieces, after a cut off
-//! inside the new piece's head, and over a removed front piece.
+//! inside the new piece's head, and over a removed front piece; and when it writes on after the last piece's close,
+//! whose resume reads only what follows that close.
 
 use std::path::Path;
 
@@ -92,7 +93,8 @@ fn write_story<T: PieceStore>(c: &mut PieceChain<T>, remove_front: bool) -> Defi
 }
 
 /// The numbers a resume gives are those the story's definitions gave: defining the tracks and clocks again, in
-/// another order, gives each its number, a new track takes 6, and the chain writes on with them.
+/// another order, gives each its number, a new track takes the number the story's definitions would give it, and the
+/// chain writes on with them.
 fn writes_on<T: PieceStore>(mut c: PieceChain<T>, resumed: &Resumed, defs: &Definitions) {
     assert_eq!(&resumed.numbers, defs.numbers());
     let mut again = Definitions::with_numbers(resumed.numbers.clone());
@@ -107,7 +109,9 @@ fn writes_on<T: PieceStore>(mut c: PieceChain<T>, resumed: &Resumed, defs: &Defi
     let Describe::Track(new) = track(9, 1) else {
         unreachable!("track() gives a track")
     };
-    assert_eq!(again.define_track(new.spec()), Ok(TrackNum::new(6)));
+    let mut probe = defs.clone();
+    let want = probe.define_track(new.spec()).unwrap();
+    assert_eq!(again.define_track(new.spec()), Ok(want));
     chunks(&mut c, &again, 8, 11);
     c.close().unwrap();
 }
@@ -121,19 +125,62 @@ enum Crash {
     InHead,
     /// Kept with its head and a chunk, unclosed.
     Unclosed,
+    /// No crash: the chain closed ([PieceChain::close]), the usual append after a clean shutdown.
+    Closed,
+    /// Closed, resumed, a chunk written after the close, then the crash.
+    AfterClose,
 }
 
-const CRASHES: [Crash; 3] = [Crash::BetweenPieces, Crash::InHead, Crash::Unclosed];
+const CRASHES: [Crash; 5] = [
+    Crash::BetweenPieces,
+    Crash::InHead,
+    Crash::Unclosed,
+    Crash::Closed,
+    Crash::AfterClose,
+];
+
+/// End the chain `c` of the story (its definitions `defs`) as `crash` leaves it, before the crash's bytes are cut:
+/// dropped, or closed after a chunk, four record blocks, and clock 3 and track 6 on it are defined in the last piece;
+/// with [Crash::AfterClose] then resumed by `resume`, a chunk written and dropped.
+fn end_as<T: PieceStore>(
+    mut c: PieceChain<T>,
+    defs: &mut Definitions,
+    crash: Crash,
+    resume: impl FnOnce() -> PieceChain<T>,
+) {
+    match crash {
+        Crash::BetweenPieces | Crash::InHead => drop(c),
+        Crash::Unclosed => chunks(&mut c, defs, 8, 9),
+        Crash::Closed | Crash::AfterClose => {
+            // past the puts after the head, which a resume of the piece reads
+            chunks(&mut c, defs, 8, 9);
+            for k in 0..4 {
+                let id = c.writer().unwrap().next_id();
+                c.write_block(defs, &on_tracks(id, &[(2, 60 + k, b"z")]))
+                    .unwrap();
+            }
+            hold(defs, &[clock(3), track(6, 3)]).unwrap();
+            let id = c.writer().unwrap().next_id();
+            c.write_block(defs, &record_on(id, 6, 3, 50)).unwrap();
+            c.close().unwrap();
+        }
+    }
+    if let Crash::AfterClose = crash {
+        let mut c = resume();
+        chunks(&mut c, defs, 8, 9);
+    }
+}
 
 /// The story in memory, crashed as `crash`, resumed, written on and checked.
 fn in_memory(tapes: PieceTapes, crash: Crash, remove_front: bool) {
     let mem = MemPieces::new();
     let mut c = PieceChain::create_on(mem.clone(), OWNER, 0, &[], options(tapes)).unwrap();
-    let defs = write_story(&mut c, remove_front);
-    if matches!(crash, Crash::Unclosed) {
-        chunks(&mut c, &defs, 8, 9);
-    }
-    drop(c);
+    let mut defs = write_story(&mut c, remove_front);
+    end_as(c, &mut defs, crash, || {
+        PieceChain::resume_on(mem.clone(), OWNER, 0, options(tapes))
+            .unwrap()
+            .0
+    });
     let mem = crashed(&mem, tapes, crash);
     let (c, resumed) = PieceChain::resume_on(mem.clone(), OWNER, 0, options(tapes))
         .unwrap_or_else(|e| panic!("{tapes:?} {crash:?} {remove_front}: {e:?}"));
@@ -158,7 +205,7 @@ fn crashed(mem: &MemPieces, tapes: PieceTapes, crash: Crash) -> MemPieces {
             Crash::BetweenPieces if tapes == PieceTapes::Each && key == 4 => continue,
             Crash::BetweenPieces => start.min(bytes.len() as u64),
             Crash::InHead => (start + 16).min(bytes.len() as u64),
-            Crash::Unclosed => bytes.len() as u64,
+            Crash::Unclosed | Crash::Closed | Crash::AfterClose => bytes.len() as u64,
         } as usize;
         let mut sink = match tapes {
             PieceTapes::Each => after.create(&key).unwrap(),
@@ -214,11 +261,12 @@ fn a_chain_of_files_resumes_with_its_numbers() {
             let mut c = ww_tape_fs::chain::create(&at, OWNER, 0, &[], options(tapes)).unwrap();
             // a file of pieces drops no front ([FilePieces](ww_tape_fs::FilePieces))
             let remove_front = tapes == PieceTapes::Each;
-            let defs = write_story(&mut c, remove_front);
-            if matches!(crash, Crash::Unclosed) {
-                chunks(&mut c, &defs, 8, 9);
-            }
-            drop(c);
+            let mut defs = write_story(&mut c, remove_front);
+            end_as(c, &mut defs, crash, || {
+                ww_tape_fs::chain::resume(&at, OWNER, 0, options(tapes))
+                    .unwrap()
+                    .0
+            });
             let (file, start) = match tapes {
                 PieceTapes::Each => (dir.join(ww_tape_fs::chain::piece_name(4)), 0),
                 PieceTapes::One => (at.clone(), last_start(&std::fs::read(&at).unwrap())),
@@ -229,7 +277,7 @@ fn a_chain_of_files_resumes_with_its_numbers() {
                 }
                 Crash::BetweenPieces => cut_file(&file, start),
                 Crash::InHead => cut_file(&file, start + 16),
-                Crash::Unclosed => {}
+                Crash::Unclosed | Crash::Closed | Crash::AfterClose => {}
             }
             let (c, resumed) = ww_tape_fs::chain::resume(&at, OWNER, 0, options(tapes))
                 .unwrap_or_else(|e: WriteError<_>| panic!("{tapes:?} {crash:?}: {e:?}"));
