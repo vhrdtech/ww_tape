@@ -6,10 +6,11 @@ use std::time::{Duration, Instant};
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::{ChunkHead, ColumnKind};
 use ww_tape::payloads::{Payloads, PayloadsError};
+use ww_tape::piece::PieceHeadBlock;
 use ww_tape::times::{EventTimes, TimesError};
 use ww_tape::{
-    Block, BlockBuf, BlockKind, Definitions, Describe, FlagRuns, FlagRunsError, ItemNum, Sample,
-    SampleError, SampleShape, Samples, SeriesGrid, Slot, TrackId,
+    Block, BlockBuf, BlockKind, Definitions, Describe, FlagRuns, FlagRunsError, ItemNum, OwnerId,
+    Sample, SampleError, SampleShape, Samples, SeriesGrid, Slot, TrackId,
 };
 
 use super::{ChainFollower, FollowError, Followed};
@@ -121,17 +122,32 @@ impl core::error::Error for TrackError {
 #[derive(Clone, Debug)]
 pub struct TrackItems {
     id: TrackId,
+    /// Only the chunks of this owner's track, when set
+    owner: Option<OwnerId>,
+    /// The owner the last piece head named: whose track a definition of all-zero owner is
+    pub(super) piece_owner: OwnerId,
     next_item: Option<ItemNum>,
     from_tick: Option<i64>,
 }
 
 impl TrackItems {
-    /// The items of the track of id `id` ([ww_tape::TrackKey::id]).
+    /// The items of the track of id `id` ([ww_tape::TrackKey::id]), whoever owns it ([ww_tape::TrackDef::owner]).
     pub fn new(id: TrackId) -> Self {
         Self {
             id,
+            owner: None,
+            piece_owner: OwnerId::NONE,
             next_item: None,
             from_tick: None,
+        }
+    }
+
+    /// The items of the track of id `id` and owner `owner`: chunks of the same id another owner wrote into the chain
+    /// are passed over. A definition whose owner is all zeros is the owner's of its piece ([ww_tape::PieceIdent]).
+    pub fn owned(id: TrackId, owner: OwnerId) -> Self {
+        Self {
+            owner: Some(owner),
+            ..Self::new(id)
         }
     }
 
@@ -156,12 +172,17 @@ impl TrackItems {
         out: &mut VecDeque<TrackItem>,
     ) -> Result<(), TrackError> {
         let b = block.block();
+        if b.kind == BlockKind::PieceHead
+            && let Ok(h) = PieceHeadBlock::read(&b)
+        {
+            self.piece_owner = h.head().ident.owner;
+        }
         let Some(chunk) = b.chunk() else {
             return Ok(());
         };
         let head = chunk.head();
         // an overview chunk holds statistics of time steps its track's chunks give
-        if head.track_id != self.id || head.level != 0 {
+        if head.track_id != self.id || head.level != 0 || !self.owns(defs, &head) {
             return Ok(());
         }
         let end = head.first_item.checked_add(u64::from(head.count));
@@ -187,6 +208,18 @@ impl TrackItems {
         }
         self.next_item = end;
         Ok(())
+    }
+
+    /// Whether the chunk of `head` is of the owner followed; a chunk whose track `defs` don't hold is of none.
+    fn owns(&self, defs: &Definitions, head: &ChunkHead) -> bool {
+        let Some(want) = self.owner else {
+            return true;
+        };
+        match defs.track_key(head.track_number) {
+            Some((_, owner)) if owner == [0; 32] => self.piece_owner == want,
+            Some((_, owner)) => OwnerId(owner) == want,
+            None => false,
+        }
     }
 
     fn events(
@@ -335,6 +368,10 @@ impl TrackFollower {
     }
 
     fn take(&mut self, f: &Followed) -> Result<(), FollowError> {
+        // the piece head may lie before the first block handed out
+        if let Some(owner) = self.chain.owner() {
+            self.items.piece_owner = owner;
+        }
         self.items
             .take(&f.block, self.chain.definitions(), &mut self.pending)
             .map_err(|error| FollowError::Track {
