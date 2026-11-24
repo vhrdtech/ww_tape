@@ -625,6 +625,7 @@ A `TrackDef` holds:
 | `kind` | events, with or without ends and flags, or a [series](#series-tracks) |
 | `owner` | 32 opaque bytes that tell apart tracks of one identity ([below](#track-owners)) |
 | `relations` | what its items relate to (`RelationDef`) |
+| `defined_twice` | whether the definitions it needs are written twice at once ([below](#definitions-written-twice-at-once)); false when absent |
 
 A track declares at most `RELATIONS_MAX` (16) relations, with unique names of at most `RELATION_NAME_MAX` (64)
 bytes. Each `RelationDef` has a name and a target: a run's 16 opaque
@@ -705,7 +706,7 @@ a label of three letters and no dimensions or relations (test `raw.rs`):
 | `items` | Bytes |
 |---|---|
 | `WireWeaver`: `drive_api 0.1.0`, a path of one segment, no bundle hash | 73 |
-| `RawBytes` | 56 |
+| `RawBytes` | 57 |
 | `Foreign`: media type `application/vnd.tcpdump.pcap` | 90 |
 | `Foreign`: name `com.example.frame`, version `3`, a schema hash | 112 |
 | `Numbers`: 8-bit IQ with zero `255/2` | 65 |
@@ -786,6 +787,26 @@ The writer writes copies only at uses, never ahead of them.
 
 The writer remembers at most `NearPolicy::memory_max` slots and forgets the one written longest ago first. A forgotten
 slot costs one more write, never a wrong read.
+
+#### 5.1.1 Definitions written twice at once {#definitions-written-twice-at-once}
+
+Copies spaced 1 MiB apart never come in a piece smaller than that, so such a piece holds each definition once. One
+damaged block then loses a track's definition, and with it the track. A track whose `defined_twice` is true avoids
+this. The writer writes every definition the track needs twice at once: its clock chain, its bundles and its own
+definition.
+
+The writer puts the records written twice first, in a block of puts of their own. Then it puts the usual block of
+puts. The block of its own is marked `FLAG_REPEAT` alone, never `FLAG_WITH_NEXT`, so it belongs with no other block.
+A reader may drop a damaged run of blocks that belong together, but the block of its own stays outside that run. A
+damaged block of its own leaves the run whole, and a damaged run leaves the block of its own.
+
+A definition written twice at once is written while fewer than two records of it lie in the piece. A clock shared
+with a track that asked for nothing is so written again at the first use by the track that asked. The copies spaced
+apart come on top: `copies` counts after those two records. Each record takes its own state entry. A cut carries such
+a definition twice: in a block of its own, then in its block of carried definitions.
+
+A reader needs nothing new. The definition in force is the newest record of its slot that reads, and an older one
+stands in for a damaged block (test `definitions_twice.rs`).
 
 ### 5.2 Marking blocks of puts {#marking-blocks-of-puts}
 

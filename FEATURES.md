@@ -163,6 +163,12 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds), `ww_tape_tests/tests/it/chain_numbers.rs`.
 
+- ✅ **TRACK-9 Definitions written twice at once**
+
+  A track whose definition says `defined_twice` has every definition it needs written twice at once: its clock chain, its bundles and its own. The copy goes first, in a block of puts of its own that belongs with no other block. In a piece under 1 MiB, where no copy spaced apart comes, each definition so reads after any one damaged block. This holds after a crash and resume too, and a cut carries them twice.
+
+  Read more: [Definitions written twice at once](docs/format.md#definitions-written-twice-at-once). Tests `definitions_twice.rs`.
+
 ## Writer (`WRITE`)
 
 Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_tape`.

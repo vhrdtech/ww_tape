@@ -304,6 +304,8 @@ pub struct TrackFacts {
     /// The tiles of a grid's fixed axes, whose tile number goes into each chunk's index entry;
     /// [TileLayout::SERIES](crate::TileLayout::SERIES) for a series or an events track.
     pub tiles: crate::TileLayout,
+    /// [TrackDef::defined_twice](crate::TrackDef::defined_twice).
+    pub defined_twice: bool,
 }
 
 impl TrackFacts {
@@ -337,6 +339,7 @@ impl TrackFacts {
                 .series()
                 .and_then(|s| s.tile_layout().ok())
                 .unwrap_or(crate::TileLayout::SERIES),
+            defined_twice: t.defined_twice,
         }
     }
 }
@@ -604,6 +607,8 @@ pub struct Definitions {
     bytes: usize,
     /// The numbers given to tracks and clocks
     numbers: Numbers,
+    /// The tracks held whose definitions are written twice at once ([TrackDef::defined_twice](crate::TrackDef))
+    twice: BTreeSet<TrackNum>,
 }
 
 impl Definitions {
@@ -833,6 +838,12 @@ impl Definitions {
         out
     }
 
+    /// Whether the definition in `slot` is written twice at once: a track held as
+    /// [defined_twice](crate::TrackDef::defined_twice) needs it ([Self::needs]).
+    pub(crate) fn defined_twice(&self, slot: &Slot) -> bool {
+        self.twice.iter().any(|t| self.needs(*t).contains(slot))
+    }
+
     /// The maps held from clock `c`.
     fn maps_from(&self, c: ClockNum) -> impl Iterator<Item = (&Slot, &Held)> {
         self.defs.range(
@@ -922,6 +933,11 @@ impl Definitions {
             Describe::Track(t) => {
                 self.numbers.take_track(t.number, t.id(), t.owner);
                 let bundles = track_bundles(t);
+                if t.defined_twice {
+                    self.twice.insert(t.number);
+                } else {
+                    self.twice.remove(&t.number);
+                }
                 self.tracks.insert(
                     t.number,
                     HeldTrack {
@@ -984,6 +1000,7 @@ impl Definitions {
         let Some(t) = self.tracks.remove(&number) else {
             return false;
         };
+        self.twice.remove(&number);
         self.remove(&Slot::Track { number });
         let named: BTreeSet<&Named> = self.tracks.values().flat_map(|t| &t.bundles).collect();
         let gone: Vec<Named> = t

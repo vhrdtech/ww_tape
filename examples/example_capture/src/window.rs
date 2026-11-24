@@ -646,6 +646,7 @@ pub fn kept_spec(key: TrackKey, clock: ClockNum) -> TrackSpec<'static> {
         }),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

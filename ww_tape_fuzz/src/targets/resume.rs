@@ -308,7 +308,8 @@ pub(crate) fn removed_chain() -> Vec<u8> {
     out
 }
 
-/// Events track `index` on clock `clock`: its key is the index's, the number its template gives it.
+/// Events track `index` on clock `clock`: its key is the index's, the number its template gives it. Track 9, of the
+/// records blocks, has its definitions written twice at once (TRACK-9), so a cut may fall between the two.
 pub(crate) fn track(index: u32, clock: ClockNum) -> TrackSpec<'static> {
     TrackSpec {
         key: track_key(0xf2, &[Segment::Index(index)]),
@@ -328,6 +329,7 @@ pub(crate) fn track(index: u32, clock: ClockNum) -> TrackSpec<'static> {
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: index == 9,
     }
 }
 

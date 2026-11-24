@@ -84,6 +84,7 @@ fn raw_track(number: u32, items: Items<'static>) -> TrackDef<'static> {
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 
@@ -582,7 +583,7 @@ fn items_cost_their_fields() {
         item: None,
     };
     assert_eq!(track(stream), 73, "a WireWeaver stream");
-    assert_eq!(track(Items::RawBytes), 56, "plain bytes");
+    assert_eq!(track(Items::RawBytes), 57, "plain bytes");
     assert_eq!(
         track(Items::Foreign(media("application/vnd.tcpdump.pcap"))),
         90,

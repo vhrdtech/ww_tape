@@ -72,6 +72,7 @@ fn grid_track(clock: ClockNum) -> TrackSpec<'static> {
         kind: TrackKind::Series(def),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 

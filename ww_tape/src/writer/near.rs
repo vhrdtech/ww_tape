@@ -7,6 +7,9 @@
 //! - **Copies on use.** A put of the same item close behind still writes it, as a copy, while fewer than
 //!   1 + [StatePolicy::copies](crate::StatePolicy) records of it lie in the piece and the newest lies at least
 //!   [NearPolicy::copy_spacing] behind. Nothing is scheduled ahead: a copy is written only where the item is used.
+//! - **Twice at once.** A definition a track asks to have written twice
+//!   ([TrackDef::defined_twice](crate::TrackDef::defined_twice)) is written while fewer than two records of it lie in
+//!   the piece: a put writes it in two blocks at once, and its copies spaced apart come on top of those two.
 //! - **Cap.** The memory holds at most [NearPolicy::memory_max] slots and forgets the one written longest ago first;
 //!   a slot forgotten costs one more write, never a wrong read. The layout and the producer, two slots every call
 //!   uses, are held besides and never forgotten. A slot whose newest record lies in a damaged block
@@ -71,6 +74,8 @@ pub struct Rule {
     pub copies: Count<Item, u8>,
     /// Bytes from the newest record to where a use writes a copy ([NearPolicy::copy_spacing]).
     pub spacing: Bytes<u64>,
+    /// Whether the record is written twice at once ([TrackDef::defined_twice](crate::TrackDef::defined_twice)).
+    pub twice: bool,
 }
 
 /// The state records of a piece a writer remembers, see the [module docs](self).
@@ -94,8 +99,10 @@ impl Near {
             return true;
         };
         let behind = pos.saturating_sub(w.at);
-        let copy = w.records <= u32::from(rule.copies.get()) && behind >= rule.spacing.get();
-        w.hash != Some(hash) || behind > rule.near.get() || copy
+        let copies = u32::from(rule.copies.get()).saturating_add(u32::from(rule.twice));
+        let copy = w.records <= copies && behind >= rule.spacing.get();
+        let at_once = rule.twice && w.records < 2;
+        w.hash != Some(hash) || behind > rule.near.get() || copy || at_once
     }
 
     /// Note a record of item `hash` in `slot` written in the block at `offset` (None: the block is damaged and the
@@ -147,6 +154,7 @@ mod tests {
         near: Bytes::new(1000),
         copies: Count::new(0),
         spacing: Bytes::new(10),
+        twice: false,
     };
 
     fn wrote(n: &mut Near, slot: Slot, item: &[u8], offset: u64, p: &NearPolicy) {
@@ -189,6 +197,30 @@ mod tests {
         // three records lie in the piece: no more copies, only past near
         assert!(!n.writes(&s, a, 500, rule));
         assert!(n.writes(&s, a, 1021, rule));
+    }
+
+    #[test]
+    fn a_record_written_twice_keeps_its_spaced_copies() {
+        let p = NearPolicy::default();
+        let rule = Rule {
+            copies: Count::new(1),
+            twice: true,
+            ..RULE
+        };
+        let mut n = Near::default();
+        let s = Slot::Clock {
+            number: crate::ClockNum::new(1),
+        };
+        let a = ItemHash::of(b"A");
+        // one record, written by a put of a track that doesn't ask for it twice: the next put writes it again
+        wrote(&mut n, s, b"A", 0, &p);
+        assert!(n.writes(&s, a, 1, rule));
+        wrote(&mut n, s, b"A", 1, &p);
+        assert!(!n.writes(&s, a, 10, rule));
+        // the two at once, then one copy spaced apart
+        assert!(n.writes(&s, a, 11, rule));
+        wrote(&mut n, s, b"A", 11, &p);
+        assert!(!n.writes(&s, a, 500, rule));
     }
 
     #[test]

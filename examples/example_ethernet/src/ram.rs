@@ -311,6 +311,7 @@ pub fn resets_spec<'r>(rx: Rx, clock: ClockNum, relations: &'r [RelationDef<'r>]
         }),
         relations: RefVec::Slice { slice: relations },
         owner: [0; 32],
+        defined_twice: false,
     }
 }
 
