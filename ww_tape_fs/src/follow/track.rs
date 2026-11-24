@@ -215,7 +215,7 @@ impl TrackItems {
         let Some(want) = self.owner else {
             return true;
         };
-        match defs.track_key(head.track_number) {
+        match defs.track_identity(head.track_number) {
             Some((_, owner)) if owner == [0; 32] => self.piece_owner == want,
             Some((_, owner)) => OwnerId(owner) == want,
             None => false,

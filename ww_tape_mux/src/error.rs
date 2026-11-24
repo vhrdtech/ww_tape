@@ -59,7 +59,7 @@ pub enum CallError {
     StepTooLarge { bytes: Bytes<u64>, max: Bytes<u64> },
     /// Summary leaves that don't fit the chunk sender: given to a sender without summaries, missing on a summarized
     /// one, of another kind or fields than the track's tree, or of a grid's tile.
-    Leaves,
+    WrongLeaves,
 }
 
 /// Why a typed handle refuses an item.
@@ -183,7 +183,7 @@ impl core::fmt::Display for CallError {
                 bytes.get(),
                 max.get()
             ),
-            Self::Leaves => f.write_str("summary leaves that don't fit the chunk sender's track"),
+            Self::WrongLeaves => f.write_str("summary leaves that don't fit the chunk sender's track"),
         }
     }
 }

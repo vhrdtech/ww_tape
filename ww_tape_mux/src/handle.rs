@@ -327,7 +327,7 @@ impl<T: PieceStore> ChunkSender<T> {
     /// chunk back from its piece at the placement, before the chain is synced.
     ///
     /// A summarized sender's chunk comes with its `leaves`, computed as the sender's [Self::event_runs] or
-    /// [Self::sample_leaves] give them; a sender without summaries takes none ([CallError::Leaves]).
+    /// [Self::sample_leaves] give them; a sender without summaries takes none ([CallError::WrongLeaves]).
     pub fn send_placed(
         &self,
         head: ChunkHead,
@@ -350,7 +350,7 @@ impl<T: PieceStore> ChunkSender<T> {
             *summary = match (self.summary, leaves) {
                 (Some(s), Some(l)) => Some(Box::new(s.summary(l, head.tile)?)),
                 (None, None) => None,
-                _ => return Err(CallError::Leaves.into()),
+                _ => return Err(CallError::WrongLeaves.into()),
             };
         }
         Ok(match self.s.send_async(work, bytes).await? {
@@ -381,7 +381,7 @@ impl<T: PieceStore> ChunkSender<T> {
         }
         // a summarized sender's chunk goes with its leaves: send_placed sets them
         if self.summary.is_some() && placed.is_none() {
-            return Err(CallError::Leaves.into());
+            return Err(CallError::WrongLeaves.into());
         }
         let specs: Vec<ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
         let bytes = ww_tape::chunk::chunk_len(&head, &specs, 0);

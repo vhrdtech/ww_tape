@@ -113,14 +113,14 @@ fn by_sender(mux: TapeMux<MemPieces>, track: (TrackNum, TrackId), from: u64) {
             .map(|(s, b)| (s, b.to_vec()))
             .chain(payloads.into_columns())
             .collect();
+        // --8<-- [start:send_leaves]
         for e in &items {
             runs.push(e.start, e.end, e.flags).unwrap();
         }
         let leaves = Leaves::events(&mut runs);
-        sender
-            .send_placed(head, columns, Some(leaves))
-            .unwrap()
-            .unwrap();
+        let placing = sender.send_placed(head, columns, Some(leaves)).unwrap();
+        // --8<-- [end:send_leaves]
+        placing.expect("a waiting sender drops nothing");
         first = end;
     }
     sender.flush().unwrap();
@@ -289,7 +289,8 @@ fn leaves_go_only_with_a_summarized_sender() {
     let times = EncodedTimes::encode(&[0], Some(&[0]), Some(&[0])).unwrap();
     let head = times.head.chunk_head(t.1, t.0, ItemNum::new(0));
     let columns = || -> Vec<_> { times.columns().map(|(s, b)| (s, b.to_vec())).collect() };
-    let refused = |r: Result<_, MuxError<_>>| matches!(r, Err(MuxError::Call(CallError::Leaves)));
+    let refused =
+        |r: Result<_, MuxError<_>>| matches!(r, Err(MuxError::Call(CallError::WrongLeaves)));
     assert!(refused(summarized.send(head, columns()).map(|_| ())));
     assert!(refused(
         summarized.send_placed(head, columns(), None).map(|_| ())

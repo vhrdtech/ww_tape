@@ -140,7 +140,7 @@ impl SummaryOf {
                 tile,
                 tile_cells: 1,
             }),
-            _ => Err(CallError::Leaves),
+            _ => Err(CallError::WrongLeaves),
         }
     }
 }

@@ -7,10 +7,12 @@
 //! |---|---|---|
 //! | [EventsHandle] | items of one events track, one by one or in batches ([Event]), encoded into chunks on its thread | [PieceChain::write_chunk_hashed] |
 //! | [GridHandle] | time steps of one series track (its samples, or its tiles' cells), encoded the same way, a chunk per tile | [PieceChain::write_chunk_hashed] |
-//! | [ChunkSender] | a chunk of one events or series track, encoded by the caller | [PieceChain::write_chunk] |
+//! | [ChunkSender] | a chunk of one events or series track, encoded by the caller; with its summary [Leaves] from [TapeMux::summarized_chunks] | [PieceChain::write_chunk], a [Placement] back on [ChunkSender::send_placed] |
 //! | [RecordsHandle] | a records block ([ww_tape::BlockWriter]) | the writer's next block ([PieceChain::write_block]) |
 //! | [RelayHandle] | another producer's block | [PieceChain::relay_block] or [PieceChain::adopt_block] |
 //! | [StateHandle] | a state item, on change | [PieceChain::put] |
+//!
+//! Typed items go through [TapeMux::put_item], carried into later pieces as their [ItemCarry] says.
 //!
 //! The writing thread places units in the order they came, and does the chores: puts of definitions and state,
 //! cuts by the chain's policy, sync and checkpoints by time ([MuxOptions::tick]), the close. Handles never pass
