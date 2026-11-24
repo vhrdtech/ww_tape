@@ -247,9 +247,26 @@ fn crash_chain() -> (MemPieces, Model) {
     (mem, model)
 }
 
+/// The second piece of [crash_chain] written without a crash, the put after the cut made when `with_q`, then one
+/// more put and the close: what a resume after a crash must write.
+fn uninterrupted(with_q: bool) -> Vec<u8> {
+    let defs = defs();
+    let (mem, mut chain) = chain_with(wide_options());
+    let mut model = Model::new();
+    fill(&mut chain, &mut model);
+    chain.cut_now(&defs).unwrap();
+    if with_q {
+        apply(&mut chain, &mut model, 5000, b"/q", Some(b"after"));
+    }
+    apply(&mut chain, &mut model, 7000, b"/y", Some(b"resumed"));
+    let pieces = chain.close().unwrap();
+    piece_bytes(&mem, pieces[1].tape)
+}
+
 /// A crash at every block boundary of the piece a cut started, and inside each block: the chain's resume gives a
 /// piece that, read alone after one more put, holds every live key, whole. A part of them read as whole would be
-/// silent loss; a reader of a piece that lacks them says so ([a_piece_without_its_keys_reads_as_not_whole]).
+/// silent loss; a reader of a piece that lacks them says so ([a_piece_without_its_keys_reads_as_not_whole]). The
+/// piece is byte for byte the one written without the crash.
 #[test]
 fn a_crash_anywhere_in_a_cut_keeps_every_key_or_says_so() {
     let (mem, _) = crash_chain();
@@ -275,9 +292,64 @@ fn a_crash_anywhere_in_a_cut_keeps_every_key_or_says_so() {
         // the chain's resume knows every key: through the piece before when the carry was lost
         assert!(is_whole, "crash at {p}");
         // the put after the cut survives only where the crash came after it
-        if !keys.contains_key(&b"/q"[..]) {
+        let with_q = keys.contains_key(&b"/q"[..]);
+        if !with_q {
             model.remove(&b"/q"[..]);
         }
+        assert_eq!(keys, model, "crash at {p}");
+        assert!(bytes == uninterrupted(with_q), "crash at {p}: other bytes");
+    }
+}
+
+/// A crash at every block boundary of the close a cut writes into the first piece, and inside each block, before
+/// the second piece was made: the chain's resume closes the first piece or goes on in it, and the piece it ends in,
+/// read alone after one more put, holds every live key, whole.
+#[test]
+fn a_crash_inside_the_close_of_a_cut_keeps_every_key() {
+    let defs = defs();
+    let make = || {
+        let (mem, mut chain) = chain_with(wide_options());
+        let mut model = Model::new();
+        fill(&mut chain, &mut model);
+        chain.cut_now(&defs).unwrap();
+        drop(chain);
+        (mem, model)
+    };
+    let (mem, _) = make();
+    let first = piece_bytes(&mem, 0);
+    let ends = boundaries(&first);
+    // the close starts with the first block of the final index
+    let close = ends
+        .iter()
+        .position(|at| {
+            first
+                .get(*at..)
+                .and_then(|b| ww_tape::Block::read(b).ok())
+                .is_some_and(|b| b.kind == ww_tape::BlockKind::Index)
+        })
+        .unwrap();
+    let mut points: Vec<usize> = Vec::new();
+    for b in &ends[close..] {
+        points.extend([*b, b + 1, b + 33]);
+    }
+    points.retain(|p| *p <= first.len());
+    points.dedup();
+    assert!(points.len() > 3, "{points:?}");
+    for p in points {
+        let (mut mem, mut model) = make();
+        let mut sink = mem.reopen(&0).unwrap().unwrap();
+        sink.truncate(u64::try_from(p).unwrap()).unwrap();
+        drop(sink);
+        // the second piece never made: its sink sealed, then taken out
+        mem.reopen(&1).unwrap().unwrap().close().unwrap();
+        assert!(ww_tape::PieceStore::remove(&mut mem, &1).unwrap());
+        let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, wide_options()).unwrap();
+        apply(&mut chain, &mut model, 7000, b"/y", Some(b"resumed"));
+        let pieces = chain.close().unwrap();
+        let last = pieces.last().unwrap();
+        assert_eq!(last.piece.keys_unknown, 0, "crash at {p}");
+        let (keys, whole) = keys_of(&piece_bytes(&mem, last.tape), 0);
+        assert!(whole, "crash at {p}");
         assert_eq!(keys, model, "crash at {p}");
     }
 }
