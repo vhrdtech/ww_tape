@@ -23,8 +23,8 @@
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
 //!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
 //!          without it refuses the block), bit 6 on a records block marked FLAG_REPEAT its records keyed state
-//!          (FLAG_KEYED: each item a key and a value, so a reader without it refuses the block); others 0, and a
-//!          reader ignores them
+//!          (FLAG_KEYED: each item a key and a value, so a reader without it misreads them as plain state); others
+//!          0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
