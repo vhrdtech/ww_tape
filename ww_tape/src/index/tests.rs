@@ -787,3 +787,21 @@ fn overview_levels_of_entries_are_checked() {
         assert_eq!(IndexEntry::read(&raw), Err(IndexError::BadEntries));
     }
 }
+
+/// A key on a state record's entry holds only where the entry is marked repeated: a keyed record is a state record.
+#[test]
+fn a_keyed_entry_without_its_repeat_mark_is_refused() {
+    let key = KeyId::of(b"/a/b").expect("a short key");
+    let mut e = IndexEntry {
+        kind: BlockKind::Records,
+        track_id: STATE_TRACK_ID,
+        second: key.len,
+        repeat: true,
+        range: None,
+        key: Some(key),
+        ..entry(1, 4)
+    };
+    assert!(e.is_valid(), "a keyed state entry");
+    e.repeat = false;
+    assert!(!e.is_valid(), "a keyed entry not marked repeated");
+}

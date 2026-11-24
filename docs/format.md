@@ -1017,7 +1017,7 @@ The slot codes (`DefinitionKind`) are:
 
 A record of a keyed state track has slot code 0 and entry flag bit 5. Bytes 28..32 hold its key length. Bytes 72..80
 hold the key's first 8 bytes and 80..88 its hash ([Keyed state tracks](#keyed-state-tracks)). Flag bit 6 marks a deletion, so a
-reader lists the live keys of a range from the index alone.
+reader lists the live keys of a range from the index alone. A keyed entry without flag bit 0 (repeat) is refused.
 
 A code is a `Describe` variant's discriminant plus 1. A newer writer therefore lists a definition under the code an
 older reader computes for it. The older reader's content check then agrees with the entries.

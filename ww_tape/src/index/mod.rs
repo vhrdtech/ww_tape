@@ -58,8 +58,9 @@
 //!  80 u64 a keyed record's key hash: BLAKE3 of the key, its first 8 bytes, else 0
 //! ```
 //!
-//! A keyed entry is a state record's of level 0, without a range or a tile; a deletion is keyed. Its key head holds
-//! zero past the key's length. An entry that breaks one of these is refused ([IndexError::BadEntries]).
+//! A keyed entry is a state record's of level 0, marked repeated, without a range or a tile; a deletion is keyed.
+//! Its key head holds zero past the key's length. An entry that breaks one of these is refused
+//! ([IndexError::BadEntries]).
 //!
 //! A final index longer than [INDEX_LEN_MAX] is several final blocks, chained like checkpoints, each holding whole
 //! tracks in ascending track id order.
@@ -603,14 +604,16 @@ impl IndexEntry {
         range && tile && mark && unit && level && self.is_keyed_valid() && self.is_in_range()
     }
 
-    /// Whether a key and a deletion are where they may be: a key on a state record's entry of level 0 without a
-    /// range or a tile, its head zero past its length and the length within the cap; a deletion only with a key.
+    /// Whether a key and a deletion are where they may be: a key on a state record's entry, marked repeated, of level
+    /// 0 without a range or a tile, its head zero past its length and the length within the cap; a deletion only with
+    /// a key.
     fn is_keyed_valid(&self) -> bool {
         let Some(key) = self.key else {
             return !self.deleted;
         };
         self.track_id == STATE_TRACK_ID
             && self.kind == BlockKind::Records
+            && self.repeat
             && self.level == 0
             && self.range.is_none()
             && self.tile.is_none()
