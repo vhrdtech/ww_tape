@@ -180,11 +180,12 @@ struct Step {
 
 #[derive(Copy, Clone, Debug)]
 enum What {
-    /// A block by its header or its index entries: its kind, header flags (0 when unreadable) and first entry.
+    /// A block by its header or its index entries: its kind, header flags (0 when unreadable) and whether its first
+    /// entry marks it a block of puts.
     Block {
         kind: BlockKind,
         flags: u16,
-        entry: Option<IndexEntry>,
+        entry_repeat: bool,
     },
     /// Bytes no header or entry explains: a gap, damage.
     Junk,
@@ -222,9 +223,11 @@ impl Step {
     fn counted(&self) -> bool {
         match self.what {
             What::Block {
-                kind, flags, entry, ..
+                kind,
+                flags,
+                entry_repeat,
             } => {
-                let repeat = flags & FLAG_REPEAT != 0 || entry.is_some_and(|e| e.repeat);
+                let repeat = flags & FLAG_REPEAT != 0 || entry_repeat;
                 !is_structural(kind) && !repeat
             }
             What::Junk => false,
@@ -274,7 +277,7 @@ impl Layout {
                     what: What::Block {
                         kind: e.kind,
                         flags,
-                        entry: Some(*e),
+                        entry_repeat: e.repeat,
                     },
                 });
             }
@@ -289,7 +292,7 @@ impl Layout {
                 what: What::Block {
                     kind: BlockKind::from_u8(header[5]),
                     flags,
-                    entry: None,
+                    entry_repeat: false,
                 },
             });
         }
@@ -905,7 +908,7 @@ impl<S: TapeSink> TapeWriter<S> {
                     what: What::Block {
                         kind,
                         flags: 0,
-                        entry: None,
+                        entry_repeat: false,
                     },
                 };
                 named.take(&w.sink, &step)?;
@@ -1307,7 +1310,7 @@ fn named_after_head<S: TapeSink>(src: &S, end: u64) -> Result<Named, WriteError<
             what: What::Block {
                 kind: BlockKind::from_u8(header[5]),
                 flags: 0,
-                entry: None,
+                entry_repeat: false,
             },
         };
         if step.end() > end {
