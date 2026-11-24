@@ -4,11 +4,18 @@
 
 use std::path::Path;
 
-use ww_tape::{Block, ByteSource, PieceTapes};
+use std::sync::atomic::Ordering;
+
+use ww_tape::chunk::ChunkHead;
+use ww_tape::index::IndexEntry;
+use ww_tape::{
+    Block, ByteSource, Integrity, MemPieces, PieceTapes, Sealed, TapeReader, TrackNum, UnitHash,
+};
 use ww_tape_fs::FileSource;
-use ww_tape_mux::{ChunkSender, MuxOptions, Placement};
+use ww_tape_mux::{ChunkSender, MuxError, MuxOptions, Placement, Pressure, TapeMux, Unplaced};
 
 use crate::follow::{OWNER, define, events_chunk, options};
+use crate::mux::{Rigged, rigged_mux};
 use crate::pieces::scratch;
 
 /// Send chunks `from..from + n` of track 1 through `s` with receipts, reading each chunk back at its placement while
@@ -113,4 +120,130 @@ fn a_receipt_taken_once_gives_nothing_more() {
     assert_eq!(placing.try_take(), None, "the answer is given once");
     drop(senders);
     mux.close().unwrap();
+}
+
+/// Chunks of track 1 sent with receipts through a mux on `mem` of `integrity`, a cut every 3 chunks; the
+/// placements and the heads sent.
+fn placed_at(mem: &MemPieces, integrity: Integrity) -> Vec<(Placement, ChunkHead)> {
+    let mut o = options(3);
+    o.writer.integrity = integrity;
+    let mux = TapeMux::create(mem.clone(), OWNER, 0, &[], o, MuxOptions::default()).unwrap();
+    let senders = define(&mux);
+    let out = (0..7)
+        .map(|k| {
+            let (head, columns) = events_chunk(1, k);
+            let placing = senders[1]
+                .send_placed(head, columns, None)
+                .unwrap()
+                .unwrap();
+            (placing.wait().unwrap(), head)
+        })
+        .collect();
+    drop(senders);
+    mux.close().unwrap();
+    out
+}
+
+/// The index entry of the block at `p` in its piece of `mem`, after the chunk sent there is checked to be at `p`.
+fn entry_at(mem: &MemPieces, p: &Placement, head: &ChunkHead) -> IndexEntry {
+    let piece = mem.get(&p.piece).unwrap().unwrap().to_vec().unwrap();
+    let at = usize::try_from(p.offset).unwrap();
+    let block = Block::read(&piece[at..]).unwrap();
+    assert_eq!(block.len(), p.len as usize);
+    assert_eq!(block.chunk().unwrap().head(), *head);
+    let r = TapeReader::open(piece.as_slice()).unwrap();
+    r.entries(0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.offset == p.offset)
+        .expect("the index lists the block")
+}
+
+#[test]
+fn receipts_hold_at_every_integrity_level_and_through_a_seal() {
+    let full = MemPieces::new();
+    let want = placed_at(&full, Integrity::Full);
+    for (p, head) in &want {
+        let e = entry_at(&full, p, head);
+        assert_eq!(
+            (e.len, e.unit),
+            (p.len, p.unit),
+            "the receipt is the index's"
+        );
+        assert_ne!(p.unit, UnitHash::NONE);
+    }
+    for level in [Integrity::CrcOnly, Integrity::None] {
+        let mem = MemPieces::new();
+        let placed = placed_at(&mem, level);
+        for ((p, head), (f, _)) in placed.iter().zip(&want) {
+            let e = entry_at(&mem, p, head);
+            assert!(e.unhashed, "{level:?}");
+            assert_eq!(
+                (e.len, e.unit),
+                (p.len, p.unit),
+                "{level:?}: the receipt is the index's"
+            );
+            assert_eq!(
+                (p.piece, p.offset, p.len),
+                (f.piece, f.offset, f.len),
+                "{level:?}"
+            );
+        }
+        // a seal writes over the same bytes: the receipts still place each chunk, under the unit hash of Full
+        let mut sealed: Vec<Sealed> = vec![];
+        for k in 0..3 {
+            sealed.extend(mem.seal(&k, sealed.last()).unwrap().unwrap());
+        }
+        for ((p, head), (f, _)) in placed.iter().zip(&want) {
+            let e = entry_at(&mem, p, head);
+            assert!(!e.unhashed, "{level:?} sealed");
+            assert_eq!(e.unit, f.unit, "{level:?} sealed: the unit hash of Full");
+        }
+    }
+}
+
+#[test]
+fn a_refused_dropped_or_lost_chunk_has_no_placement() {
+    let rigged = Rigged::new();
+    let mux = rigged_mux(&rigged, 4 << 10);
+    let sender = mux.chunks(TrackNum::new(1)).unwrap();
+    let send = |k| {
+        let (head, columns) = events_chunk(0, k);
+        sender.send_placed(head, columns, None).unwrap()
+    };
+    send(0).unwrap().wait().unwrap();
+    // a chunk of another track's id under the sender's number: the writer refuses it, and the sender's next call
+    // says why
+    let (mut head, columns) = events_chunk(0, 1);
+    head.track_id = events_chunk(1, 0).0.track_id;
+    let placing = sender.send_placed(head, columns, None).unwrap().unwrap();
+    assert_eq!(placing.wait(), Err(Unplaced::Refused));
+    assert!(matches!(sender.flush(), Err(MuxError::Refused(_))));
+
+    // a dropping sender whose queue is full sends no chunk and gives no receipt
+    let drop_sender = mux
+        .chunks(TrackNum::new(2))
+        .unwrap()
+        .pressure(Pressure::Drop);
+    mux.flush().unwrap();
+    rigged.rig.set(false);
+    let mut receipts = Vec::new();
+    let mut dropped = 0;
+    for k in 0..40 {
+        let (head, columns) = events_chunk(1, k);
+        match drop_sender.send_placed(head, columns, None).unwrap() {
+            Some(p) => receipts.push(p),
+            None => dropped += 1,
+        }
+    }
+    assert!(dropped > 0, "the queue holds 4 KiB");
+    rigged.rig.set(true);
+    for p in receipts {
+        p.wait().unwrap();
+    }
+
+    // a write that fails stops the mux: the chunk is lost
+    rigged.rig.fail.store(true, Ordering::SeqCst);
+    assert_eq!(send(1).unwrap().wait(), Err(Unplaced::Lost));
+    assert!(matches!(mux.flush(), Err(MuxError::Failed(_))));
 }
