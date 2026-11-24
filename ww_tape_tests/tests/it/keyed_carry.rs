@@ -1183,3 +1183,56 @@ fn a_torn_end_leaves_no_doubt() {
     assert!(keyed_row(&next).unwrap().keys_carried);
     assert_eq!(keys_of(&next, 0), (model, true));
 }
+
+/// A group of puts never holds a keyed track: `put_group` refuses one before anything is written
+/// ([DescribeError::Keyed]), a key's value goes by `put_key`.
+#[test]
+fn a_group_of_puts_refuses_a_keyed_track() {
+    let defs = defs();
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let puts = [
+        ww_tape::GroupPut {
+            track: PLAIN,
+            ticks: 0,
+            item: b"idle",
+        },
+        ww_tape::GroupPut {
+            track: KEYED,
+            ticks: 0,
+            item: b"/a",
+        },
+    ];
+    let e = w.put_group(&defs, &puts).unwrap_err();
+    assert!(
+        matches!(e, WriteError::Describe(DescribeError::Keyed { track }) if track == KEYED),
+        "{e}"
+    );
+}
+
+/// A producer's keyed block marked as the first block of a group: a relay refuses it (`GroupRefusal::Keyed`) and
+/// holds no group of that producer.
+#[test]
+fn a_relayed_group_refuses_a_keyed_block() {
+    let defs = defs();
+    let mut block = keyed_blocks(&[(b"/a", b"1")]).remove(0);
+    // header flags bit 8 FLAG_GROUP and bit 9 FLAG_GROUP_START, the CRC computed again
+    block[7] |= 0x03;
+    let n = block.len();
+    let crc = crate::range_hash::crc32c(&[&block[..n - 4]]);
+    block[n - 4..].copy_from_slice(&crc.to_le_bytes());
+    let b = ww_tape::Block::read(&block).unwrap();
+    assert!(b.is_keyed());
+    assert_ne!(b.flags & ww_tape::FLAG_GROUP_START, 0);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let e = w.put_block(&defs, &block).unwrap_err();
+    assert!(
+        matches!(
+            e,
+            WriteError::Input(ww_tape::InputError::Group(
+                ww_tape::GroupRefusal::Keyed { .. }
+            ))
+        ),
+        "{e}"
+    );
+    assert_eq!(w.relay_held_bytes(), 0);
+}

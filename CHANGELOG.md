@@ -28,6 +28,7 @@ benchmarks, golden files and book pages.
 - Fuzz targets `tape-keyed` and `tape-keyed-hostile` check keyed items, entries, lookups and resume (TRACK-8).
 - A cut carries every live key of a keyed track; a piece read alone holds them or says not (TRACK-8).
 - A put by key past the carry's limit, or of another live key's id, is refused (TRACK-8).
+- `put_group` refuses a keyed track; a relay refuses a keyed block in a group (`GroupRefusal::Keyed`) (TRACK-8).
 
 ## [0.10.0] - 2026-11-24
 
