@@ -190,8 +190,12 @@ impl<'a> KeyedItem<'a> {
         false
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "a usize fits a u64: the crate builds for targets of at most 64 bits"
+    )]
     fn head(&self) -> u64 {
-        let len = u64::try_from(self.key.len()).unwrap_or(u64::MAX);
+        let len = u64::try_from(self.key.len()).expect("a usize fits a u64");
         len.saturating_mul(2) | u64::from(self.value.is_none())
     }
 
