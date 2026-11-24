@@ -864,8 +864,8 @@ A record it couldn't read leaves the row unmarked, and so does a piece resumed a
 
 A piece resumed alone whose head marks a row but whose carry a crash dropped refuses to carry again
 (`ResumeError::KeysUnknown`). A `PieceChain` resume reads the keys from the piece before. A call whose definitions
-don't hold the track can't put its carry: its keys are doubted, and the next cut leaves the row unmarked. The mark on
-the row of a track that isn't keyed is passed over, by the writer as by a reader.
+don't hold the track is refused naming it (`ResumeError::KeysUndefined`). The mark on the row of a track that isn't
+keyed is passed over, by the writer as by a reader.
 
 A piece that follows another may leave the track's row unmarked. A reader of it can't know the keys in force at the
 piece's start. `KeysAt::not_carried` says so, and so does `Lookup::not_carried` of a key it found no record of; their

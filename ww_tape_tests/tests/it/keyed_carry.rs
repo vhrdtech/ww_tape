@@ -678,29 +678,27 @@ fn plain_defs() -> ww_tape::Definitions {
     plain
 }
 
-/// A call after a crash dropped a carry of keys, given definitions without the keyed track: the carry can't be
-/// put again without it, so the track's keys are doubted, the call goes and the next cut doesn't mark the row.
+/// A call after a crash dropped a carry of keys, given definitions without the keyed track, is refused naming the
+/// track ([ResumeError::KeysUndefined]) and writes nothing: the head marks the row, so the carry must hold every key.
+/// The next call with the track puts the carry, and a reader of the piece alone holds every key whole.
 #[test]
-fn a_lost_carry_without_its_keyed_track_is_doubted() {
-    let (mem, _, rows) = cut_head(true);
-    let keyed = *rows.iter().find(|r| r.track_number == KEYED).unwrap();
-    assert!(keyed.keys_carried);
+fn a_lost_carry_without_its_keyed_track_is_refused_by_name() {
+    let (mem, _, _) = cut_head(true);
     // track 10 another track than the keyed one the head names: the keyed track not held
     let plain = plain_defs();
     let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, wide_options()).unwrap();
-    chain.put(&plain, PLAIN, 10, b"run").unwrap();
-    // cut with the keyed track held again: its keys stay doubted
-    chain.cut_now(&defs()).unwrap();
-    let pieces = chain.close().unwrap();
-    assert_eq!(pieces[1].piece.keys_unknown, 1);
-    let next = piece_bytes(&mem, pieces[2].tape);
-    let r = TapeReader::open(&next[..]).unwrap();
-    let (_, rows) = r.pieces()[0].head.as_ref().unwrap();
-    let row = rows
-        .iter()
-        .find(|t| (t.track_id, t.owner) == (keyed.track_id, keyed.owner))
-        .unwrap();
-    assert!(!row.keys_carried);
+    let resumed = piece_bytes(&mem, 1);
+    let e = chain.put(&plain, PLAIN, 10, b"run").unwrap_err();
+    assert!(
+        matches!(e, WriteError::Resume(ResumeError::KeysUndefined { track }) if track == KEYED),
+        "{e}"
+    );
+    assert!(piece_bytes(&mem, 1) == resumed, "the refused call wrote nothing");
+    chain.put(&defs(), PLAIN, 10, b"run").unwrap();
+    chain.put_key(&defs(), KEYED, 11, b"/b", b"2").unwrap();
+    chain.close().unwrap();
+    let model = Model::from([(b"/a".to_vec(), b"1".to_vec()), (b"/b".to_vec(), b"2".to_vec())]);
+    assert_eq!(keys_of(&piece_bytes(&mem, 1), 0), (model, true));
 }
 
 /// A piece after another whose head row of a keyed track isn't marked carried: a reader names its keys as not

@@ -15,7 +15,7 @@ benchmarks, golden files and book pages.
 - `TrackFacts` gains `keyed`; `mux::Unit::Put` gains `keyed`; `DescribeError` and `CallError` gain variants (TRACK-8).
 - Head row flag bit 2 (`ROW_KEYS_CARRIED`) marks a carried keyed track; older readers refuse such heads (TRACK-8).
 - `TrackStart` gains `keys_carried`, `Closed` gains `keys_unknown`, `KeysAt` and `Lookup` gain `not_carried` (TRACK-8).
-- `InputError::CarryFull`, `ResumeError::KeysUnknown` and `DescribeError::KeyCollision` are new variants (TRACK-8).
+- `InputError::CarryFull`, `ResumeError::KeysUnknown`, `ResumeError::KeysUndefined` and `DescribeError::KeyCollision` are new variants (TRACK-8).
 
 ### Features
 
