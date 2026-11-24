@@ -134,6 +134,9 @@ page [Event times and their codecs](columns.md) shows. A [`RecordsHandle`] takes
 thread numbers it as the writer's next block. A [`RelayHandle`] takes another producer's blocks, as [Live feeds and
 relays](live_feeds.md#relays) explains.
 
+A producer that encodes its own chunks may still want a typed handle's summaries and to know where each chunk lands.
+[A producer's own chunks](own_chunks.md) shows how.
+
 ## The queue and back-pressure
 
 The queue between the handles and the writing thread is bounded by bytes, not by units. A put is small and a chunk
