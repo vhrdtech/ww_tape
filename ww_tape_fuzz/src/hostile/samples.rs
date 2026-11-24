@@ -186,6 +186,7 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
         end_mode: EndMode::Absent,
         grid: Some(ww_tape::SeriesGrid::start(0, 0, ww_tape::Magnitude::ONE)),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let spec = ColumnSpec {
         kind: ColumnKind::Samples,

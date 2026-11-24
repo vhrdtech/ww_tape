@@ -19,7 +19,7 @@ mod times;
 
 pub use chunk::chunk;
 pub use flags::flags;
-pub use grid::{SummaryReach, grid, summary_reach};
+pub use grid::{GridReach, grid, grid_reach};
 pub use hostile::{
     chunk_hostile, flags_hostile, grid_hostile, index_hostile, payloads_hostile, reader_hostile,
     records_hostile, samples_hostile, series_hostile, state_hostile, summary_hostile,

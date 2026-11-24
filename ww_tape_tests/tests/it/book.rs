@@ -327,6 +327,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let samples: Vec<u8> = [1i16, 2, 3, 4]
         .iter()
@@ -357,7 +358,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
     assert_eq!(f("segment shift"), 16);
     assert_eq!(f("columns n"), 1);
     assert_eq!(f("mode"), 0, "a series of no fixed axes");
-    assert_eq!(f("end mode"), 0);
+    assert_eq!(f("end byte"), 0, "the cells as written");
     assert_eq!(f("grid index"), 96);
     assert_eq!(f("grid tick") as i64, 5_000);
     assert_eq!(f("scale length"), 2);
@@ -549,6 +550,10 @@ fn page_caps() -> Vec<(&'static str, u64)> {
         ("AXIS_NAME_LEN_MAX", ww_tape::grid::AXIS_NAME_LEN_MAX as u64),
         ("GRID_LISTED_MAX", ww_tape::grid::GRID_LISTED_MAX.into()),
         ("GRID_TILE_CELLS_MAX", ww_tape::grid::GRID_TILE_CELLS_MAX),
+        (
+            "GRID_OVERVIEW_LEVELS_MAX",
+            u64::from(ww_tape::grid::GRID_OVERVIEW_LEVELS_MAX),
+        ),
         ("TILE_NUMBER_BITS", ww_tape::grid::TILE_NUMBER_BITS.into()),
         ("GAP_MAX_MAX", ww_tape::GAP_MAX_MAX.into()),
         ("GAP_PROBES_MAX", ww_tape::GAP_PROBES_MAX.into()),
@@ -567,6 +572,7 @@ fn walk_caps() -> Vec<(&'static str, u64)> {
             "DEFERRED_BYTES_MAX",
             ww_tape::writer::DEFERRED_BYTES_MAX as u64,
         ),
+        ("UNIT_CHUNKS_MAX", ww_tape::writer::UNIT_CHUNKS_MAX as u64),
         ("VERIFY_LISTS_MAX", ww_tape::reader::VERIFY_LISTS_MAX as u64),
         ("TRACKS_PER_PIECE_MAX", ww_tape::TRACKS_PER_PIECE_MAX as u64),
         ("HEAD_TRACKS_MAX", ww_tape::HEAD_TRACKS_MAX as u64),

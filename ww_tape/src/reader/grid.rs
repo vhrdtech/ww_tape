@@ -32,7 +32,9 @@ pub struct GridTile {
 impl<S: ByteSource> TapeReader<S> {
     /// The chunks of grid track `track_id` in piece `i` whose samples meet the ticks `time` and whose tile lies in
     /// `tiles` (a box of cells, [TileLayout::tile_box](crate::TileLayout::tile_box) of the track's layout), in file
-    /// order. Each entry's tile number is tested by shift and mask, no chunk read; only an entry without a tile
+    /// order. The box's layout names the level: the chunks as written for the track's layout, the overview chunks of
+    /// level k for its [TileLayout::overview](crate::TileLayout::overview) k, the box then in cells of that level
+    /// ([grid](crate::grid#overviews)). Each entry's tile number is tested by shift and mask, no chunk read; only an entry without a tile
     /// number (a scan made it) or with one the grid holds no tile of has its chunk's head read
     /// ([Self::read_chunk_head]). A series, of no fixed axes, is tested by its time alone. The entries are
     /// [Self::track_entries], refused as it refuses them; a chunk whose track's definition in force has another
@@ -79,20 +81,26 @@ impl<S: ByteSource> TapeReader<S> {
             return Ok(out);
         }
         let series_tree = crate::summary::Tree::Series.to_u8();
+        let layout = tiles.layout();
         let meets = |e: &IndexEntry| {
             let kind = match of {
-                Of::Chunks => e.kind == BlockKind::Series,
+                Of::Chunks => e.kind == BlockKind::Series && e.level == layout.level(),
                 Of::Summaries(level) => {
                     e.kind == BlockKind::Summary && e.tree == series_tree && e.level == level
                 }
             };
             kind && e.first_tick < time.end && time.start <= e.last_tick
         };
-        let layout = tiles.layout();
         let mut layouts = BTreeMap::new();
         let mut buf = Vec::new();
         for entry in self.track_entries(i, track_id)?.into_iter().filter(meets) {
-            if self.layout_at(i, track_id, &entry, &mut layouts)? != Some(*layout) {
+            // the definition's layout at the box's level; summaries are of the cells as written
+            let at = self.layout_at(i, track_id, &entry, &mut layouts)?;
+            let at = match of {
+                Of::Chunks => at.and_then(|l| l.overview(layout.level())),
+                Of::Summaries(_) => at,
+            };
+            if at != Some(*layout) {
                 return Err(ReadError::GridLayout {
                     offset: entry.offset,
                     track_id,

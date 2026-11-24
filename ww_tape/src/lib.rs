@@ -18,7 +18,7 @@
 //!   4  u8  version, 1
 //!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
 //!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
-//!          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
+//!          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
 //!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
@@ -127,6 +127,7 @@
 //! | [AXIS_NAME_LEN_MAX](grid::AXIS_NAME_LEN_MAX) | 64 | a fixed axis' name bytes |
 //! | [GRID_LISTED_MAX](grid::GRID_LISTED_MAX) | 65536 | the listed coordinates of a fixed axis |
 //! | [GRID_TILE_CELLS_MAX](grid::GRID_TILE_CELLS_MAX) | 64 Mi | the cells of one time step of a grid's tile |
+//! | [GRID_OVERVIEW_LEVELS_MAX](grid::GRID_OVERVIEW_LEVELS_MAX) | 16 | a grid chunk's overview level |
 //! | [TILE_NUMBER_BITS](grid::TILE_NUMBER_BITS) | 128 | the bits of a grid's tile number fields together |
 //! | [GAP_MAX_MAX] | 64 MiB | a layout's gap |
 //! | [GAP_PROBES_MAX] | 8192 | the resume places a reader probes in one gap |
@@ -137,6 +138,7 @@
 //! | [LAYOUT_READ_MAX](reader::LAYOUT_READ_MAX) | 256 MiB | the bytes of definitions blocks a reader reads to find a piece's layout |
 //! | [VERIFY_LISTS_MAX](reader::VERIFY_LISTS_MAX) | 466432 | the track lists of a final index one verify takes, one entry held each |
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
+//! | [UNIT_CHUNKS_MAX](writer::UNIT_CHUNKS_MAX) | 17 | the chunks of one unit a writer writes or relays |
 //! | [TRACKS_PER_PIECE_MAX] | 466430 | the tracks with data in one piece a writer takes: its close fits a block |
 //! | [HEAD_TRACKS_MAX] | 699006 | the tracks a piece head carries over the chain: the head fits a block |
 //! | [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
@@ -228,7 +230,7 @@ pub use samples::{
 };
 
 pub mod grid;
-pub use grid::{AxisCoords, FixedAxis, TileBox, TileCoords, TileLayout};
+pub use grid::{AxisCoords, FixedAxis, Overview, OverviewError, TileBox, TileCoords, TileLayout};
 #[cfg(feature = "std")]
 pub use grid::{AxisCoordsOwned, FixedAxisOwned};
 pub mod series;
@@ -297,7 +299,7 @@ pub mod writer;
 pub use writer::{
     CARRIED_BLOCK_LEN, Closed, CutError, DEFER_WINDOW, HEAD_ENTRIES, InputError, NearPolicy,
     Placed, PutWork, RemovedRefusal, ResumeError, Resumed, SealError, Sealed, SyncPolicy,
-    TapeWriter, WriteError, WriterOptions,
+    TapeWriter, UnitChunk, WriteError, WriterOptions,
 };
 
 /// `WWTP`
@@ -322,13 +324,15 @@ const _: () = assert!(
 ///
 /// A reader holding an item of the same hash in the same slot takes such a record as nothing new.
 pub const FLAG_REPEAT: u16 = 1 << 1;
-/// Header flag, on a block marked [FLAG_REPEAT] only: the block belongs with the block after it.
+/// Header flag: the block belongs with the block after it, on a block marked [FLAG_REPEAT] or on a chunk.
 ///
-/// A run of such blocks ends in the block they belong to (the block of data their puts serve, or the last block of a
-/// put's records), all of one writer call.
+/// A run of such blocks ends in the block they belong to, all of one writer call: the block of data their puts serve,
+/// the last block of a put's records, or the last chunk of a unit ([TapeWriter::write_chunk_unit]), as a grid tile
+/// chunk and its overview chunks are ([grid](crate::grid#overviews)). The writer places nothing of its own inside a
+/// run and cuts no piece in it.
 ///
 /// A writer resumed after a crash drops such blocks at the end of what it keeps, and the call given again writes them
-/// as it did. A reader takes the block as any other.
+/// as it did. A reader takes the block as any other; a follower hands it out with the block it belongs to.
 pub const FLAG_WITH_NEXT: u16 = 1 << 2;
 /// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk a writer of
 /// [Integrity::None] encodes.
@@ -1044,6 +1048,15 @@ pub fn set_id(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
 #[cfg(feature = "alloc")]
 pub(crate) fn set_id_trusted(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
     restamp(block, id, 0, Reread::Head)
+}
+
+/// Mark the good block `block`, its CRCs known good, as belonging with the block after it ([FLAG_WITH_NEXT]); only the
+/// writer has such.
+#[cfg(feature = "alloc")]
+pub(crate) fn mark_with_next_trusted(block: &mut [u8]) -> Result<(), BlockError> {
+    let b = Block::read_trusted(block)?;
+    let id = BlockId::new(b.session, b.seq);
+    restamp(block, id, FLAG_WITH_NEXT, Reread::Head)
 }
 
 /// [set_id], and mark the block as one of put or copied state records ([FLAG_REPEAT]).

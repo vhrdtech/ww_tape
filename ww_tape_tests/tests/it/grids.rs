@@ -108,6 +108,7 @@ fn head(id: TrackId, run: u64, tile: TileCoords) -> ChunkHead {
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile,
+        level: 0,
     }
 }
 
@@ -234,6 +235,51 @@ fn coordinates_outside_the_grid_are_refused() {
         );
         assert_eq!(w.chunks(), 0);
     }
+}
+
+/// An overview chunk of a level past its grid's levels is refused before anything is written: a tile extent of 3
+/// halves no time.
+#[test]
+fn an_overview_past_the_grid_levels_is_refused() {
+    let axes = axes(&EXTENTS);
+    let track = grid_track(&axes);
+    let id = track.id();
+    let mut defs = ww_tape::Definitions::new();
+    crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let stats = [0u8; 4 * STEPS as usize];
+    let columns: Vec<(ColumnSpec, &[u8])> = [
+        ColumnKind::OverviewMin,
+        ColumnKind::OverviewMax,
+        ColumnKind::OverviewMean,
+    ]
+    .into_iter()
+    .map(|kind| {
+        let spec = ColumnSpec {
+            kind,
+            codec: Codec::RAW,
+            param: 0,
+            len: stats.len(),
+        };
+        (spec, &stats[..])
+    })
+    .collect();
+    let h = ww_tape::ChunkHead {
+        level: 1,
+        ..head(id, 0, TileCoords::new(&[0, 0, 0]).unwrap())
+    };
+    let r = w.write_chunk(&defs, &h, &columns);
+    assert!(
+        matches!(
+            r,
+            Err(WriteError::Describe(DescribeError::Kind {
+                error: SeriesError::LevelOutside { level: 1, .. },
+                ..
+            }))
+        ),
+        "{r:?}"
+    );
+    assert_eq!(w.chunks(), 0);
 }
 
 /// The tiles a box query must find: every chunk whose ticks meet `time` and whose tile lies in the box, found by
@@ -473,4 +519,316 @@ fn a_tile_number_outside_the_fields_falls_back_to_the_head() {
         };
         assert_eq!(tiles_of(&found), tiles_of(&scanned), "{cells:?}");
     }
+}
+
+/// Units of three chunks each ([TapeWriter::write_chunk_unit]) with a checkpoint due after every block: each chunk
+/// but a unit's last is marked FLAG_WITH_NEXT, nothing of the writer's own but marked puts lies inside a unit, the
+/// checkpoint follows
+/// the unit; a resume of the bytes cut anywhere inside a unit keeps the bytes before it. A unit of two tracks is
+/// refused before anything is written.
+#[test]
+fn a_unit_is_written_whole_and_dropped_whole() {
+    for alignment in [0, ww_tape::ALIGNMENT] {
+        let axes = axes(&EXTENTS);
+        let track = grid_track(&axes);
+        let layout = track.series().unwrap().tile_layout().unwrap();
+        let id = track.id();
+        let mut defs = ww_tape::Definitions::new();
+        crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)])
+            .unwrap();
+        let mut w = crate::resume::begin(alignment);
+        w.set_index_policy(IndexPolicy {
+            bytes: exact_units::Bytes::new(1),
+            interval: None,
+            ..IndexPolicy::default()
+        })
+        .unwrap();
+        let tape = w.sink().tape();
+        let samples = [0u8; 4 * STEPS as usize];
+        let spec = ColumnSpec {
+            kind: ColumnKind::Samples,
+            codec: Codec::RAW,
+            param: 0,
+            len: samples.len(),
+        };
+        let columns = [(spec, &samples[..])];
+        let tiles = all_tiles(&layout);
+        for run in 0..RUNS {
+            let heads: Vec<ChunkHead> = tiles[..3].iter().map(|t| head(id, run, *t)).collect();
+            let unit: Vec<ww_tape::UnitChunk<'_>> = heads
+                .iter()
+                .map(|h| ww_tape::UnitChunk {
+                    head: h,
+                    columns: &columns,
+                    payload_hash: None,
+                })
+                .collect();
+            w.write_chunk_unit(&defs, &unit).unwrap();
+            assert!(!w.unit_open(), "a unit written whole is closed");
+        }
+        let before = tape.to_vec().unwrap();
+        let other = ChunkHead {
+            track_number: TrackNum::new(2),
+            ..head(id, RUNS, tiles[0])
+        };
+        let first = head(id, RUNS, tiles[0]);
+        let mixed = [&first, &other].map(|h| ww_tape::UnitChunk {
+            head: h,
+            columns: &columns,
+            payload_hash: None,
+        });
+        assert!(matches!(
+            w.write_chunk_unit(&defs, &mixed),
+            Err(WriteError::Input(ww_tape::InputError::UnitTracks))
+        ));
+        assert!(
+            tape.to_vec().unwrap() == before,
+            "a refused unit writes nothing"
+        );
+        drop(w);
+        let bytes = tape.to_vec().unwrap();
+        // the blocks in file order: chunks in runs of three, marked but the last, and no other block inside a run
+        let blocks = crate::follow::walk(&bytes);
+        let mut run_len = 0;
+        let mut units = vec![];
+        for (offset, b) in &blocks {
+            let b = Block::read(b).unwrap();
+            let marked = b.flags & ww_tape::FLAG_WITH_NEXT != 0;
+            if b.chunk().is_some() {
+                run_len += 1;
+                assert_eq!(
+                    marked,
+                    run_len < 3,
+                    "alignment {alignment}: chunk at {offset}"
+                );
+                if run_len == 1 {
+                    units.push(*offset as usize);
+                }
+                if run_len == 3 {
+                    run_len = 0;
+                }
+            } else {
+                // inside a unit only puts belonging with the chunk after them, as the near policy asks
+                assert!(
+                    run_len == 0 || (marked && b.is_repeat()),
+                    "alignment {alignment}: a {:?} block inside a unit at {offset}",
+                    b.kind
+                );
+                assert!(
+                    !marked || b.is_repeat(),
+                    "only a unit's chunks or puts are marked"
+                );
+            }
+        }
+        assert_eq!(units.len(), RUNS as usize);
+        let index_after = |at: usize| {
+            blocks
+                .iter()
+                .filter(|(o, _)| *o as usize > at)
+                .any(|(_, b)| Block::read(b).unwrap().kind == BlockKind::Index)
+        };
+        assert!(index_after(units[0]), "a checkpoint follows the first unit");
+        // a cut anywhere from a unit's first chunk to inside its last: the resume keeps what lies before the unit
+        for &start in &units {
+            let end = blocks
+                .iter()
+                .filter(|(o, b)| *o as usize >= start && Block::read(b).unwrap().chunk().is_some())
+                .nth(2)
+                .map(|(o, b)| *o as usize + b.len())
+                .unwrap();
+            for cut in [start + 1, (start + end) / 2, end - 1] {
+                let mut sink = MemSink::new();
+                ww_tape::TapeSink::write_all(&mut sink, &bytes[..cut]).unwrap();
+                let (_, resumed) =
+                    TapeWriter::resume_on(sink, crate::resume::options(alignment)).unwrap();
+                assert!(
+                    resumed.kept_bytes <= start as u64,
+                    "alignment {alignment}: cut at {cut} in the unit at {start}, kept {}",
+                    resumed.kept_bytes
+                );
+            }
+        }
+    }
+}
+
+/// A grid writer's definitions, a writer of a piece begun, and the samples of a chunk of [STEPS] time steps.
+fn unit_writer() -> (
+    ww_tape::Definitions,
+    TapeWriter<MemSink>,
+    TrackId,
+    Vec<TileCoords>,
+) {
+    let axes = axes(&EXTENTS);
+    let track = grid_track(&axes);
+    let layout = track.series().unwrap().tile_layout().unwrap();
+    let id = track.id();
+    let mut defs = ww_tape::Definitions::new();
+    crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)]).unwrap();
+    (defs, crate::resume::begin(0), id, all_tiles(&layout))
+}
+
+/// Raw samples of one chunk, `len` bytes long in its column spec.
+fn samples_column(samples: &[u8], len: usize) -> [(ColumnSpec, &[u8]); 1] {
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len,
+    };
+    [(spec, samples)]
+}
+
+/// A unit of a chunk of `columns` per head.
+fn unit_of<'a>(
+    heads: &'a [ChunkHead],
+    columns: &'a [(ColumnSpec, &'a [u8])],
+) -> Vec<ww_tape::UnitChunk<'a>> {
+    heads
+        .iter()
+        .map(|h| ww_tape::UnitChunk {
+            head: h,
+            columns,
+            payload_hash: None,
+        })
+        .collect()
+}
+
+/// A unit holds back the writer's own blocks and its cuts, so it has at most UNIT_CHUNKS_MAX chunks: a longer
+/// [TapeWriter::write_chunk_unit] is refused whole, and a caller's (a relay's) chunk marked FLAG_WITH_NEXT that would
+/// make a longer unit is refused, nothing written either way.
+#[test]
+fn a_unit_longer_than_its_cap_is_refused() {
+    use ww_tape::writer::UNIT_CHUNKS_MAX;
+    assert_eq!(
+        UNIT_CHUNKS_MAX,
+        usize::from(ww_tape::grid::GRID_OVERVIEW_LEVELS_MAX) + 1,
+        "a tile chunk and one overview chunk per level"
+    );
+    let (defs, mut w, id, tiles) = unit_writer();
+    let samples = [0u8; 4 * STEPS as usize];
+    let columns = samples_column(&samples, samples.len());
+    let heads: Vec<ChunkHead> = (0..RUNS)
+        .flat_map(|run| tiles.iter().map(move |t| head(id, run, *t)))
+        .take(UNIT_CHUNKS_MAX + 1)
+        .collect();
+    assert_eq!(heads.len(), UNIT_CHUNKS_MAX + 1);
+    let unit = |heads| unit_of(heads, &columns);
+    let tape = w.sink().tape();
+    let before = tape.to_vec().unwrap();
+    // puts of the piece head may wait for the first chunk, marked as belonging with it
+    let open = w.unit_open();
+    assert!(matches!(
+        w.write_chunk_unit(&defs, &unit(&heads)),
+        Err(WriteError::Input(ww_tape::InputError::UnitTooLong {
+            max: UNIT_CHUNKS_MAX
+        }))
+    ));
+    assert!(
+        tape.to_vec().unwrap() == before,
+        "a refused unit writes nothing"
+    );
+    assert_eq!(w.unit_open(), open);
+    w.write_chunk_unit(&defs, &unit(&heads[..UNIT_CHUNKS_MAX]))
+        .unwrap();
+    assert!(!w.unit_open());
+
+    // the marked chunks of two units another writer made: a relay passing on the first's without its last chunk
+    let all: Vec<ChunkHead> = (0..RUNS)
+        .flat_map(|run| tiles.iter().map(move |t| head(id, run, *t)))
+        .collect();
+    let (defs, mut src, _, _) = unit_writer();
+    let src_tape = src.sink().tape();
+    let mut placed = vec![];
+    for heads in all.chunks(UNIT_CHUNKS_MAX).take(2) {
+        assert_eq!(heads.len(), UNIT_CHUNKS_MAX);
+        placed.extend(src.write_chunk_unit(&defs, &unit(heads)).unwrap());
+    }
+    drop(src);
+    let src_bytes = src_tape.to_vec().unwrap();
+    let marked: Vec<Vec<u8>> = placed
+        .iter()
+        .map(|p| {
+            let at = usize::try_from(p.offset).unwrap();
+            src_bytes[at..at + p.len as usize].to_vec()
+        })
+        .filter(|b| Block::read(b).unwrap().flags & ww_tape::FLAG_WITH_NEXT != 0)
+        .collect();
+    assert_eq!(marked.len(), 2 * (UNIT_CHUNKS_MAX - 1));
+    let (_, mut relay, _, _) = unit_writer();
+    let tape = relay.sink().tape();
+    for b in &marked[..UNIT_CHUNKS_MAX - 1] {
+        relay.write_block(&defs, b).unwrap();
+        assert!(relay.unit_open());
+    }
+    let before = tape.to_vec().unwrap();
+    assert!(matches!(
+        relay.write_block(&defs, &marked[UNIT_CHUNKS_MAX - 1]),
+        Err(WriteError::Input(ww_tape::InputError::UnitTooLong {
+            max: UNIT_CHUNKS_MAX
+        }))
+    ));
+    assert!(
+        tape.to_vec().unwrap() == before,
+        "a refused chunk writes nothing"
+    );
+}
+
+/// A unit whose later chunk the writer refuses leaves no unit open: a chunk refused as input is found before the
+/// first chunk is written, and a chunk that fails after it stops the writer, so the next call's chunks never join the
+/// torn unit.
+#[test]
+fn a_unit_refused_midway_leaves_no_unit_open() {
+    let (defs, mut w, id, tiles) = unit_writer();
+    let samples = [0u8; 4 * STEPS as usize];
+    let columns = samples_column(&samples, samples.len());
+    let first = head(id, 0, tiles[0]);
+    // a level past the grid's: no overviews on this grid
+    let bad = ChunkHead {
+        level: 1,
+        ..head(id, 0, tiles[1])
+    };
+    let tape = w.sink().tape();
+    let before = tape.to_vec().unwrap();
+    let open = w.unit_open();
+    let unit = [&first, &bad].map(|h| ww_tape::UnitChunk {
+        head: h,
+        columns: &columns,
+        payload_hash: None,
+    });
+    assert!(w.write_chunk_unit(&defs, &unit).is_err());
+    assert!(
+        tape.to_vec().unwrap() == before,
+        "a refused unit writes nothing"
+    );
+    assert_eq!(w.unit_open(), open, "a refused unit opens none");
+    let next = head(id, 0, tiles[1]);
+    let good = [&first, &next].map(|h| ww_tape::UnitChunk {
+        head: h,
+        columns: &columns,
+        payload_hash: None,
+    });
+    w.write_chunk_unit(&defs, &good).unwrap();
+    assert!(!w.unit_open());
+
+    // a column shorter than its spec says: found as the second chunk is encoded, after the first is written
+    let short = samples_column(&samples[..4], samples.len());
+    let (one, second) = (head(id, 1, tiles[0]), head(id, 1, tiles[1]));
+    let torn = [
+        ww_tape::UnitChunk {
+            head: &one,
+            columns: &columns,
+            payload_hash: None,
+        },
+        ww_tape::UnitChunk {
+            head: &second,
+            columns: &short,
+            payload_hash: None,
+        },
+    ];
+    let err = w.write_chunk_unit(&defs, &torn);
+    assert!(err.is_err(), "{err:?}");
+    assert!(
+        matches!(w.write_chunk_unit(&defs, &good), Err(WriteError::Failed)),
+        "a writer with a torn unit takes no more chunks"
+    );
 }

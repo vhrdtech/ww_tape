@@ -113,6 +113,7 @@ fn an_8_bit_iq_track_is_stored_as_the_radio_sends_it() {
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let spec = ColumnSpec {
         kind: ColumnKind::Samples,

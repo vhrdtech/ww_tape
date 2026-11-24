@@ -373,3 +373,194 @@ fn a_listed_axis_of_more_than_grid_listed_max_cells_is_refused() {
     };
     grid(std::vec![a].leak()).check().unwrap();
 }
+
+/// A thermal field of 1000 × 37 × 600 cells: x in tiles of 256, a listed band of 37 kept whole, y in tiles of 64.
+fn field() -> TileLayout {
+    TileLayout::new(&[(1000, 256), (37, 37), (600, 64)])
+        .unwrap()
+        .with_downsample(0b101)
+}
+
+/// A definition's layout marks its downsampled axes; levels go on while every downsampled tile extent halves evenly,
+/// the axes not downsampled not looked at.
+#[test]
+fn overview_levels_stop_where_a_tile_extent_is_odd() {
+    static AXES: [FixedAxis<'static>; 3] = [
+        FixedAxis {
+            name: "x",
+            extent: UNib32(1000),
+            tile_extent: UNib32(256),
+            unit: None,
+            scale: Magnitude::ONE,
+            coords: AxisCoords::Regular { origin: 0, step: 1 },
+            downsample: true,
+        },
+        FixedAxis {
+            name: "band",
+            extent: UNib32(37),
+            tile_extent: UNib32(37),
+            unit: None,
+            scale: Magnitude::ONE,
+            coords: AxisCoords::Regular { origin: 0, step: 1 },
+            downsample: false,
+        },
+        FixedAxis {
+            name: "y",
+            extent: UNib32(600),
+            tile_extent: UNib32(64),
+            unit: None,
+            scale: Magnitude::ONE,
+            coords: AxisCoords::Regular { origin: 0, step: 1 },
+            downsample: true,
+        },
+    ];
+    let l = grid(&AXES).tile_layout().unwrap();
+    assert_eq!(l, field());
+    assert_eq!(l.downsample(), 0b101);
+    assert_eq!(
+        l.overview_levels(),
+        6,
+        "64 halves 6 times; 37 is not downsampled"
+    );
+    let forecast = TileLayout::new(&weather()).unwrap().with_downsample(0b1100);
+    assert_eq!(forecast.overview_levels(), 2, "180 halves twice");
+    assert_eq!(TileLayout::new(&weather()).unwrap().overview_levels(), 0);
+    assert_eq!(TileLayout::SERIES.overview_levels(), 0);
+    assert_eq!(TileLayout::SERIES.with_downsample(u32::MAX).downsample(), 0);
+    let big = TileLayout::new(&[(u32::MAX, 1 << 31)])
+        .unwrap()
+        .with_downsample(1);
+    assert_eq!(
+        big.overview_levels(),
+        GRID_OVERVIEW_LEVELS_MAX,
+        "31 halvings, capped"
+    );
+}
+
+/// Level k halves each downsampled axis' extent (rounded up) and tile extent k times and keeps the tiles: the same
+/// coordinates and tile numbers, edge tiles holding the cells left over.
+#[test]
+fn an_overview_layout_halves_the_downsampled_axes() {
+    let l = field();
+    assert_eq!(l.overview(0), Some(l));
+    let o = l.overview(3).unwrap();
+    assert_eq!(o.level(), 3);
+    assert_eq!(o.extents(), [(125, 32), (37, 37), (75, 8)]);
+    assert_eq!(o.tiles(), l.tiles());
+    assert_eq!(o.widths(), l.widths());
+    let edge = TileCoords::new(&[3, 0, 9]).unwrap();
+    assert_eq!(o.pack(&edge), l.pack(&edge));
+    // x: 1000 - 768 = 232 cells as written, 29 at level 3; y: 600 - 576 = 24, 3 at level 3
+    assert_eq!(l.tile_cells(&edge), Some(232 * 37 * 24));
+    assert_eq!(o.tile_cells(&edge), Some(29 * 37 * 3));
+    // an odd edge: 1001 cells leave 233 in the last x tile, 30 cells at level 3 (the last covering 1)
+    let odd = TileLayout::new(&[(1001, 256)]).unwrap().with_downsample(1);
+    let last = TileCoords::new(&[3]).unwrap();
+    assert_eq!(odd.overview(3).unwrap().tile_cells(&last), Some(30));
+    assert_eq!(odd.overview(8).unwrap().extents(), [(4, 1)]);
+    assert_eq!(l.overview(7), None, "past the levels");
+    assert_eq!(o.overview(1), None, "an overview's own layout");
+    assert_eq!(o.overview_levels(), 0);
+}
+
+/// A view picks the highest level whose cell is at most a pixel along every downsampled axis.
+#[test]
+fn level_for_picks_the_coarsest_cell_within_a_pixel() {
+    let l = field();
+    assert_eq!(l.level_for(&[1.0, 1.0, 1.0]), 0);
+    assert_eq!(l.level_for(&[4.0, 1.0, 4.0]), 2);
+    assert_eq!(l.level_for(&[7.9, 99.0, 100.0]), 2, "x decides");
+    assert_eq!(l.level_for(&[8.0, 1.0, 8.0]), 3);
+    assert_eq!(l.level_for(&[1e9, 1.0, 1e9]), 6, "capped at the levels");
+    assert_eq!(l.level_for(&[f64::NAN, 1.0, 8.0]), 0);
+    assert_eq!(l.level_for(&[8.0, 8.0]), 0, "one value per fixed axis");
+    assert_eq!(TileLayout::SERIES.level_for(&[]), 0);
+}
+
+/// An overview chunk of a 10 × 6 grid in tiles of 4 × 2 at `level` over `tile`: three steps, raw i16 columns of
+/// `cells` values each, the min column `short` values shorter.
+fn overview_chunk(level: u8, tile: &[u32], cells: usize, short: usize) -> std::vec::Vec<u8> {
+    use crate::chunk::{ColumnSpec, chunk_len, write_chunk};
+    let head = crate::ChunkHead {
+        kind: crate::BlockKind::Series,
+        track_id: crate::TrackId::new(9),
+        track_number: crate::TrackNum::new(1),
+        first_item: crate::ItemNum::new(0),
+        count: 3,
+        first_tick: 0,
+        last_tick: 2,
+        latest_end: 2,
+        time_mode: 0,
+        end_mode: crate::chunk::EndMode::Absent,
+        grid: Some(crate::SeriesGrid::start(0, 0, Magnitude::ONE)),
+        tile: TileCoords::new(tile).unwrap(),
+        level,
+    };
+    let col = |base: i16, n: usize| -> std::vec::Vec<u8> {
+        (0..n)
+            .flat_map(|i| (base + i as i16).to_le_bytes())
+            .collect()
+    };
+    let cols = [
+        (crate::ColumnKind::OverviewMin, col(0, cells - short)),
+        (crate::ColumnKind::OverviewMax, col(100, cells)),
+        (crate::ColumnKind::OverviewMean, col(50, cells)),
+    ];
+    let cols: std::vec::Vec<(ColumnSpec, &[u8])> = cols
+        .iter()
+        .map(|(kind, b)| {
+            let spec = ColumnSpec {
+                kind: *kind,
+                codec: crate::Codec::RAW,
+                param: 0,
+                len: b.len(),
+            };
+            (spec, &b[..])
+        })
+        .collect();
+    let specs: std::vec::Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
+    let mut buf = std::vec![0u8; chunk_len(&head, &specs, 0)];
+    write_chunk(&mut buf, crate::tests::id(1), &head, &cols, 0).unwrap();
+    buf
+}
+
+/// An overview chunk's columns read as the tile's cells at its level times its steps: 2 × 1 cells in tile (0, 0) at
+/// level 1, one in the edge tile (2, 2). A chunk as written, a level past the grid's, a tile outside it and a short
+/// column are refused.
+#[test]
+fn an_overview_reads_its_cells_from_the_level_layout() {
+    use crate::samples::{Element, ElementDesc, SampleShape};
+    let layout = TileLayout::new(&[(10, 4), (6, 2)])
+        .unwrap()
+        .with_downsample(0b11);
+    assert_eq!(layout.overview_levels(), 1);
+    let shape = SampleShape::new(ElementDesc::of(Element::I16), 1);
+    let read = |bytes: &[u8]| {
+        let b = crate::Block::read(bytes).unwrap();
+        let c = b.chunk().unwrap();
+        Overview::of(&c, &layout, shape).map(|o| {
+            let mut min = std::vec![0i16; o.cells()];
+            o.min().decode(0, &mut min).unwrap();
+            let mut mean = std::vec![0i16; o.cells()];
+            o.mean().decode(0, &mut mean).unwrap();
+            (o.level(), o.cells(), min, mean)
+        })
+    };
+    let (level, cells, min, mean) = read(&overview_chunk(1, &[0, 0], 6, 0)).unwrap();
+    assert_eq!((level, cells), (1, 6));
+    assert_eq!(min, [0, 1, 2, 3, 4, 5]);
+    assert_eq!(mean, [50, 51, 52, 53, 54, 55]);
+    assert_eq!(read(&overview_chunk(1, &[2, 2], 3, 0)).unwrap().1, 3);
+    assert!(matches!(
+        read(&overview_chunk(1, &[0, 0], 6, 1)),
+        Err(OverviewError::Samples(crate::ColumnKind::OverviewMin, _))
+    ));
+    assert_eq!(
+        read(&overview_chunk(2, &[0, 0], 6, 0)).unwrap_err(),
+        OverviewError::NotOverview
+    );
+    assert_eq!(
+        read(&overview_chunk(1, &[3, 0], 6, 0)).unwrap_err(),
+        OverviewError::NotOverview
+    );
+}

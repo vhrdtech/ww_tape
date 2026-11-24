@@ -109,9 +109,11 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   `TapeReader::grid_summaries` finds a level's blocks of the tiles in a box. `region_timeline` merges their nodes into the box's timeline, weighting each tile by cells times steps. A tile partly in the box counts whole. A resumed mux rebuilds the tile trees as it does the series trees.
 
-  Open: space overviews, a book chapter.
+  Space overviews serve a zoomed-out view. Level k halves every downsampled axis k times and keeps the other axes and time. Each cell holds the min, max and mean per channel. One overview chunk per level follows each tile chunk, so levels stop where a tile extent stops halving evenly. `grid_tiles` takes the level from its box's layout, and `TileLayout::level_for` picks the level for a pixel size.
 
-  Read more: [Fixed axes and tiles](docs/format.md#fixed-axes-and-tiles), [Summaries of tiles](docs/format.md#summaries-of-tiles), [Index entries](docs/format.md#index-entries), [Typed handles encode on their own thread](docs/writing_thread.md#typed-handles-encode-on-their-own-thread). Golden files `v1-index.hex`, `v1-grid-{1,2,5,31}.hex`, `v1-grid-summary.hex`; tests `grids.rs`, `mux_grids.rs`, `mux_grid_summaries.rs`, `reserved.rs`, `grid::tests`, `index::tests`, `tile_tests`; fuzz targets `tape-grid`, `tape-grid-hostile`, `tape-index`, `tape-summary`, `tape-summary-hostile`.
+  Open: a book chapter.
+
+  Read more: [Fixed axes and tiles](docs/format.md#fixed-axes-and-tiles), [Summaries of tiles](docs/format.md#summaries-of-tiles), [Space overviews](docs/format.md#space-overviews), [Index entries](docs/format.md#index-entries), [Typed handles encode on their own thread](docs/writing_thread.md#typed-handles-encode-on-their-own-thread). Golden files `v1-index.hex`, `v1-grid-{1,2,5,31}.hex`, `v1-grid-summary.hex`, `v1-overview.hex`; tests `grids.rs`, `mux_grids.rs`, `mux_grid_summaries.rs`, `mux_grid_overviews.rs`, `reserved.rs`, `grid::tests`, `index::tests`, `tile_tests`; fuzz targets `tape-grid`, `tape-grid-hostile`, `tape-index`, `tape-summary`, `tape-summary-hostile`.
 
 ## Tracks, clocks and definitions (`TRACK`)
 

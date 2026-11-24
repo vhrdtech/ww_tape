@@ -44,7 +44,14 @@ pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 17] {
         Field::new(at, 8, &[MAX_BLOCK_LEN as u64]),
         Field::new(at + 8, 4, &[MAX_BLOCK_LEN as u64]),
         Field::new(at + 12, 1, &[3, 4, 6, 7, 9]),
-        Field::new(at + 13, 1, &[ww_tape_summary::NODE_SHIFT_MAX as u64]),
+        Field::new(
+            at + 13,
+            1,
+            &[
+                ww_tape_summary::NODE_SHIFT_MAX as u64,
+                ww_tape::grid::GRID_OVERVIEW_LEVELS_MAX as u64,
+            ],
+        ),
         Field::new(at + 14, 1, &[1, 2]),
         Field::new(at + 15, 1, ENTRY_FLAGS),
         Field::new(at + 16, 8, &[]),
@@ -120,7 +127,14 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 offset: 64 * i as u64 + u64::from(d.u8()),
                 len: 36 + u32::from(d.u8()),
                 kind,
-                level: d.u8() % 3,
+                // an overview level only on a grid chunk's entry, beside its tile number
+                level: {
+                    let level = d.u8() % 3;
+                    match (kind, tile) {
+                        (BlockKind::Events, _) | (BlockKind::Series, None) => 0,
+                        _ => level,
+                    }
+                },
                 tree: d.u8() % 3,
                 track_id: TrackId::new(u64::from(d.u8() % 4)),
                 number: u32::from(d.u8() % 4),

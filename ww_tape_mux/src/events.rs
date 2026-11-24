@@ -398,6 +398,7 @@ impl EventsChunk {
             head,
             columns,
             summary,
+            overviews: Vec::new(),
         }))
     }
 }

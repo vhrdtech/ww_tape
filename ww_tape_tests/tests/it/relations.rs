@@ -480,6 +480,7 @@ fn long_block() -> Vec<u8> {
         end_mode: ww_tape::EndMode::Absent,
         grid: None,
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let cols = [(
         ww_tape::ColumnSpec {

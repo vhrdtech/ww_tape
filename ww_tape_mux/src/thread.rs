@@ -7,14 +7,14 @@ use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
     ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, PieceStore, Slot as DefSlot,
-    WriteError,
+    UnitChunk, WriteError,
 };
 
 use crate::define;
 use crate::error::MuxError;
 use crate::open;
 use crate::queue::Popped;
-use crate::shared::{BlockHow, ClosedTx, Counters, RelayMode, Shared, Slot, Work};
+use crate::shared::{BlockHow, ClosedTx, Counters, Follower, RelayMode, Shared, Slot, Work};
 use crate::summaries::{Added, ChunkSummary, Trees};
 
 /// How the thread ended.
@@ -202,25 +202,64 @@ fn end_trees<T: PieceStore>(
     Ok(())
 }
 
-/// Place a typed handle's or a chunk sender's chunk, its summary into its track's tree.
+/// A chunk to place: its head, columns, payload hash and overview chunks.
+struct Placing<'a> {
+    head: &'a ChunkHead,
+    columns: &'a [(ColumnSpec, Vec<u8>)],
+    hash: Option<[u8; 32]>,
+    overviews: &'a [Follower],
+}
+
+/// Place a typed handle's or a chunk sender's chunk, then its overview chunks, the chunk and they one unit
+/// ([PieceChain::write_unit]); then its summary into its track's tree.
 fn place_chunk<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &Definitions,
     st: &mut State<'_, T>,
-    head: &ChunkHead,
-    columns: &[(ColumnSpec, Vec<u8>)],
-    hash: Option<[u8; 32]>,
+    c: &Placing<'_>,
     summary: Option<Box<ChunkSummary>>,
 ) -> Result<(), WriteError<T::Error>> {
+    let Placing {
+        head,
+        columns,
+        hash,
+        overviews,
+    } = *c;
     // the chain cuts before the chunk: the trees end in the piece their items are in
     if chain.cut_due() {
         end_trees(chain, defs, st)?;
     }
     let refs: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
-    match hash {
-        Some(hash) => chain.write_chunk_hashed(defs, head, &refs, hash)?,
-        None => chain.write_chunk(defs, head, &refs)?,
-    };
+    if overviews.is_empty() {
+        match hash {
+            Some(hash) => chain.write_chunk_hashed(defs, head, &refs, hash)?,
+            None => chain.write_chunk(defs, head, &refs)?,
+        };
+    } else {
+        let follower_refs: Vec<Vec<(ColumnSpec, &[u8])>> = overviews
+            .iter()
+            .map(|f| f.columns.iter().map(|(c, b)| (*c, b.as_slice())).collect())
+            .collect();
+        let unit: Vec<UnitChunk<'_>> = [UnitChunk {
+            head,
+            columns: &refs,
+            payload_hash: hash,
+        }]
+        .into_iter()
+        .chain(
+            overviews
+                .iter()
+                .zip(&follower_refs)
+                .map(|(f, cols)| UnitChunk {
+                    head: &f.head,
+                    columns: cols,
+                    payload_hash: f.hash,
+                }),
+        )
+        .collect();
+        chain.write_unit(defs, &unit)?;
+    }
+    // a summary block is placed after the unit, never inside it
     match summary {
         Some(s) => {
             if let Added::Refused = st.trees.add(chain, defs, head, *s)? {
@@ -252,9 +291,16 @@ fn place<T: PieceStore>(
             columns,
             hash,
             summary,
+            overviews,
         } => {
             if !failed {
-                let r = place_chunk(chain, defs, st, &head, &columns, hash, summary);
+                let c = Placing {
+                    head: &head,
+                    columns: &columns,
+                    hash,
+                    overviews: &overviews,
+                };
+                let r = place_chunk(chain, defs, st, &c, summary);
                 let ok = r.is_ok();
                 placed(chain, shared, &from, r, bytes);
                 if ok {
@@ -263,7 +309,10 @@ fn place<T: PieceStore>(
             } else {
                 Counters::add(&shared.counters.lost, 1);
             }
-            for (_, buf) in columns {
+            for (_, buf) in columns
+                .into_iter()
+                .chain(overviews.into_iter().flat_map(|o| o.columns))
+            {
                 from.give_back(buf);
             }
         }

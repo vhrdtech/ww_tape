@@ -22,7 +22,8 @@
 //!  81  u8  columns n, 1 and up
 //!  82  u8  mode: an events chunk's time mode, the time codec's; a series chunk's fixed axes a, 0 to
 //!          GRID_FIXED_AXES_MAX (0: a series of no fixed axes, GridDef)
-//!  83  u8  end mode (events: EndMode; 0 in series chunks)
+//!  83  u8  end byte: an events chunk's end mode (EndMode); a series chunk's overview level k, 0 for the cells
+//!          as written, 1 to GRID_OVERVIEW_LEVELS_MAX for space overview k of a grid of fixed axes
 //!  84 ...  series chunks only, the grid of the samples (SeriesGrid):
 //!          84 u64  grid index: the sample the grid counts from, at most the first item
 //!          92 i64  grid tick: the tick of that sample; sample i is at grid tick + (i - grid index) · period,
@@ -49,6 +50,10 @@
 //! marked ([Chunk::bad_segments]), so a flipped bit in a 4 MiB series chunk costs one 64 KiB segment. Event chunks are
 //! usually a single segment; a codec may still salvage items from it by checking its own group headers against
 //! [Chunk::column_damaged].
+//!
+//! An overview chunk (byte 83 not 0, [grid](crate::grid#overviews)) holds one [ColumnKind::OverviewMin],
+//! [ColumnKind::OverviewMax] and [ColumnKind::OverviewMean] column each, coded as samples columns, and no
+//! [ColumnKind::Samples] column; any other chunk holds none of the three.
 //!
 //! Codec ids name how a column is coded: [Codec::RAW] is the column as plain little-endian values or bytes, ids 1 to
 //! 3 are the event time codec's ([crate::times]), 4 payload lengths ([crate::payloads]), 5 a series chunk's flag
@@ -77,7 +82,7 @@ use core::num::NonZeroUsize;
 
 use crate::TrackNum;
 use crate::bytes::{file_u8, file_u32, le_i64, le_u8, le_u16, le_u32, le_u64};
-use crate::grid::{GRID_FIXED_AXES_MAX, TileCoords};
+use crate::grid::{GRID_FIXED_AXES_MAX, GRID_OVERVIEW_LEVELS_MAX, TileCoords};
 use crate::series::{SCALE_LEN_MAX, SeriesGrid, read_scale, scale_bytes};
 use crate::{
     BlockError, BlockKind, BoundError, CRC_LEN, FLAG_BODY_CODED, HEADER_LEN, MAX_BLOCK_LEN, VERSION,
@@ -115,6 +120,8 @@ const GRID_SCALE_LEN_AT: usize = FIXED_END + 16;
 const GRID_SCALE_AT: usize = FIXED_END + SERIES_GRID_LEN;
 /// Where a chunk's mode byte is: an events chunk's time mode, a series chunk's count of fixed axes.
 const AXES_AT: usize = 82;
+/// Where a chunk's end byte is: an events chunk's end mode, a series chunk's overview level.
+const END_AT: usize = 83;
 
 /// Bytes of the tile coordinates of `axes` fixed axes; `axes` is at most [GRID_FIXED_AXES_MAX].
 const fn tile_coords_len(axes: usize) -> usize {
@@ -130,6 +137,13 @@ fn mode_byte(head: &ChunkHead) -> Result<u8, ChunkError> {
                 "more fixed axes than GRID_FIXED_AXES_MAX",
             )),
         _ => Ok(head.time_mode),
+    }
+}
+/// Byte 83 of `head`: the end mode of an events chunk, the overview level of a series chunk.
+fn end_byte(head: &ChunkHead) -> u8 {
+    match head.kind {
+        BlockKind::Series => head.level,
+        _ => head.end_mode.to_u8(),
     }
 }
 /// Bytes of a segment writers use, 2^[SEGMENT_SHIFT].
@@ -186,6 +200,14 @@ pub enum ColumnKind {
     /// One relation's values, a u64 per item; the param names the relation by its index in
     /// [TrackDef::relations](crate::TrackDef::relations) (events, [RelationColumn](crate::times::RelationColumn)).
     Relation,
+    /// The smallest value of each overview cell's source cells, per channel, laid out and coded as
+    /// [ColumnKind::Samples]; param 0 (a series chunk of an overview level, [Overview](crate::grid::Overview)).
+    OverviewMin,
+    /// The largest value of each overview cell's source cells, as [ColumnKind::OverviewMin].
+    OverviewMax,
+    /// The mean of each overview cell's source cells, as [ColumnKind::OverviewMin]: rounded to the nearest integer,
+    /// ties to even, for an integer element.
+    OverviewMean,
     /// A kind this reader doesn't know.
     Other(u8),
 }
@@ -204,6 +226,9 @@ impl core::fmt::Display for ColumnName {
             ColumnKind::Payloads => f.write_str("payloads"),
             ColumnKind::Samples => f.write_str("samples"),
             ColumnKind::Relation => f.write_str("relation"),
+            ColumnKind::OverviewMin => f.write_str("overview min"),
+            ColumnKind::OverviewMax => f.write_str("overview max"),
+            ColumnKind::OverviewMean => f.write_str("overview mean"),
             ColumnKind::Other(k) => write!(f, "kind {k}"),
         }
     }
@@ -223,6 +248,9 @@ impl ColumnKind {
             5 => Self::Payloads,
             6 => Self::Samples,
             8 => Self::Relation,
+            9 => Self::OverviewMin,
+            10 => Self::OverviewMax,
+            11 => Self::OverviewMean,
             other => Self::Other(other),
         }
     }
@@ -236,6 +264,9 @@ impl ColumnKind {
             Self::Payloads => 5,
             Self::Samples => 6,
             Self::Relation => 8,
+            Self::OverviewMin => 9,
+            Self::OverviewMax => 10,
+            Self::OverviewMean => 11,
             Self::Other(v) => v,
         }
     }
@@ -248,7 +279,9 @@ impl ColumnKind {
     /// Whether the kind belongs in a chunk of `block` kind; unknown kinds belong anywhere.
     fn fits(self, block: BlockKind) -> bool {
         match self {
-            Self::Samples => block == BlockKind::Series,
+            Self::Samples | Self::OverviewMin | Self::OverviewMax | Self::OverviewMean => {
+                block == BlockKind::Series
+            }
             // per item in an events chunk, as flag runs in a series chunk
             Self::Flags | Self::Other(_) => true,
             _ => block == BlockKind::Events,
@@ -313,6 +346,10 @@ pub struct ChunkHead {
     /// The tile a series chunk of a grid holds, one coordinate per fixed axis ([grid](crate::grid#tiles)); none in a
     /// series of no fixed axes and in an events chunk.
     pub tile: TileCoords,
+    /// The overview level of a grid chunk: 0 for the cells as written, k from 1 to [GRID_OVERVIEW_LEVELS_MAX] for the
+    /// space overview whose downsampled axes are halved k times ([grid](crate::grid#overviews)); 0 in an events chunk
+    /// and a series of no fixed axes.
+    pub level: u8,
 }
 
 /// Bytes of a chunk block [ChunkHead::head_len] reads: the block header and the payload offset.
@@ -658,7 +695,7 @@ impl<'b> ChunkWriter<'b> {
                 SEGMENT_SHIFT,
                 column_count,
                 mode_byte(head)?,
-                head.end_mode.to_u8(),
+                end_byte(head),
             ]);
         for (d, s) in fixed.iter_mut().zip(fields) {
             *d = s;
@@ -946,6 +983,16 @@ fn check_head(head: &ChunkHead, kinds: impl Iterator<Item = ColumnKind>) -> Resu
             "a series chunk has no time or end mode",
         ));
     }
+    if head.level > GRID_OVERVIEW_LEVELS_MAX {
+        return Err(ChunkError::Invalid(
+            "an overview level over GRID_OVERVIEW_LEVELS_MAX",
+        ));
+    }
+    if head.level != 0 && (head.kind != BlockKind::Series || head.tile.is_empty()) {
+        return Err(ChunkError::Invalid(
+            "an overview level on a chunk of no fixed axes",
+        ));
+    }
     match (head.kind, head.grid) {
         (BlockKind::Series, None) => {
             return Err(ChunkError::Invalid("a series chunk without a grid"));
@@ -964,14 +1011,36 @@ fn check_head(head: &ChunkHead, kinds: impl Iterator<Item = ColumnKind>) -> Resu
         _ => {}
     }
     let mut any = false;
+    // an overview holds each statistic once and no samples; the cells as written hold no statistic
+    let mut stats = [0u8; 3];
     for k in kinds {
         if !k.fits(head.kind) {
             return Err(ChunkError::Invalid("column of another chunk kind"));
+        }
+        let stat = match k {
+            ColumnKind::OverviewMin => stats.get_mut(0),
+            ColumnKind::OverviewMax => stats.get_mut(1),
+            ColumnKind::OverviewMean => stats.get_mut(2),
+            ColumnKind::Samples if head.level != 0 => {
+                return Err(ChunkError::Invalid(
+                    "an overview chunk with a samples column",
+                ));
+            }
+            _ => None,
+        };
+        if let Some(n) = stat {
+            *n = n.saturating_add(1);
         }
         any = true;
     }
     if !any {
         return Err(ChunkError::Invalid("no columns"));
+    }
+    let want = u8::from(head.level != 0);
+    if stats.iter().any(|n| *n != want) {
+        return Err(ChunkError::Invalid(
+            "an overview chunk without one min, max and mean column each, or another chunk with one",
+        ));
     }
     Ok(())
 }
@@ -1118,6 +1187,7 @@ impl Layout {
 /// `table_start`); None when the block is shorter, the end mode unknown or the scale not one.
 fn read_fixed(block: &[u8], kind: BlockKind, table_start: usize) -> Option<ChunkHead> {
     let mode = le_u8(block, AXES_AT)?;
+    let end = le_u8(block, END_AT)?;
     let (grid, tile, time_mode) = match kind {
         BlockKind::Series => {
             // the layout bounded the axes and put the coordinates last before the column table
@@ -1147,7 +1217,12 @@ fn read_fixed(block: &[u8], kind: BlockKind, table_start: usize) -> Option<Chunk
         last_tick: le_i64(block, 64)?,
         latest_end: le_i64(block, 72)?,
         time_mode,
-        end_mode: EndMode::from_u8(le_u8(block, 83)?)?,
+        // a series chunk's byte 83 is its overview level, checked with the head
+        end_mode: match kind {
+            BlockKind::Series => EndMode::Absent,
+            _ => EndMode::from_u8(end)?,
+        },
+        level: if kind == BlockKind::Series { end } else { 0 },
         grid,
         tile,
     })

@@ -238,6 +238,7 @@ fn write_plans(close: bool, plan: impl Fn(&TileCoords) -> Plan) -> (Vec<u8>, Tra
                 end_mode: EndMode::Absent,
                 grid: Some(grid),
                 tile: *tile,
+                level: 0,
             };
             let spec = ColumnSpec {
                 kind: ColumnKind::Samples,

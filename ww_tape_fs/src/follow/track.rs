@@ -160,7 +160,8 @@ impl TrackItems {
             return Ok(());
         };
         let head = chunk.head();
-        if head.track_id != self.id {
+        // an overview chunk holds statistics of time steps its track's chunks give
+        if head.track_id != self.id || head.level != 0 {
             return Ok(());
         }
         let end = head.first_item.checked_add(u64::from(head.count));

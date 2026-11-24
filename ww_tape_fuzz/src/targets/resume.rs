@@ -1,7 +1,7 @@
 //! `TapeWriter::resume_on` on an unclosed piece a writer wrote, cut and mutated by the input: it never panics, and a
 //! piece it resumes takes more blocks and closes whole: a reader finds it by its tail at the start of the bytes and
-//! its content hash verifies. The bytes it cuts off hold no good block of the piece's session but puts belonging with
-//! a block after them and what ends a piece.
+//! its content hash verifies. The bytes it cuts off hold no good block of the piece's session but blocks belonging with
+//! a block after them (puts, a unit's chunks but its last) and what ends a piece.
 //!
 //! `PieceChain::resume_on` on a file of several pieces ([PieceTapes::One]) whose last piece is cut and mutated: it
 //! never panics, and a chain it resumes keeps the pieces before byte for byte, takes more blocks and closes whole: a
@@ -85,6 +85,7 @@ pub(crate) fn chunk(t: u64, number: TrackNum, k: u64) -> (ChunkHead, Vec<u8>) {
         end_mode: EndMode::Absent,
         grid: None,
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     (head, starts)
 }
@@ -105,6 +106,30 @@ pub(crate) fn write_chunk<S: TapeSink>(
     };
     w.write_chunk(defs, &h, &[(spec, &c)])
         .expect("a chunk writes");
+}
+
+/// Chunks `ks` of track `t` as one unit ([TapeWriter::write_chunk_unit]).
+fn write_unit<S: TapeSink>(
+    w: &mut TapeWriter<S>,
+    defs: &Definitions,
+    on: Defined,
+    t: u64,
+    ks: [u64; 2],
+) {
+    let chunks = ks.map(|k| chunk(t, on.chunks[t as usize], k));
+    let specs = chunks.each_ref().map(|(_, c)| ColumnSpec {
+        kind: ColumnKind::Starts,
+        codec: Codec::RAW,
+        param: 0,
+        len: c.len(),
+    });
+    let columns = [0, 1].map(|i| [(specs[i], &chunks[i].1[..])]);
+    let unit = [0, 1].map(|i| ww_tape::UnitChunk {
+        head: &chunks[i].0,
+        columns: &columns[i],
+        payload_hash: None,
+    });
+    w.write_chunk_unit(defs, &unit).expect("a unit writes");
 }
 
 /// The level of mode bits 3 to 4.
@@ -150,7 +175,10 @@ fn template(aligned: bool, head: bool, level: ww_tape::Integrity) -> Vec<u8> {
         write_chunk(&mut w, &defs, on, 0, k);
         w.write_block(&defs, &records(w.next_id(), on.clock, on.records, k))
             .expect("a records block writes");
-        write_chunk(&mut w, &defs, on, 1, k);
+        // track 1's chunks in units of two: a cut inside one drops it whole
+        if k % 2 == 1 {
+            write_unit(&mut w, &defs, on, 1, [k - 1, k]);
+        }
         w.defer_block(&defs, records(w.next_id(), on.clock, on.records, 100 + k))
             .expect("a deferred block");
     }

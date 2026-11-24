@@ -76,6 +76,11 @@ pub use series::{
 };
 
 #[cfg(feature = "std")]
+pub mod overview;
+#[cfg(feature = "std")]
+pub use overview::OverviewCells;
+
+#[cfg(feature = "std")]
 mod levels;
 #[cfg(feature = "std")]
 pub use levels::BuildError;
@@ -92,6 +97,8 @@ pub use tree::{EVENT_BLOCK_BYTES, EventRuns, EventTree, ItemRun};
 
 #[cfg(all(test, feature = "std"))]
 mod kernel_tests;
+#[cfg(all(test, feature = "std"))]
+mod overview_tests;
 #[cfg(all(test, feature = "std"))]
 mod split_tests;
 #[cfg(test)]

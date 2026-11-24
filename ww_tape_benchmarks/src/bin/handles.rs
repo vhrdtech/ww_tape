@@ -293,6 +293,7 @@ fn encode_chunk(
                 end_mode: EndMode::Absent,
                 grid: Some(grid),
                 tile: ww_tape::TileCoords::NONE,
+                level: 0,
             })
         }
     }

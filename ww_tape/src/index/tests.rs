@@ -224,6 +224,7 @@ fn entries_of_blocks() {
         end_mode: EndMode::Durations,
         grid: None,
         tile: crate::TileCoords::NONE,
+        level: 0,
     };
     let col = [0u8; 24];
     let cols = [(
@@ -716,4 +717,62 @@ fn entries_of_the_read_length_read_and_shorter_are_refused() {
         IndexBlock::read(&Block::read(&short).unwrap()).err(),
         Some(IndexError::BadHead)
     );
+}
+
+/// A series chunk's entry carries its overview level, at most GRID_OVERVIEW_LEVELS_MAX, beside a tile number or,
+/// made by a scan, without one; an events chunk's carries none. A writer refuses the others and a reader takes them
+/// for bad entries.
+#[test]
+fn overview_levels_of_entries_are_checked() {
+    let series = IndexEntry {
+        kind: BlockKind::Series,
+        range: None,
+        tile: Some(5),
+        level: 2,
+        ..entry(1, 400)
+    };
+    let top = IndexEntry {
+        level: GRID_OVERVIEW_LEVELS_MAX,
+        ..series
+    };
+    let scanned = IndexEntry {
+        tile: None,
+        ..series
+    };
+    for e in [series, top, scanned] {
+        assert!(e.is_valid(), "{e:?}");
+        let mut raw = [0u8; ENTRY_READ_LEN];
+        raw.copy_from_slice(&e.encode()[..ENTRY_READ_LEN]);
+        assert_eq!(IndexEntry::read(&raw), Ok(e), "reads back");
+    }
+    let bad = [
+        IndexEntry {
+            level: GRID_OVERVIEW_LEVELS_MAX + 1,
+            ..series
+        },
+        IndexEntry {
+            level: 1,
+            range: None,
+            ..entry(1, 400)
+        },
+    ];
+    let head = IndexHead {
+        kind: IndexKind::Checkpoint,
+        self_offset: 9000,
+        prev: None,
+    };
+    for e in bad {
+        assert!(!e.is_valid(), "{e:?}");
+        let mut buf = vec![0u8; index_len(1, 0)];
+        assert!(
+            matches!(
+                write_index(&mut buf, id(5), &head, &[e]),
+                Err(IndexError::Invalid(_))
+            ),
+            "{e:?}"
+        );
+        let mut raw = [0u8; ENTRY_READ_LEN];
+        raw.copy_from_slice(&e.encode()[..ENTRY_READ_LEN]);
+        assert_eq!(IndexEntry::read(&raw), Err(IndexError::BadEntries));
+    }
 }

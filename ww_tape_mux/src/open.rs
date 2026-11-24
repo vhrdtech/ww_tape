@@ -10,7 +10,7 @@ use ww_tape::{ColumnSpec, PieceStore};
 
 use crate::error::EncodeError;
 use crate::queue::lock;
-use crate::shared::{Counters, Shared, Slot, Work};
+use crate::shared::{Counters, Follower, Shared, Slot, Work};
 use crate::summaries::ChunkSummary;
 
 /// A chunk completed by its encoder: what goes into the queue.
@@ -18,6 +18,8 @@ pub(crate) struct Completed {
     pub head: ChunkHead,
     pub columns: Vec<(ColumnSpec, Vec<u8>)>,
     pub summary: Option<ChunkSummary>,
+    /// A grid tile chunk's overview chunks, placed right after it, level by level: one unit with it
+    pub overviews: Vec<Self>,
 }
 
 /// Where an encoder takes buffers for its columns: those the mux gave back once placed.
@@ -122,17 +124,37 @@ impl<T: PieceStore, E: Encoder> Open<T, E> {
         let hash_payloads = self.shared.upgrade().is_some_and(|sh| sh.hash_payloads);
         let mut any = false;
         encoder.complete(self.from.as_ref(), &mut |s| {
-            let specs: Vec<ColumnSpec> = s.columns.iter().map(|(c, _)| *c).collect();
-            let bytes = ww_tape::chunk::chunk_len(&s.head, &specs, 0);
-            let hash = hash_payloads.then(|| {
-                ww_tape::piece::columns_payload_hash(s.columns.iter().map(|(_, b)| b.as_slice()))
-            });
+            let mut bytes = 0usize;
+            let mut placed = |c: &Completed| {
+                let specs: Vec<ColumnSpec> = c.columns.iter().map(|(c, _)| *c).collect();
+                bytes = bytes.saturating_add(ww_tape::chunk::chunk_len(&c.head, &specs, 0));
+                hash_payloads.then(|| {
+                    ww_tape::piece::columns_payload_hash(
+                        c.columns.iter().map(|(_, b)| b.as_slice()),
+                    )
+                })
+            };
+            let hash = placed(&s);
+            let overviews = s
+                .overviews
+                .iter()
+                .map(&mut placed)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .zip(s.overviews)
+                .map(|(hash, o)| Follower {
+                    head: o.head,
+                    columns: o.columns,
+                    hash,
+                })
+                .collect();
             let work = Work::Chunk {
                 from: self.from.clone(),
                 head: Box::new(s.head),
                 columns: s.columns,
                 hash,
                 summary: s.summary.map(Box::new),
+                overviews,
             };
             any = true;
             out((work, u64::try_from(bytes).unwrap_or(u64::MAX)));

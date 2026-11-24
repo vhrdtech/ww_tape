@@ -310,6 +310,8 @@ pub(crate) struct GridChunks<S: Scalar> {
     summaries: Option<SeriesSummarySpec>,
     plan: BoxPlan,
     tiles: Vec<TileChunk<S>>,
+    /// The grid's layout: its overview levels and the cells of each tile
+    layout: TileLayout,
 }
 
 impl<S: Scalar + Sample> GridChunks<S> {
@@ -378,6 +380,7 @@ impl<S: Scalar + Sample> GridChunks<S> {
             end_mode: EndMode::Absent,
             grid: Some(self.grid),
             tile: tile.coords,
+            level: 0,
         };
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,
@@ -386,17 +389,27 @@ impl<S: Scalar + Sample> GridChunks<S> {
             len: bytes.len(),
         };
         let mut columns = vec![(spec, bytes)];
+        let mut runs = None;
         if !self.runs.is_empty() {
-            let mut runs = buffers.buffer();
-            self.runs.write(&mut runs);
+            let mut b = buffers.buffer();
+            self.runs.write(&mut b);
             let spec = ColumnSpec {
                 kind: ColumnKind::Flags,
                 codec: Codec::FLAG_RUNS,
                 param: 0,
-                len: runs.len(),
+                len: b.len(),
             };
-            columns.push((spec, runs));
+            columns.push((spec, b));
+            runs = columns.last().map(|(_, b)| b.as_slice());
         }
+        let of = crate::overview::TileOf {
+            head: &head,
+            layout: &self.layout,
+            shape: self.shape,
+            codec: self.codec,
+            runs,
+        };
+        let overviews = of.overviews(&tile.samples, buffers)?;
         let summary = match (&mut tile.leaves, self.summaries) {
             (Some(leaves), Some(spec)) => Some(ChunkSummary::Series {
                 shape: self.shape,
@@ -412,6 +425,7 @@ impl<S: Scalar + Sample> GridChunks<S> {
             head,
             columns,
             summary,
+            overviews,
         })
     }
 }
@@ -682,6 +696,19 @@ fn grid_chunks<S: Scalar + Sample>(
         .max()
         .and_then(|c| usize::try_from(c).ok())
         .ok_or(CallError::TileBox)?;
+    // the largest overview tile of the box, at level 1: its three statistics columns may outgrow the tile chunk
+    let overview_cells = layout
+        .overview(1)
+        .filter(|_| layout.overview_levels() > 0)
+        .map(|l1| {
+            coords
+                .iter()
+                .filter_map(|c| l1.tile_cells(c))
+                .max()
+                .unwrap_or(0)
+        })
+        .and_then(|c| usize::try_from(c).ok())
+        .unwrap_or(0);
     let grid = SeriesGrid::start(options.first_item.get(), options.first_tick, series.scale);
     let head = ChunkHead {
         kind: BlockKind::Series,
@@ -696,8 +723,13 @@ fn grid_chunks<S: Scalar + Sample>(
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: coords.first().copied().unwrap_or_default(),
+        level: 0,
     };
-    let Some(chunk_steps) = chunk_steps::<S>(&head, shape, stride, tile_cells, options)? else {
+    let cells = Cells {
+        tile: tile_cells,
+        overview: overview_cells,
+    };
+    let Some(chunk_steps) = chunk_steps::<S>(&head, shape, stride, cells, options)? else {
         return Ok(None);
     };
     let summaries = series.summaries.filter(|_| options.summaries);
@@ -734,23 +766,35 @@ fn grid_chunks<S: Scalar + Sample>(
         summaries,
         plan,
         tiles,
+        layout,
     }))
 }
 
-/// Time steps of a chunk of tiles of at most `tile_cells` cells of `stride` scalars: at most the options' steps,
-/// their bytes as they come at most the options' bytes, the chunk at most a block. None for no steps asked;
-/// [CallError::StepTooLarge] when one time step fits no chunk. `head` is a chunk head of the track.
+/// The cells of one time step of a box's largest tile, and of its largest overview tile (level 1; 0 for a grid
+/// without overviews).
+#[derive(Copy, Clone)]
+struct Cells {
+    tile: usize,
+    overview: usize,
+}
+
+/// Time steps of a chunk of tiles of at most `cells` cells of `stride` scalars: at most the options' steps, their
+/// bytes as they come at most the options' bytes, the chunk at most a block. The overview chunks of a tile count as
+/// chunks: three columns of the level-1 cells each. None for no steps asked; [CallError::StepTooLarge] when one
+/// time step fits no chunk. `head` is a chunk head of the track.
 fn chunk_steps<S: Scalar + Sample>(
     head: &ChunkHead,
     shape: SampleShape,
     stride: usize,
-    tile_cells: usize,
+    cells: Cells,
     options: GridOptions,
 ) -> Result<Option<usize>, CallError> {
     let Some(asked) = usize::try_from(options.chunk_steps).ok().filter(|n| *n > 0) else {
         return Ok(None);
     };
-    let step_bytes = tile_cells
+    let step_bytes = cells
+        .tile
+        .max(cells.overview.saturating_mul(OVERVIEW_COLUMNS))
         .saturating_mul(stride)
         .saturating_mul(core::mem::size_of::<S>())
         .max(1);
@@ -764,9 +808,12 @@ fn chunk_steps<S: Scalar + Sample>(
         return Err(too_large(chunk_bytes));
     }
     let fits = |steps: usize| {
-        steps
-            .checked_mul(tile_cells)
-            .is_some_and(|cells| chunk_fits_block(head, options.codec, shape, cells))
+        let fit = |cells: usize, columns| {
+            steps
+                .checked_mul(cells)
+                .is_some_and(|n| chunk_fits_block(head, options.codec, shape, n, columns))
+        };
+        fit(cells.tile, 1) && (cells.overview == 0 || fit(cells.overview, OVERVIEW_COLUMNS))
     };
     let mut steps = asked.min(by_bytes);
     if !fits(steps) {
@@ -788,26 +835,37 @@ fn chunk_steps<S: Scalar + Sample>(
     Ok(Some(steps))
 }
 
-/// Whether a chunk of `cells` cells of `shape` coded by `codec` fits a block whatever its values: its head as `head`
-/// but for a scale of up to [SCALE_LEN_MAX] bytes, at most [FLAG_RUNS_MAX] flag runs beside.
-fn chunk_fits_block(head: &ChunkHead, codec: Codec, shape: SampleShape, cells: usize) -> bool {
+/// Columns of an overview chunk's cells: min, max and mean.
+const OVERVIEW_COLUMNS: usize = 3;
+
+/// Whether a chunk of `columns` columns of `cells` cells of `shape` coded by `codec` fits a block whatever its values:
+/// its head as `head` but for a scale of up to [SCALE_LEN_MAX] bytes, at most [FLAG_RUNS_MAX] flag runs beside.
+fn chunk_fits_block(
+    head: &ChunkHead,
+    codec: Codec,
+    shape: SampleShape,
+    cells: usize,
+    columns: usize,
+) -> bool {
     let Ok(samples) = max_encoded_len(codec, shape, cells) else {
         return false;
     };
-    let columns = [
+    let mut specs = vec![
         ColumnSpec {
             kind: ColumnKind::Samples,
             codec,
             param: 0,
             len: samples,
-        },
-        ColumnSpec {
-            kind: ColumnKind::Flags,
-            codec: Codec::FLAG_RUNS,
-            param: 0,
-            len: FLAG_RUNS_MAX.saturating_mul(FLAG_RUN_LEN),
-        },
+        };
+        columns
     ];
+    specs.push(ColumnSpec {
+        kind: ColumnKind::Flags,
+        codec: Codec::FLAG_RUNS,
+        param: 0,
+        len: FLAG_RUNS_MAX.saturating_mul(FLAG_RUN_LEN),
+    });
+    let columns = specs;
     // a regrid may lengthen the scale: room for the longest
     ww_tape::chunk::chunk_len(head, &columns, 0)
         .checked_add(SCALE_LEN_MAX)

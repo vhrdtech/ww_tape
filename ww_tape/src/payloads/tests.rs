@@ -455,7 +455,7 @@ fn unknown_columns_are_refused_alone() {
     };
     // columns of unknown kinds beside the good ones, the reserved payload leaf kind among them
     let cols = times.columns().chain(p.columns()).chain([
-        unknown(ColumnKind::Other(9)),
+        unknown(ColumnKind::Other(12)),
         unknown(ColumnKind::PAYLOAD_LEAF),
     ]);
     let b = write(
@@ -466,7 +466,7 @@ fn unknown_columns_are_refused_alone() {
     );
     let c = Block::read(&b).unwrap().chunk().unwrap();
     let kinds: Vec<ColumnKind> = c.columns().map(|c| c.kind).collect();
-    assert!(kinds.contains(&ColumnKind::Other(9)) && kinds.contains(&ColumnKind::Other(7)));
+    assert!(kinds.contains(&ColumnKind::Other(12)) && kinds.contains(&ColumnKind::Other(7)));
     assert_eq!(EventTimes::read(&c).unwrap().len(), 20);
     check(&Payloads::read(&c).unwrap().unwrap(), &w);
 

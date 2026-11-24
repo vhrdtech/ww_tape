@@ -463,6 +463,7 @@ impl TimeHead {
             end_mode: self.end_mode,
             grid: None,
             tile: crate::TileCoords::NONE,
+            level: 0,
         }
     }
 }

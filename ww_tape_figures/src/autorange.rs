@@ -56,6 +56,7 @@ fn chunk(grid: SeriesGrid, period: Ratio64, first: u64) -> anyhow::Result<(Chunk
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let samples: Vec<u8> = (first..first + CHUNK)
         .flat_map(|i| stored(i).to_le_bytes())

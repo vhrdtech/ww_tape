@@ -1160,10 +1160,17 @@ impl Definitions {
             }
             (BlockKind::Events, None) => Ok(()),
             (BlockKind::Series, Some(period)) => {
-                let tile = match t.tiles.holds(&head.tile) {
-                    true => Ok(()),
-                    false => Err(crate::SeriesError::TileOutside {
+                let tile = match (
+                    t.tiles.holds(&head.tile),
+                    head.level <= t.tiles.overview_levels(),
+                ) {
+                    (true, true) => Ok(()),
+                    (false, _) => Err(crate::SeriesError::TileOutside {
                         first_item: head.first_item,
+                    }),
+                    (true, false) => Err(crate::SeriesError::LevelOutside {
+                        first_item: head.first_item,
+                        level: head.level,
                     }),
                 };
                 tile.and_then(|()| crate::SeriesGrid::of_chunk(head, period).map(|_| ()))

@@ -264,6 +264,7 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
             end_mode: EndMode::Absent,
             grid: Some(grid),
             tile: ww_tape::TileCoords::NONE,
+            level: 0,
         };
         w.write_chunk(&defs, &head, &columns).map_err(any)?;
         k += 1;
