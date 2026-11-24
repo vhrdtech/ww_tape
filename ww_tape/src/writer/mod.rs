@@ -381,6 +381,29 @@ pub struct GroupPut<'a> {
     pub item: &'a [u8],
 }
 
+impl GroupPut<'_> {
+    /// Refuse `puts` as one group when it names a track twice ([GroupRefusal::SlotTwice]) or its items take more
+    /// than [GROUP_BYTES_MAX] bytes ([GroupRefusal::TooLong]): what [TapeWriter::put_group] checks without the
+    /// definitions.
+    pub fn check(puts: &[GroupPut<'_>]) -> Result<(), GroupRefusal> {
+        let mut seen = BTreeSet::new();
+        let mut bytes = 0usize;
+        for p in puts {
+            if !seen.insert(p.track) {
+                return Err(GroupRefusal::SlotTwice { track: p.track });
+            }
+            bytes = bytes.saturating_add(p.item.len());
+        }
+        if bytes > GROUP_BYTES_MAX {
+            return Err(GroupRefusal::TooLong {
+                len: bytes,
+                max: GROUP_BYTES_MAX,
+            });
+        }
+        Ok(())
+    }
+}
+
 /// Most bytes of deferred blocks a [TapeWriter] keeps before writing them out anyway.
 pub const DEFERRED_BYTES_MAX: usize = 1 << 20;
 
@@ -682,8 +705,6 @@ impl<S: TapeSink> TapeWriter<S> {
     ) -> Result<Vec<bool>, WriteError<S::Error>> {
         self.check()?;
         let mut tracks = Vec::with_capacity(puts.len());
-        let mut seen = BTreeSet::new();
-        let mut bytes = 0usize;
         for p in puts {
             let facts = defs
                 .track(p.track)
@@ -694,22 +715,9 @@ impl<S: TapeSink> TapeWriter<S> {
             if p.item.len() > STATE_ITEM_MAX {
                 return Err(DescribeError::TooLong { len: p.item.len() }.into());
             }
-            if !seen.insert(p.track) {
-                return Err(WriteError::Input(InputError::Group(
-                    GroupRefusal::SlotTwice { track: p.track },
-                )));
-            }
-            bytes = bytes.saturating_add(p.item.len());
             tracks.push(p.track);
         }
-        if bytes > GROUP_BYTES_MAX {
-            return Err(WriteError::Input(InputError::Group(
-                GroupRefusal::TooLong {
-                    len: bytes,
-                    max: GROUP_BYTES_MAX,
-                },
-            )));
-        }
+        GroupPut::check(puts).map_err(|r| WriteError::Input(InputError::Group(r)))?;
         if puts.is_empty() {
             return Ok(Vec::new());
         }

@@ -485,9 +485,14 @@ impl<T: PieceStore> GroupHandle<T> {
         &self.tracks
     }
 
-    /// Put `puts` as one group. A put on a track not of this handle is refused at the call
-    /// ([CallError::Kind]); the writer refuses a group too long or naming a track twice
-    /// ([GroupRefusal](ww_tape::GroupRefusal)), returned by a later call.
+    /// Put `puts` as one group. Refused at the call, before its items are copied: a put on a track not of this
+    /// handle ([CallError::Kind]), and a group naming a track twice or whose items take more than
+    /// [GROUP_BYTES_MAX](ww_tape::GROUP_BYTES_MAX) bytes ([CallError::Group]).
+    ///
+    /// A group takes its items' bytes and a share for each put of the queue's budget
+    /// ([MuxOptions::queue_bytes](crate::MuxOptions::queue_bytes)). One larger than the whole budget waits until the
+    /// queue is empty and goes alone, as any unit does: the queue then holds at most the
+    /// [GROUP_BYTES_MAX](ww_tape::GROUP_BYTES_MAX) bytes of its items and their shares.
     pub fn put_group(&self, puts: &[GroupPut<'_>]) -> Result<Sent, MuxError<T::Error>> {
         let (work, bytes) = self.unit(puts)?;
         self.s.send(work, bytes)
@@ -503,6 +508,7 @@ impl<T: PieceStore> GroupHandle<T> {
         if let Some(p) = puts.iter().find(|p| !self.tracks.contains(&p.track)) {
             return Err(CallError::Kind { track: p.track }.into());
         }
+        GroupPut::check(puts).map_err(CallError::Group)?;
         let mut bytes = 0u64;
         let mut items = Vec::with_capacity(puts.len());
         for p in puts {

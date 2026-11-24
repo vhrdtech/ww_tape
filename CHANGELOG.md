@@ -17,6 +17,7 @@ benchmarks, golden files and book pages.
 - `TapeMux::group` gives a `GroupHandle` that sends a group of puts through the mux (WRITE-17).
 - `PieceInfo::dropped_runs` and `Resumed::dropped_run` name the runs a reader or a resume dropped (WRITE-17).
 - A follower keeps a run's block places, not bytes, and takes definitions as it hands blocks out (WRITE-17).
+- `GroupHandle::put_group` refuses a track twice or items past `GROUP_BYTES_MAX` at the call (`CallError::Group`) (WRITE-17).
 
 ## [0.9.0] - 2026-11-24
 

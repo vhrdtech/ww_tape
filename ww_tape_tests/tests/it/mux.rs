@@ -811,3 +811,52 @@ fn groups_through_the_mux_write_the_bytes_of_a_chain_written_directly() {
     mux.close().unwrap();
     assert_eq!(pieces(&mem), pieces(&direct));
 }
+
+/// A [ww_tape_mux::GroupHandle] refuses at the call a group naming a track twice and one past
+/// [ww_tape::GROUP_BYTES_MAX], before copying its items; nothing reaches the writer, which goes on (WRITE-17).
+#[test]
+fn a_group_handle_refuses_a_group_at_the_call() {
+    let mem = MemPieces::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(5),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    define(&mux);
+    let group = mux.group(&[TrackNum::new(STATE)]).unwrap();
+    let twice = [0, 1].map(|k| ww_tape::GroupPut {
+        track: TrackNum::new(STATE),
+        ticks: k,
+        item: b"x",
+    });
+    assert!(matches!(
+        group.put_group(&twice),
+        Err(MuxError::Call(ww_tape_mux::CallError::Group(
+            ww_tape::GroupRefusal::SlotTwice { .. }
+        )))
+    ));
+    let big = vec![0u8; ww_tape::GROUP_BYTES_MAX + 1];
+    let long = [ww_tape::GroupPut {
+        track: TrackNum::new(STATE),
+        ticks: 0,
+        item: &big,
+    }];
+    assert!(matches!(
+        group.put_group(&long),
+        Err(MuxError::Call(ww_tape_mux::CallError::Group(
+            ww_tape::GroupRefusal::TooLong { .. }
+        )))
+    ));
+    let one = [ww_tape::GroupPut {
+        track: TrackNum::new(STATE),
+        ticks: 0,
+        item: b"y",
+    }];
+    assert_eq!(group.put_group(&one).unwrap(), Sent::Queued);
+    group.flush().unwrap();
+    mux.close().unwrap();
+}

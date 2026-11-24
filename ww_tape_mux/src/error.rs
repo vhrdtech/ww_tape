@@ -6,8 +6,8 @@ use exact_units::Bytes;
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
-    BlockError, BlockKind, ColumnSpec, DescribeError, ItemNum, SampleError, SeriesError, TrackNum,
-    WriteError,
+    BlockError, BlockKind, ColumnSpec, DescribeError, GroupRefusal, ItemNum, SampleError,
+    SeriesError, TrackNum, WriteError,
 };
 use ww_tape_summary::BuildError;
 
@@ -59,6 +59,9 @@ pub enum CallError {
     /// One time step of a tile takes `bytes` bytes, more than a chunk holds: `max`, the smaller of the handle's
     /// chunk bytes and what fits a block.
     StepTooLarge { bytes: Bytes<u64>, max: Bytes<u64> },
+    /// A group of puts a [GroupHandle](crate::GroupHandle) refuses: it names a track twice, or its items are too long
+    /// ([GroupPut::check](ww_tape::GroupPut::check)).
+    Group(GroupRefusal),
 }
 
 /// Why a typed handle refuses an item.
@@ -182,6 +185,14 @@ impl core::fmt::Display for CallError {
                 bytes.get(),
                 max.get()
             ),
+            Self::Group(GroupRefusal::SlotTwice { track }) => {
+                write!(f, "a group puts on track {} twice", track.get())
+            }
+            Self::Group(GroupRefusal::TooLong { len, max }) => write!(
+                f,
+                "a group's items take {len} bytes, more than {max}"
+            ),
+            Self::Group(r) => write!(f, "a group refused: {r:?}"),
         }
     }
 }
