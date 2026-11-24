@@ -225,7 +225,7 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
 - ✅ **WRITE-17 Groups of puts taken whole**
 
-  `TapeWriter::put_group` puts items on several state tracks as one group, and every reader takes all of it or none. The group is a run of blocks of puts marked `FLAG_WITH_NEXT`, so a crash inside it leaves a run without its last block. A scan lists such a run in `PieceInfo::dropped_runs` and none of its records. A follower hands out none of it, and a resume drops it and names it in `Resumed::dropped_run`.
+  `TapeWriter::put_group` puts items on several state tracks as one group, and every reader takes all of it or none. The group is a run of blocks of puts marked `FLAG_WITH_NEXT`, so a crash inside it leaves a run without its last block. A scan lists such a run in `PieceInfo::dropped_runs` and none of its records. A follower hands out none of it, and a resume drops it and names it in `Resumed::dropped_run`. Each of its blocks carries `FLAG_GROUP`, so a scan and a lookup through the index drop a damaged group whole.
 
   A chain cuts before a group, never inside it, and `GroupHandle` sends one through the mux. Followers hold the places of a run's blocks, at most `RUN_BLOCKS_MAX`, not their bytes.
 

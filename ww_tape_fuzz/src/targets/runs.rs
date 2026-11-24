@@ -94,6 +94,11 @@ fn invariants(f: &[u8]) {
                     );
                 }
             }
+            // a lookup takes a group's block only when the whole group reads: it reads them, damaged or not
+            let (_, on) = hostile::state_definitions(None);
+            for track in on.states {
+                _ = r.state_at(i, Slot::State { track }, u64::MAX);
+            }
         }
     }
     let (out, too_long) = followed(f);
@@ -113,6 +118,46 @@ fn invariants(f: &[u8]) {
         assert_eq!(
             run.start, resumed.kept_bytes,
             "a dropped run starts where the kept bytes end"
+        );
+    }
+}
+
+/// `full` with a byte of a block of group `j` the input picks flipped: no reader holds an item of group `j` in force,
+/// and a lookup through the index of a group's block says it is not whole.
+fn damaged(
+    full: &[u8],
+    groups: &[Group],
+    states: &[ww_tape::TrackNum; 2],
+    d: &mut hostile::Draw<'_>,
+) {
+    let blocks: Vec<(usize, usize, usize)> = hostile::runs_blocks(full)
+        .into_iter()
+        .filter(|(at, ..)| {
+            ww_tape::Block::read(&full[*at..]).is_ok_and(|b| b.flags & ww_tape::FLAG_GROUP != 0)
+        })
+        .filter_map(|(at, len, _)| {
+            let j = groups
+                .iter()
+                .position(|(s, e, _)| (*s as usize) <= at && at < *e as usize)?;
+            Some((at, len, j))
+        })
+        .collect();
+    let Some(&(at, len, j)) = blocks.get(d.below(blocks.len().max(1))) else {
+        return;
+    };
+    let mut f = full.to_vec();
+    f[at + len / 2] ^= 0x10;
+    let Ok(r) = TapeReader::open(&f[..]) else {
+        return;
+    };
+    for (t, track) in states.iter().enumerate() {
+        let Ok(l) = r.state_at(0, Slot::State { track: *track }, u64::MAX) else {
+            continue;
+        };
+        let damaged_item = groups[j].2.iter().find(|(tt, _)| *tt == t).map(|(_, i)| i);
+        assert!(
+            damaged_item.is_none() || l.item.map(|i| i.item).as_ref() != damaged_item,
+            "an item of the damaged group {j} is in force on track {t}"
         );
     }
 }
@@ -167,6 +212,11 @@ pub fn runs(data: &[u8]) {
         }
     }
     let full = tape.to_vec().expect("the bytes");
+    if d.below(4) == 0 {
+        drop(w);
+        damaged(&full, &groups, &on.states, &mut d);
+        return;
+    }
     let cut = d.below(full.len() + 1);
     let f = &full[..cut];
     let cut = cut as u64;

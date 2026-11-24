@@ -10,6 +10,7 @@ benchmarks, golden files and book pages.
 
 - A scan drops a run torn before its last block: no record of a torn group or unit (WRITE-17).
 - `FollowError::RunTooLong`: a follower stops at a run of more than `RUN_BLOCKS_MAX` blocks (WRITE-17).
+- Format: header bit 8 `FLAG_GROUP` marks a group's blocks; readers drop a damaged group whole (WRITE-17).
 
 ### Features
 

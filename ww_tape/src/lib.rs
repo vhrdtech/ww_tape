@@ -22,7 +22,8 @@
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
 //!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-//!          without it refuses the block); others 0, and a reader ignores them
+//!          without it refuses the block), bit 8 on a block of puts one of a group (FLAG_GROUP); others
+//!          0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -343,6 +344,13 @@ pub const FLAG_WITH_NEXT: u16 = 1 << 2;
 /// blocks of puts and a unit [UNIT_CHUNKS_MAX](writer::UNIT_CHUNKS_MAX) chunks, each with its puts, so neither
 /// reaches it. A follower holds a run's places until its last block comes and stops at a longer one.
 pub const RUN_BLOCKS_MAX: usize = 4096;
+/// Header flag on blocks of puts: the block is one of a group of puts ([TapeWriter::put_group]), taken whole or not
+/// at all.
+///
+/// It only marks: a reader that doesn't know it reads the block as any block of puts. A reader that knows it drops a
+/// whole group when one of its blocks doesn't read ([FLAG_WITH_NEXT]), and only a group: a run of other puts loses
+/// only the block that doesn't read.
+pub const FLAG_GROUP: u16 = 1 << 8;
 /// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk a writer of
 /// [Integrity::None] encodes.
 ///

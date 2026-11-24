@@ -339,10 +339,141 @@ fn a_follower_hands_out_a_group_whole() {
     assert!(last < w.end as u64 && after.len() >= 3);
 }
 
+/// A closed piece on an SD card layout with a small group in force, then a large group of three blocks, then a block
+/// of data: the bytes, the large group's blocks (offset and length) and the items of both groups.
+struct Damaged {
+    bytes: Vec<u8>,
+    blocks: Vec<(usize, usize)>,
+    old: Vec<Option<Vec<u8>>>,
+}
+
+fn closed_on_card() -> Damaged {
+    let mut w = begin_numbered(
+        options(u64::MAX),
+        ww_tape::Layout::UNALIGNED.on_sd_card(),
+        &TRACKS.map(state),
+    );
+    for d in &TRACKS.map(state) {
+        w.define(d).unwrap();
+    }
+    let tape = w.sink().tape();
+    let old = items(1, 8);
+    put_group(&mut w, &old).unwrap();
+    let start = tape.to_vec().unwrap().len();
+    put_group(&mut w, &items(100, LARGE)).unwrap();
+    let end = tape.to_vec().unwrap().len();
+    crate::definitions::write_records(&mut w, 50, 1);
+    w.w.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let mut blocks: Vec<(usize, usize)> = r
+        .entries(0)
+        .unwrap()
+        .iter()
+        .map(|e| (e.offset as usize, e.len as usize))
+        .filter(|(o, _)| *o >= start && *o < end)
+        .collect();
+    blocks.dedup();
+    assert_eq!(blocks.len(), 3, "the large group takes three blocks");
+    Damaged {
+        bytes,
+        blocks,
+        old: old.into_iter().map(Some).collect(),
+    }
+}
+
+/// `bytes` with the block from `at` of `len` bytes blanked, as an erased stretch of a card reads.
+fn blanked(bytes: &[u8], (at, len): (usize, usize)) -> Vec<u8> {
+    let mut b = bytes.to_vec();
+    b[at..at + len].fill(0xFF);
+    b
+}
+
+/// `bytes` with one byte flipped in the middle of the block from `at` of `len` bytes.
+fn flipped(bytes: &[u8], (at, len): (usize, usize)) -> Vec<u8> {
+    let mut b = bytes.to_vec();
+    b[at + len / 2] ^= 0x40;
+    b
+}
+
+/// The item in force at the end of piece 0 on each of [TRACKS] through `r`, and whether each lookup is whole.
+fn in_force_of<S: ww_tape::ByteSource>(r: &TapeReader<S>) -> Vec<(Option<Vec<u8>>, bool)> {
+    TRACKS
+        .iter()
+        .map(|t| {
+            let l = r
+                .state_at(
+                    0,
+                    Slot::State {
+                        track: TrackNum::new(*t),
+                    },
+                    u64::MAX,
+                )
+                .unwrap();
+            let whole = l.is_whole();
+            (l.item.map(|i| i.item), whole)
+        })
+        .collect()
+}
+
 fn raw() -> ww_tape::OpenOptions {
     ww_tape::OpenOptions {
         medium: ww_tape::Medium::Raw,
         ..Default::default()
+    }
+}
+
+/// A group with a block that doesn't read is dropped whole, by a lookup through the final index and by a scan alike:
+/// the group before it stays in force on every track, and neither lookup says it is whole.
+#[test]
+fn a_damaged_block_drops_its_group_in_the_index_and_the_scan() {
+    let d = closed_on_card();
+    for k in 0..3 {
+        let block = d.blocks[k];
+        let bad = flipped(&d.bytes, block);
+        let by_index = TapeReader::open(&bad[..]).unwrap();
+        let got = in_force_of(&by_index);
+        for (t, (item, whole)) in got.iter().enumerate() {
+            assert_eq!(item, &d.old[t], "block {k} damaged: track {t} by the index");
+            assert!(
+                !whole,
+                "block {k} damaged: track {t} by the index is not whole"
+            );
+        }
+        let gap = blanked(&d.bytes, block);
+        let by_scan = TapeReader::open_with(&gap[..], raw()).unwrap();
+        let got = in_force_of(&by_scan);
+        for (t, (item, _)) in got.iter().enumerate() {
+            assert_eq!(item, &d.old[t], "block {k} blanked: track {t} by a scan");
+        }
+        let p = &by_scan.pieces()[0];
+        assert_eq!(p.gaps.len(), 1, "block {k} blanked: {:?}", p.gaps);
+        assert!(!p.dropped_runs.is_empty(), "block {k} blanked");
+    }
+}
+
+/// Damage to a block of puts costs no block of data: a scan past it drops the puts and takes the block of data after
+/// them.
+#[test]
+fn damaged_puts_cost_no_block_of_data() {
+    let d = closed_on_card();
+    let last = d.blocks[2];
+    let gap = blanked(&d.bytes, last);
+    let r = TapeReader::open_with(&gap[..], raw()).unwrap();
+    let data_at = (last.0 + last.1) as u64;
+    let entries = r.entries(0).unwrap();
+    let data = entries
+        .iter()
+        .find(|e| e.offset >= data_at && e.kind == ww_tape::BlockKind::Records && !e.repeat)
+        .expect("the block of data after the damaged puts is listed");
+    let mut buf = Vec::new();
+    assert!(r.read_block(0, data, &mut buf).is_ok());
+    for e in &entries {
+        let o = e.offset as usize;
+        assert!(
+            !d.blocks.iter().any(|b| b.0 == o),
+            "no block of the damaged group is listed: {o}"
+        );
     }
 }
 
@@ -379,5 +510,53 @@ fn a_piece_closed_without_data_keeps_its_head_puts_in_both_readers() {
         let defs = r.definitions_at(0, u64::MAX).unwrap();
         assert!(defs.items.contains_key(&Slot::Layout));
         assert!(defs.items.contains_key(&Slot::Producer));
+    }
+}
+
+/// A group of one block that doesn't read is lost alone: the group after it, past a block of data, stays whole, and
+/// before that group the one before the damaged one is in force. A scan and a lookup through the index agree.
+#[test]
+fn a_damaged_one_block_group_is_lost_alone() {
+    let mut w = begin_numbered(
+        options(u64::MAX),
+        ww_tape::Layout::UNALIGNED.on_sd_card(),
+        &TRACKS.map(state),
+    );
+    for d in &TRACKS.map(state) {
+        w.define(d).unwrap();
+    }
+    let tape = w.sink().tape();
+    let [a, b, c] = [1, 2, 3].map(|seed| items(seed * 40, 8));
+    put_group(&mut w, &a).unwrap();
+    crate::definitions::write_records(&mut w, 10, 1);
+    let b_at = tape.to_vec().unwrap().len();
+    put_group(&mut w, &b).unwrap();
+    let b_end = tape.to_vec().unwrap().len();
+    crate::definitions::write_records(&mut w, 20, 1);
+    let c_at = tape.to_vec().unwrap().len() as u64;
+    put_group(&mut w, &c).unwrap();
+    w.w.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let by_index = flipped(&bytes, (b_at, b_end - b_at));
+    let by_scan = blanked(&bytes, (b_at, b_end - b_at));
+    let readers = [
+        TapeReader::open(&by_index[..]).unwrap(),
+        TapeReader::open_with(&by_scan[..], raw()).unwrap(),
+    ];
+    for (n, r) in readers.iter().enumerate() {
+        for (t, track) in TRACKS.iter().enumerate() {
+            let slot = Slot::State {
+                track: TrackNum::new(*track),
+            };
+            let end = r.state_at(0, slot, u64::MAX).unwrap();
+            assert_eq!(end.item.map(|i| i.item), Some(c[t].clone()), "reader {n}");
+            assert!(end.lost.is_empty(), "reader {n}: {:?}", end.lost);
+            let before = r.state_at(0, slot, c_at).unwrap();
+            assert_eq!(
+                before.item.map(|i| i.item),
+                Some(a[t].clone()),
+                "reader {n}"
+            );
+        }
     }
 }

@@ -123,7 +123,8 @@ off size field
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-         without it refuses the block); others 0, and a reader ignores them
+         without it refuses the block), bit 8 on a block of puts one of a group (FLAG_GROUP); others
+         0, and a reader ignores them
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -187,6 +188,7 @@ moves the block's body behind the tile, so a reader without it refuses the block
 | 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
 | 4 | `FLAG_RELATION_BREAK` | an events chunk where a track's monotone relations start again ([below](#relation-breaks)) |
 | 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
+| 8 | `FLAG_GROUP` | a block of puts of a group, taken whole or not at all ([Groups of puts](#groups-of-puts)); it only marks, and a reader that doesn't know it reads the block as any block of puts |
 
 ### 3.3 Records blocks {#records-blocks}
 
@@ -812,13 +814,20 @@ Readers take a run whole or not at all:
 
 | Reader | A run |
 |---|---|
-| a scan of a piece | its entries only once the block it belongs to is taken; a run cut by the end of the bytes, damage, a gap or the end of a piece is listed in `PieceInfo::dropped_runs` and its blocks in no entry |
+| a scan of a piece | its entries only once the block it belongs to is taken, or a close, a close summary or an index, which the writer never writes inside a run; the rest are listed in `PieceInfo::dropped_runs` and their blocks in no entry |
 | a follower (`ChainFollower`) | its blocks only with the last one; until then it keeps their places, at most `RUN_BLOCKS_MAX`, and reads their bytes again then (`FollowError::RunTooLong` past it) |
 | a resume | drops a run at the end of what it keeps (`Resumed::dropped_run`) |
-| the index of a closed piece | every block: only a resume closes a crashed piece, and it drops the torn run first |
+| a lookup through the index of a closed piece | a block of a group only when every block of its group reads; any other block alone |
 
-So no reader shows part of a run that a crash tore. Damage inside a run of a closed piece hurts its blocks
-only. A lookup lists the block it lost, as for any other block.
+A scan drops a run that the end of the bytes, a tail or a piece head cuts: what a crash tears. So no reader shows
+part of a run that a crash tore.
+
+Damage inside a run hurts its blocks only, unless they are of a group of puts ([Groups of puts](#groups-of-puts)).
+A group is taken whole or not at all, damaged too, so a block of a group that doesn't read drops the whole group. A
+block that doesn't read hides its own marks. After damage, a scan so drops the blocks of a group up to the first one
+not marked `FLAG_WITH_NEXT`. A lookup through the index drops a block of a group whose group has a block that doesn't
+read, or after a block of puts that doesn't read. Both list what they dropped, and the state before the group stays
+in force. A group right after a damaged one may so be dropped too.
 
 `TapeWriter::put_block` puts a producer's block of puts by the writer's own rule. `relay_block` passes a live producer's
 stream on.
@@ -829,7 +838,9 @@ stream on.
 Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close
 behind. The records it writes and the definitions they need go into blocks of puts one after the other, every block
 but the last marked `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of
-puts; a group adds no new field.
+puts, each block of a group marked `FLAG_GROUP` (bit 8). The flag only marks: a reader that doesn't know it reads
+the blocks as any blocks of puts, and loses nothing a crash leaves, since a group is a run. A reader that knows it
+also drops a damaged group whole ([Marking blocks of puts](#marking-blocks-of-puts)).
 
 The writer checks the whole group before it writes the first block:
 

@@ -370,6 +370,17 @@ const _: () = {
     );
 };
 
+/// How the blocks of puts a call writes end ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum PutsEnd {
+    /// The last block is unmarked: the puts stand on their own.
+    Last,
+    /// Every block is marked: a block of data they serve follows.
+    WithNext,
+    /// The last block is unmarked and every block is marked [FLAG_GROUP](crate::FLAG_GROUP): a group of puts.
+    Group,
+}
+
 /// A put of a group ([TapeWriter::put_group]): `item` on state track `track` at `ticks` of its clock.
 #[derive(Copy, Clone, Debug)]
 pub struct GroupPut<'a> {
@@ -749,7 +760,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
-        let chosen = self.put_chosen(&cands, false)?;
+        let chosen = self.put_chosen(&cands, PutsEnd::Group)?;
         Ok(chosen
             .get(first..)
             .map(<[bool]>::to_vec)
@@ -797,17 +808,17 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Put `cands` ([Self::choose]); whether the last one was written.
     fn put_last(&mut self, cands: &[Candidate<'_>]) -> Result<bool, WriteError<S::Error>> {
-        let chosen = self.put_chosen(cands, false)?;
+        let chosen = self.put_chosen(cands, PutsEnd::Last)?;
         Ok(chosen.last().copied().unwrap_or(false))
     }
 
-    /// Put `cands` ([Self::choose]), the last block marked as belonging with the next with `with_next`; which of
+    /// Put `cands` ([Self::choose]), its blocks ending as `end` says; which of
     /// them were written, one flag each.
     /// Refused with nothing written when the piece has no room for the state entries of those chosen.
     fn put_chosen(
         &mut self,
         cands: &[Candidate<'_>],
-        with_next: bool,
+        end: PutsEnd,
     ) -> Result<Vec<bool>, WriteError<S::Error>> {
         // a call that needs a definition or puts an item uses the layout and the producer: a copy is due as for a
         // definition, where the piece has room for it
@@ -827,7 +838,7 @@ impl<S: TapeSink> TapeWriter<S> {
             chosen = self.choose(&all)?;
         }
         self.room(chosen.iter().filter(|c| **c).count(), false)?;
-        self.write_chosen(&all, &chosen, with_next)?;
+        self.write_chosen(&all, &chosen, end)?;
         let head = chosen.len().saturating_sub(cands.len());
         Ok(chosen.get(head..).map(<[bool]>::to_vec).unwrap_or_default())
     }
@@ -913,18 +924,18 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         cands: &[Candidate<'_>],
         chosen: &[bool],
-        with_next: bool,
+        end: PutsEnd,
     ) -> Result<(), WriteError<S::Error>> {
         let records = chosen_records(cands, chosen);
         for r in &records {
             self.work.copy(r.item.len());
         }
-        self.write_puts(&records, with_next)
+        self.write_puts(&records, end)
     }
 
     /// Before a block of data needing `cands`: put them, belonging with it.
     fn put_needed(&mut self, cands: &[Candidate<'_>]) -> Result<(), WriteError<S::Error>> {
-        self.put_chosen(cands, true).map(drop)
+        self.put_chosen(cands, PutsEnd::WithNext).map(drop)
     }
 
     /// The blocks of definitions the tracks of head rows `rows` carry ([carried]), as candidates to put, taking at
@@ -1078,7 +1089,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.ensure_head()?;
         for b in blocks {
             let all = vec![true; b.len()];
-            self.write_chosen(b, &all, true)?;
+            self.write_chosen(b, &all, PutsEnd::WithNext)?;
         }
         self.carried_due = false;
         Ok(())
@@ -1094,7 +1105,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let items = self.head_candidates()?;
         self.head_items.clone_from(&items);
         // they belong with the call's block; at a piece head a resume puts them again when nothing follows
-        self.write_puts(&chosen_records(&items, &[true, true]), true)
+        self.write_puts(&chosen_records(&items, &[true, true]), PutsEnd::WithNext)
     }
 
     /// The layout and the producer as candidates to put, on track 0 by its rule.
@@ -1123,13 +1134,19 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Write `records` as blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT), with the seq of the last counted block,
     /// not counted themselves; the call that writes them checked their room first ([Self::room]).
-    /// Every block but the last is marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the last one too with `with_next`:
-    /// the call goes on with a block of data they serve.
+    /// Every block but the last is marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the last one too when `end` says
+    /// the call goes on with a block of data they serve; every block of a group is marked
+    /// [FLAG_GROUP](crate::FLAG_GROUP).
     fn write_puts(
         &mut self,
         records: &[RecordRef<'_>],
-        with_next: bool,
+        end: PutsEnd,
     ) -> Result<(), WriteError<S::Error>> {
+        let with_next = end == PutsEnd::WithNext;
+        let flags = match end {
+            PutsEnd::Group => crate::FLAG_REPEAT | crate::FLAG_GROUP,
+            PutsEnd::Last | PutsEnd::WithNext => crate::FLAG_REPEAT,
+        };
         if records.is_empty() {
             return Ok(());
         }
@@ -1138,7 +1155,7 @@ impl<S: TapeSink> TapeWriter<S> {
         write_records(
             records,
             DEFINITION_BLOCK_LEN,
-            crate::FLAG_REPEAT,
+            flags,
             || id,
             |b| {
                 blocks.push(b.to_vec());
@@ -1717,7 +1734,7 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         self.place_overdue(puts_len_upper(&needs))?;
         self.ensure_carried(defs)?;
-        self.put_chosen(&needs, false)?;
+        self.put_chosen(&needs, PutsEnd::Last)?;
         // placed before any later block of its track: a chunk after it goes on from its values, filed under its
         // track's key once the definition naming the track's owner is placed
         if let Some(c) = b.chunk()
@@ -2109,7 +2126,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 if with_next {
                     crate::mark_with_next_trusted(&mut buf).map_err(WriteError::Block)?;
                 }
-                self.write_chosen(&needs, &chosen, true)?;
+                self.write_chosen(&needs, &chosen, PutsEnd::WithNext)?;
                 if self.at()? != at {
                     return Err(WriteError::Index(IndexError::Invalid(
                         "the puts before a chunk took other bytes than chosen",

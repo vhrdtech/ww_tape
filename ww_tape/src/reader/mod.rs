@@ -1159,7 +1159,7 @@ impl<S: ByteSource> TapeReader<S> {
                 if let Some(next) = self.past_gap(at, hi, &walk)?
                     && let Some(len) = next.checked_sub(at)
                 {
-                    runs.drop_torn(&mut piece);
+                    runs.damaged(&mut piece);
                     piece.gaps.push((at, len));
                     at = next;
                     continue;

@@ -5,8 +5,8 @@
 use std::sync::OnceLock;
 
 use ww_tape::{
-    BlockId, BlockKind, ClockTime, FLAG_REPEAT, FLAG_WITH_NEXT, FileBlocks, GroupPut, MemSink,
-    RUN_BLOCKS_MAX, Recovery, TapeWriter,
+    BlockId, BlockKind, ClockTime, FLAG_GROUP, FLAG_REPEAT, FLAG_WITH_NEXT, FileBlocks, GroupPut,
+    MemSink, RUN_BLOCKS_MAX, Recovery, TapeWriter,
 };
 
 use super::{Draw, HEADER_LEN, SESSION, seal};
@@ -123,8 +123,8 @@ pub(crate) fn marked(f: &[u8], at: usize) -> bool {
 /// The template, or by the input its variant with a run too long, with one to three attacks on its runs drawn from
 /// `data`, then perhaps cut.
 ///
-/// An attack marks a block of records or takes its mark away behind a good CRC, damages a marked block, zeros a
-/// stretch from inside a run, or cuts inside a run.
+/// An attack marks a block of records or takes its mark away ([FLAG_WITH_NEXT] or [FLAG_GROUP]) behind a good CRC,
+/// damages a marked block, zeros a stretch from inside a run, or cuts inside a run.
 pub fn runs(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
     let mut f = if d.below(8) == 0 {
@@ -142,8 +142,9 @@ pub fn runs(data: &[u8]) -> Vec<u8> {
         match d.below(4) {
             0 => {
                 if let Some((at, len, _)) = records.get(d.below(records.len().max(1))) {
+                    let flag = if d.bool() { FLAG_WITH_NEXT } else { FLAG_GROUP };
                     let b = &mut f[*at..at + len];
-                    let flags = u16::from_le_bytes([b[6], b[7]]) ^ FLAG_WITH_NEXT;
+                    let flags = u16::from_le_bytes([b[6], b[7]]) ^ flag;
                     b[6..8].copy_from_slice(&flags.to_le_bytes());
                     seal(b);
                 }
