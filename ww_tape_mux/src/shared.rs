@@ -8,12 +8,13 @@ use std::time::Instant;
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
-    ChainPiece, CloseReason, ColumnSpec, Definitions, DescribeError, PieceStore, TrackFacts,
-    TrackNum, WriteError,
+    ChainPiece, CloseReason, ColumnSpec, Definitions, DescribeError, ItemHash, PieceStore,
+    TrackFacts, TrackNum, WriteError,
 };
 
 use crate::MuxStats;
 use crate::error::{MuxError, Unit};
+use crate::items::ItemCarry;
 use crate::open::Complete;
 use crate::placing::PlacedTx;
 use crate::progress::Watch;
@@ -78,6 +79,17 @@ pub(crate) enum Work<T: PieceStore> {
         track: TrackNum,
         ticks: i64,
         item: Vec<u8>,
+    },
+    /// A typed item, encoded as its definition ([ww_tape::Describe::Item]), to put and hold as `carry` says.
+    PutItem {
+        item: Vec<u8>,
+        carry: ItemCarry,
+        reply: ReplyTx<Result<ItemHash, MuxError<T::Error>>>,
+    },
+    /// Hold a typed item no more.
+    ReleaseItem {
+        hash: ItemHash,
+        reply: ReplyTx<bool>,
     },
     /// A track, encoded ([crate::define::track]).
     DefineTrack {

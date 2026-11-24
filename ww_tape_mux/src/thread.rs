@@ -12,6 +12,7 @@ use ww_tape::{
 
 use crate::define;
 use crate::error::MuxError;
+use crate::items::Held;
 use crate::open;
 use crate::placing::{Placement, Unplaced};
 use crate::queue::Popped;
@@ -53,6 +54,8 @@ struct State<'a, T: PieceStore> {
     /// The blocks a resume kept of the piece whose trees are still to be rebuilt: before the first write, so the
     /// tracks are defined again by then
     rebuild: Option<Vec<IndexEntry>>,
+    /// Typed items put again in each piece a cut starts
+    items: Held,
 }
 
 /// The thread: place every unit until a close or a stop, ticking every `tick`.
@@ -69,6 +72,7 @@ pub(crate) fn run<T: PieceStore>(
         trees: Trees::new(chain.seq()),
         late: Vec::new(),
         rebuild,
+        items: Held::new(chain.seq()),
     };
     let mut next_tick = Instant::now().checked_add(tick);
     let exit = loop {
@@ -79,6 +83,7 @@ pub(crate) fn run<T: PieceStore>(
         match shared.queue.pop(deadline) {
             Popped::Unit(work, bytes) => {
                 let exit = place(&mut chain, &mut defs, &mut st, work, bytes);
+                carry_items(&mut chain, &defs, &mut st);
                 shared.queue.release(bytes);
                 shared.watch.publish(&mut chain, None);
                 if let Some(exit) = exit {
@@ -98,6 +103,7 @@ pub(crate) fn run<T: PieceStore>(
         });
         if next_tick.is_some_and(|t| now >= t) {
             chores(&mut chain, &defs, &mut st);
+            carry_items(&mut chain, &defs, &mut st);
             shared.watch.publish(&mut chain, None);
             next_tick = now.checked_add(tick);
         }
@@ -168,6 +174,25 @@ fn rebuilt<T: PieceStore>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mu
     }
 }
 
+/// Put the held typed items into a piece a cut just started: a failure stops the chain, a refusal is counted.
+fn carry_items<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    st: &mut State<'_, T>,
+) {
+    let shared = st.shared;
+    if shared.failure.get().is_some() {
+        return;
+    }
+    match st.items.carry(chain, defs) {
+        Ok(()) => {}
+        Err(e) if stops(chain, &e) => {
+            shared.fail(e);
+        }
+        Err(_) => Counters::add(&shared.counters.refused, 1),
+    }
+}
+
 /// Whether placing `work` writes: it waits for the rebuild of a resumed piece's trees.
 fn writes<T: PieceStore>(work: &Work<T>) -> bool {
     matches!(
@@ -175,6 +200,7 @@ fn writes<T: PieceStore>(work: &Work<T>) -> bool {
         Work::Chunk { .. }
             | Work::Block { .. }
             | Work::Put { .. }
+            | Work::PutItem { .. }
             | Work::Cut { .. }
             | Work::Flush { sync: true, .. }
             | Work::Close { .. }
@@ -384,6 +410,17 @@ fn place<T: PieceStore>(
             }
             from.give_back(item);
         }
+        Work::PutItem { item, carry, reply } => {
+            let r = match shared.failure.get() {
+                Some(f) => Err(MuxError::Failed(f.clone())),
+                None => st
+                    .items
+                    .put(chain, defs, item, carry)
+                    .map_err(|e| refused(chain, shared, e)),
+            };
+            reply.send(r);
+        }
+        Work::ReleaseItem { hash, reply } => reply.send(st.items.release(hash)),
         Work::DefineTrack { item, reply } => reply.send(define::hold_track(defs, &item)),
         Work::DefineClock { items, reply } => reply.send(define::hold_clock(defs, &items)),
         Work::DefineAll { items, reply } => reply.send(define::hold_all(defs, &items)),

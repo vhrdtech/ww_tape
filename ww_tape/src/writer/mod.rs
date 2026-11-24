@@ -918,6 +918,27 @@ impl<S: TapeSink> TapeWriter<S> {
         self.wanted.extend_from_slice(tracks);
     }
 
+    /// The owners of the tracks whose definitions the piece head carries ([TrackStart::not_carried] not set), each
+    /// once, ascending; a track of all-zero owner counts as the piece's own owner's. Empty without a head.
+    pub fn carried_owners(&self, defs: &Definitions) -> Vec<OwnerId> {
+        let piece = self
+            .head
+            .as_ref()
+            .map_or(OwnerId::NONE, |(h, _)| h.ident.owner);
+        let rows: Vec<TrackStart> = self
+            .head_rows()
+            .iter()
+            .filter(|r| !r.not_carried)
+            .copied()
+            .collect();
+        let owners: BTreeSet<OwnerId> = carried::numbers(defs, &rows)
+            .into_iter()
+            .filter_map(|n| defs.track_key(n))
+            .map(|(_, o)| if o == [0; 32] { piece } else { OwnerId(o) })
+            .collect();
+        owners.into_iter().collect()
+    }
+
     /// The rows of the piece head this writer wrote or resumed after; none without a head.
     fn head_rows(&self) -> &[TrackStart] {
         self.head

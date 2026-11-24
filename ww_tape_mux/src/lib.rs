@@ -94,6 +94,7 @@ mod error;
 mod events;
 mod grid;
 mod handle;
+mod items;
 mod leaves;
 mod open;
 mod overview;
@@ -113,8 +114,9 @@ use std::time::Duration;
 use exact_units::Bytes;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
-    ChainOptions, ChainPiece, ClockNum, ClockSpec, CloseReason, Definitions, Describe, MapSegment,
-    OwnerId, PieceChain, PieceStore, Resumed, TrackNum, TrackSpec, TrackStart,
+    ChainOptions, ChainPiece, ClockNum, ClockSpec, CloseReason, Definitions, Describe, ItemHash,
+    MapSegment, OwnerId, PieceChain, PieceStore, Resumed, TrackNum, TrackSpec, TrackStart,
+    TypedItem,
 };
 
 pub use error::{CallError, EncodeError, ItemError, MuxError, Unit};
@@ -124,6 +126,7 @@ pub use events::{
 };
 pub use grid::{CHUNK_STEPS_DEFAULT, GridHandle, GridOptions};
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
+pub use items::ItemCarry;
 pub use leaves::{Leaves, SampleLeaves};
 pub use placing::{Placement, Placing, Unplaced};
 pub use progress::{Progress, ProgressWatch, TrackProgress, WaitPast};
@@ -353,6 +356,48 @@ where
         let (tx, rx) = reply();
         let w = Work::DefineAll { items, reply: tx };
         Ok(self.shared.control_async(w, rx).await??)
+    }
+
+    /// Put typed item `item` on track 0 ([PieceChain::put_item]) once every unit sent before is placed, and hold it
+    /// for the pieces later cuts start as `carry` says: a cut carries track definitions, not typed items. Its hash,
+    /// which [Self::release_item] takes.
+    ///
+    /// A resumed mux holds no item: put them again after the resume, as the tracks are defined again.
+    pub fn put_item(
+        &self,
+        item: &TypedItem<'_>,
+        carry: ItemCarry,
+    ) -> Result<ItemHash, MuxError<T::Error>> {
+        block_on(self.put_item_async(item, carry))
+    }
+
+    /// [Self::put_item] as a future.
+    pub async fn put_item_async(
+        &self,
+        item: &TypedItem<'_>,
+        carry: ItemCarry,
+    ) -> Result<ItemHash, MuxError<T::Error>> {
+        let item = ww_tape::open::encode(&Describe::Item(item.clone()))?;
+        let (tx, rx) = reply();
+        let w = Work::PutItem {
+            item,
+            carry,
+            reply: tx,
+        };
+        self.shared.control_async(w, rx).await?
+    }
+
+    /// Hold item `hash` ([Self::put_item]) no more: later pieces don't get it. Whether it was held.
+    pub fn release_item(&self, hash: ItemHash) -> Result<bool, MuxError<T::Error>> {
+        block_on(self.release_item_async(hash))
+    }
+
+    /// [Self::release_item] as a future.
+    pub async fn release_item_async(&self, hash: ItemHash) -> Result<bool, MuxError<T::Error>> {
+        let (tx, rx) = reply();
+        self.shared
+            .control_async(Work::ReleaseItem { hash, reply: tx }, rx)
+            .await
     }
 
     /// A copy of the definitions the mux holds, as of every unit sent before.

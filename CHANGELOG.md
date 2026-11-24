@@ -13,6 +13,8 @@ benchmarks, golden files and book pages.
 - `ChunkSender::send_placed` gives a `Placing` receipt: the chunk's piece, offset, length and unit hash once placed (MUX-4).
 - `TapeMux::summarized_chunks` gives a `ChunkSender` whose chunks carry `Leaves`: the mux's summary tree, as a typed handle's (MUX-4).
 - `ChunkSender::event_runs` and `sample_leaves` compute a chunk's leaves on the caller's thread; `EventRuns::fields` names its fields (MUX-4).
+- `TapeMux::put_item` puts a typed item and carries it into later pieces as `ItemCarry` says; `release_item` ends it (MUX-4).
+- `TapeWriter::carried_owners` names the owners of the tracks a piece head carries (MUX-4).
 - `Definitions::track_key` is public: a held track's id and owner (READ-6).
 
 ## [0.9.0] - 2026-11-24
