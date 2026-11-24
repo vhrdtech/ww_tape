@@ -11,7 +11,7 @@ use crate::pieces::{chunk, column, scratch};
 use ww_tape::sink::TapeSink;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ClockNum, ClockTime, CutPolicy, Definitions,
-    Describe, MemPieces, OwnerId, PieceChain, PieceStore, PieceTapes, Resumed, SyncPolicy,
+    Describe, MemPieces, OwnerId, PieceChain, PieceStore, PieceTapes, Resumed, Slot, SyncPolicy,
     TapeReader, TrackNum, WriteError, WriterOptions,
 };
 
@@ -311,4 +311,48 @@ fn files_bytes(dir: &Path) -> Vec<u8> {
         .iter()
         .flat_map(|p| std::fs::read(p).unwrap())
         .collect()
+}
+
+/// A definition that doesn't read is counted ([Resumed::numbers_unread]), never skipped silently: the block holding
+/// clock 2's definition in piece 1 damaged, the resume after a crash between pieces counts it and gives clock 2 no
+/// number; track 5 keeps its number from the close's rows.
+#[test]
+fn a_chain_resume_counts_the_definitions_it_could_not_read() {
+    let mem = MemPieces::new();
+    let mut c =
+        PieceChain::create_on(mem.clone(), OWNER, 0, &[], options(PieceTapes::Each)).unwrap();
+    let defs = write_story(&mut c, false);
+    drop(c);
+    let after = MemPieces::new();
+    for key in mem.keys().unwrap().into_iter().filter(|k| *k != 4) {
+        let tape = mem.get(&key).unwrap().unwrap();
+        let mut bytes = tape.to_vec().unwrap();
+        if key == 1 {
+            let at = TapeReader::open(&bytes[..])
+                .unwrap()
+                .definitions_at(0, u64::MAX)
+                .unwrap()
+                .items[&Slot::Clock {
+                number: ClockNum::new(2),
+            }]
+                .offset as usize;
+            bytes[at + 40] ^= 0xff;
+        }
+        let mut sink = after.create(&key).unwrap();
+        sink.write_all(&bytes).unwrap();
+        sink.close().unwrap();
+    }
+    let (_, resumed) = PieceChain::resume_on(after, OWNER, 0, options(PieceTapes::Each)).unwrap();
+    assert!(resumed.numbers_unread >= 1, "{}", resumed.numbers_unread);
+    let Describe::Clock(two) = clock(2) else {
+        unreachable!("clock() gives a clock")
+    };
+    assert_eq!(resumed.numbers.clock(two.key), None);
+    let Describe::Track(five) = track(5, 2) else {
+        unreachable!("track() gives a track")
+    };
+    assert_eq!(
+        resumed.numbers.track(five.id(), five.owner),
+        defs.numbers().track(five.id(), five.owner)
+    );
 }

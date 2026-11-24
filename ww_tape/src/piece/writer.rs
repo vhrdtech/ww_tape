@@ -1149,16 +1149,18 @@ fn read_closed_at<B: ByteSource>(
     ))
 }
 
-/// The numbers a chain's resume reads from its pieces, oldest first.
+/// The numbers a chain's resume reads from its pieces, oldest first, and the definitions it could not read.
 #[derive(Default)]
 struct ChainNumbers {
     numbers: crate::Numbers,
+    unread: usize,
 }
 
 impl ChainNumbers {
     /// Take the numbers of piece `i` of `reader` up to its last close, over those taken: its head's rows, the track
     /// and clock definitions in force at that close, then the close's rows. A piece without a close gives none: its
-    /// resume reads it whole.
+    /// resume reads it whole. A definition that doesn't read, or that doesn't decode, is counted unread; a lookup
+    /// whose budget ran out counts once.
     fn take<B: ByteSource>(
         &mut self,
         reader: &TapeReader<B>,
@@ -1177,13 +1179,17 @@ impl ChainNumbers {
         let defs = reader
             .definitions_at(i, close_at)
             .map_err(WriteError::Read)?;
+        self.unread = self
+            .unread
+            .saturating_add(defs.lost.len())
+            .saturating_add(usize::from(defs.spent));
         for s in defs.items.values() {
             match <crate::Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(
                 &s.item,
             ) {
                 Ok(crate::Describe::Track(t)) => self.numbers.take_track(t.number, t.id(), t.owner),
                 Ok(crate::Describe::Clock(c)) => self.numbers.take_clock(c.number, c.key),
-                _ => {}
+                _ => self.unread = self.unread.saturating_add(1),
             }
         }
         for r in p.close.iter().flat_map(|(_, rows)| rows) {
@@ -1194,10 +1200,11 @@ impl ChainNumbers {
     }
 
     /// `resumed` with the numbers of the resumed piece over these: what an application numbers the tracks and clocks
-    /// it defines again by ([Resumed::numbers]).
+    /// it defines again by ([Resumed::numbers]), and the definitions not read ([Resumed::numbers_unread]).
     fn under(mut self, mut resumed: Resumed) -> Resumed {
         self.numbers.take_all(&resumed.numbers);
         resumed.numbers = self.numbers;
+        resumed.numbers_unread = resumed.numbers_unread.saturating_add(self.unread);
         resumed
     }
 }

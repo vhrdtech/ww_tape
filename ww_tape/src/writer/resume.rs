@@ -126,6 +126,11 @@ pub struct Resumed {
     /// piece. An application numbers with them ([crate::Definitions::with_numbers]), so the tracks and clocks it
     /// defines again keep their numbers.
     pub numbers: crate::Numbers,
+    /// Track and clock definitions a chain's resume could not read in the pieces before the resumed piece's own
+    /// writes: blocks that don't read, items that don't decode, and one per piece whose lookup budget
+    /// ([OpenOptions::state_read_max](crate::OpenOptions::state_read_max)) ran out. Not zero, some numbers may be
+    /// missing from [Self::numbers], and a track or clock defined again may get a new one.
+    pub numbers_unread: usize,
 }
 
 impl Resumed {
@@ -140,6 +145,7 @@ impl Resumed {
             layout: None,
             after_close: None,
             numbers: crate::Numbers::new(),
+            numbers_unread: 0,
         }
     }
 }
@@ -985,6 +991,7 @@ impl<S: TapeSink> TapeWriter<S> {
             layout: named.layout,
             after_close,
             numbers: named.numbers,
+            numbers_unread: 0,
         };
         Ok((w, resumed))
     }
