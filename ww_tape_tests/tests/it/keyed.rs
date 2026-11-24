@@ -220,6 +220,69 @@ fn a_prefix_lists_its_live_keys_in_order() {
     assert!(before.items.contains_key(&b"/b"[..]));
 }
 
+/// The index's deletion mark lists a key's slots; the record decides a value. An index whose newest entry of a live
+/// key claims a deletion, behind good CRCs, drops the key from [TapeReader::key_slots] but not from
+/// [TapeReader::keys_at], which reads the record.
+#[test]
+fn keys_at_takes_a_deletion_from_the_record() {
+    let mut bytes = store();
+    let newest = r_entries(&bytes, b"/a").last().unwrap().0;
+    forge_index(&mut bytes, |e| {
+        if e.key == Some(KeyId::of(b"/a").unwrap()) && e.offset == newest.offset {
+            e.deleted = true;
+        }
+    });
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert!(
+        r.key_entries(0, KEYED, b"/a").unwrap()[1].1.deleted,
+        "the forged mark is read"
+    );
+    let slots = r.key_slots(0, KEYED, b"/a", u64::MAX).unwrap();
+    assert!(slots.is_empty(), "the index alone lists no slot");
+    let at = r.keys_at(0, KEYED, b"/a", u64::MAX).unwrap();
+    let a = at.items.get(&b"/a"[..]).expect("the record is a value");
+    assert_eq!(a.keyed().unwrap().value, Some(&b"3"[..]));
+}
+
+/// The entries of key `key` in the piece `bytes`.
+fn r_entries(bytes: &[u8], key: &[u8]) -> Vec<(ww_tape::index::IndexEntry, ww_tape::StateEntry)> {
+    TapeReader::open(bytes)
+        .unwrap()
+        .key_entries(0, KEYED, key)
+        .unwrap()
+}
+
+/// Every index block of `bytes` written again with its entries passed through `edit`, at the same length.
+fn forge_index(bytes: &mut [u8], edit: impl Fn(&mut ww_tape::index::IndexEntry)) {
+    use ww_tape::index::{IndexBlock, IndexHead, index_len, write_index};
+    let mut at = vec![];
+    let mut rd = ww_tape::FileBlocks::with_recovery(&*bytes, ww_tape::Recovery::Prefix);
+    while let Some(Ok(b)) = rd.next_block() {
+        let (kind, len) = (b.kind, b.len());
+        if kind == BlockKind::Index {
+            at.push((rd.offset() as usize, len));
+        }
+    }
+    for (at, len) in at {
+        let copy = bytes[at..at + len].to_vec();
+        let block = Block::read(&copy).unwrap();
+        let ix = IndexBlock::read(&block).unwrap();
+        let mut entries: Vec<_> = ix.entries().collect();
+        entries.iter_mut().for_each(&edit);
+        let head = IndexHead {
+            kind: ix.kind(),
+            self_offset: ix.self_offset(),
+            prev: ix.prev(),
+        };
+        let id = ww_tape::BlockId::new(block.session, block.seq);
+        let tracks = ww_tape::index::track_count(&entries);
+        let mut buf = vec![0u8; index_len(entries.len(), tracks)];
+        let n = write_index(&mut buf, id, &head, &entries).unwrap();
+        assert_eq!(n, len, "the forged index keeps its length");
+        bytes[at..at + n].copy_from_slice(&buf[..n]);
+    }
+}
+
 /// A keyed track's records sit in blocks of their own, marked keyed and repeat; the same key and value again close
 /// behind is not written.
 #[test]

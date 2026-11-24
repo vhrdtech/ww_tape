@@ -288,7 +288,8 @@ fn key_lookups(r: &TapeReader<&[u8]>, i: usize, track: TrackNum, key: &[u8], pla
     }
 }
 
-/// Prefix `prefix` listed at `place`: live keys in order that may have it, values only of keys that have it.
+/// Prefix `prefix` listed at `place`: live keys in order that may have it, values only of keys that have it, each
+/// a key the index lists.
 fn prefix_lookups(r: &TapeReader<&[u8]>, i: usize, track: TrackNum, prefix: &[u8], place: u64) {
     let Ok(slots) = r.key_slots(i, track, prefix, place) else {
         return;
@@ -314,9 +315,18 @@ fn prefix_lookups(r: &TapeReader<&[u8]>, i: usize, track: TrackNum, prefix: &[u8
         assert!(key.starts_with(prefix), "a key of the prefix");
         assert!(k.value.is_some(), "a live key");
         assert!(item.offset < place, "a value before the place");
+        // the record decides a deletion: a key whose newest entry is marked deleted, by a forged mark or with its
+        // block lost, lists its value though key_slots leaves it out
+        let listed = slots.iter().any(|s| Some(s.key) == k.id());
+        let marked = r.key_entries(i, track, key).is_ok_and(|es| {
+            es.iter()
+                .rev()
+                .find(|(e, _)| e.offset < place)
+                .is_some_and(|(_, s)| s.deleted)
+        });
         assert!(
-            slots.iter().any(|s| Some(s.key) == k.id()),
-            "a key the index lists"
+            listed || marked,
+            "a key the index lists, live or marked deleted"
         );
     }
 }

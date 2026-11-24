@@ -845,6 +845,7 @@ stretch of the sorted entries. A key of at most 8 bytes is whole in the index.
 Two keys of the same id share a slot. By chance that is about one pair in 2^64, but a key set crafted for it costs
 about 2^32 BLAKE3 hashes. A lookup of one key (`TapeReader::key_at`) reads each record's full key and stays exact.
 A listing (`keys_at`) reads the newest record of each slot, so it shows only the newer of two keys that share one.
+Whether a key lives is the record's to say: the index's deletion mark lists slots (`key_slots`) without reading one.
 
 A cut carries no keys into the new piece yet.
 

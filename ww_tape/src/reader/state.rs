@@ -691,7 +691,8 @@ impl<S: ByteSource> TapeReader<S> {
     /// The live keys of keyed state track `track` in piece `i` that may start with `prefix`, as of `offset`, from
     /// the index alone, in key order: each key whose newest record before `offset` is not a deletion. Exact for a
     /// prefix of at most [KEY_HEAD_LEN](crate::KEY_HEAD_LEN) bytes; past that [KeySlot::sure] says which only the
-    /// record decides. Keys of one [KeyId] are one slot.
+    /// record decides. Keys of one [KeyId] are one slot. A deletion is the index's mark, which no record checks
+    /// here; [Self::keys_at] reads the records.
     pub fn key_slots(
         &self,
         i: usize,
@@ -714,14 +715,14 @@ impl<S: ByteSource> TapeReader<S> {
 
     /// The value of every key of keyed state track `track` in piece `i` that starts with `prefix`, in force at
     /// `offset`: each key's newest record whose block starts before `offset`, an older one where that block doesn't
-    /// read. Keys whose newest record is a deletion are left out. Of two keys of one [KeyId], only the one written
-    /// last is listed ([state](crate::state)).
+    /// read. Keys whose newest record read is a deletion are left out: the record decides, not the index's
+    /// deletion mark. Of two keys of one [KeyId], only the one written last is listed ([state](crate::state)).
     pub fn keys_at(&self, i: usize, track: TrackNum, prefix: &[u8], offset: u64) -> R<KeysAt, S> {
         let ix = self.state_index(i)?;
+        // the index's deletion mark is not taken: the record read decides whether the key lives
         let slots: Vec<Slot> = ix
             .key_slots(track, prefix, offset)
             .into_iter()
-            .filter(|(_, (_, s), _)| !s.deleted)
             .map(|(_, (_, s), _)| s.slot)
             .collect();
         let wanted: BTreeSet<(Slot, ItemHash)> = slots
