@@ -297,7 +297,12 @@ pub struct TrackFollower {
 }
 
 impl TrackFollower {
-    pub(crate) fn new(chain: ChainFollower, items: TrackItems) -> Self {
+    pub(crate) fn new(chain: ChainFollower, mut items: TrackItems) -> Self {
+        // the piece head may lie before the first block handed out ([FollowStart::End](super::FollowStart::End));
+        // each piece head handed out after it names its own piece's owner
+        if let Some(owner) = chain.owner() {
+            items.piece_owner = owner;
+        }
         Self {
             chain,
             items,
@@ -368,10 +373,6 @@ impl TrackFollower {
     }
 
     fn take(&mut self, f: &Followed) -> Result<(), FollowError> {
-        // the piece head may lie before the first block handed out
-        if let Some(owner) = self.chain.owner() {
-            self.items.piece_owner = owner;
-        }
         self.items
             .take(&f.block, self.chain.definitions(), &mut self.pending)
             .map_err(|error| FollowError::Track {
