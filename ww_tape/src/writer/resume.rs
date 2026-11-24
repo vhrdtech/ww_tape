@@ -1173,9 +1173,9 @@ impl<S: TapeSink> TapeWriter<S> {
             }
         }
         // a keyed record unread: its track's keys may miss it
-        for e in entries.iter().filter(|e| e.key.is_some()) {
-            if let Some(track) = e.track()
-                && let Some(key) = self.indexer.key_of(track, Some(e.track_id))
+        for e in entries.iter().filter_map(IndexEntry::state) {
+            if let crate::state::Slot::Keyed { track, .. } = e.slot
+                && let Some(key) = self.indexer.key_of(track, None)
             {
                 self.kept.keys_doubted(track, key);
             }

@@ -354,6 +354,75 @@ fn a_crash_inside_the_close_of_a_cut_keeps_every_key() {
     }
 }
 
+/// [wide_options] with a checkpoint every 1 KiB: a block that doesn't read stands by its entry.
+fn checkpointed() -> ChainOptions {
+    let mut o = wide_options();
+    o.writer.index.bytes = exact_units::Bytes::new(1024);
+    o
+}
+
+/// A chain, cut when `cut`, then in its last piece a deletion of a live key and data blocks after it past a
+/// checkpoint, dropped unclosed. The last piece's key, its bytes and the offset of the deletion's block.
+fn deletion_chain(cut: bool) -> (MemPieces, u64, Vec<u8>, usize) {
+    let defs = defs();
+    let (mem, mut chain) = chain_with(checkpointed());
+    let mut model = Model::new();
+    fill(&mut chain, &mut model);
+    if cut {
+        chain.cut_now(&defs).unwrap();
+    }
+    apply(&mut chain, &mut model, 5000, b"/q", Some(b"before"));
+    apply(&mut chain, &mut model, 5001, &key(1), None);
+    let session = ww_tape::SessionTag::writable(0x6461_7461);
+    for n in 0..60 {
+        let block = crate::pieces::records(ww_tape::BlockId::new(session, n), 6000 + n as i64);
+        chain.adopt_block(&defs, &block).unwrap();
+    }
+    drop(chain);
+    let last = u64::from(cut);
+    let bytes = piece_bytes(&mem, last);
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let at = r
+        .key_entries(0, KEYED, &key(1))
+        .unwrap()
+        .last()
+        .unwrap()
+        .0
+        .offset;
+    (mem, last, bytes, usize::try_from(at).unwrap())
+}
+
+/// The chain of [deletion_chain] with its deletion's block damaged, resumed, a key put, cut and closed: the closed
+/// pieces.
+fn resume_damaged(cut: bool) -> (MemPieces, Vec<ww_tape::ChainPiece<u64>>) {
+    let defs = defs();
+    let (mem, last, mut bytes, at) = deletion_chain(cut);
+    bytes[at + 33] ^= 0x55;
+    let mut sink = mem.reopen(&last).unwrap().unwrap();
+    sink.truncate(0).unwrap();
+    sink.write_all(&bytes).unwrap();
+    drop(sink);
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain
+        .put_key(&defs, KEYED, 7000, b"/y", b"resumed")
+        .unwrap();
+    chain.cut_now(&defs).unwrap();
+    let pieces = chain.close().unwrap();
+    (mem, pieces)
+}
+
+/// A resume of a first piece whose block of a deletion doesn't read, listed in a checkpoint: the keys may miss the
+/// deletion, so the next cut doesn't mark them carried and counts the track ([Closed::keys_unknown](ww_tape::Closed));
+/// a reader of the next piece names them not whole.
+#[test]
+fn a_keyed_block_that_doesnt_read_leaves_its_keys_unknown() {
+    let (mem, pieces) = resume_damaged(false);
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(pieces[0].piece.keys_unknown, 1);
+    let (_, whole) = keys_of(&piece_bytes(&mem, pieces[1].tape), 0);
+    assert!(!whole);
+}
+
 /// A crash right after a cut drops the piece's carry, and a resume of that piece alone, without its chain, can't
 /// put the keys again: the first call is refused ([ResumeError::KeysUnknown]).
 #[test]
