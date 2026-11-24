@@ -1,4 +1,7 @@
-#![allow(clippy::arithmetic_side_effects, reason = "tests compute expected values freely")]
+#![allow(
+    clippy::arithmetic_side_effects,
+    reason = "tests compute expected values freely"
+)]
 //! The counts of [Counting] as a test binary's global allocator.
 
 use std::hint::black_box;
@@ -32,6 +35,9 @@ fn largest_is_per_thread_and_taken_once() {
         .unwrap();
     let largest = take_largest();
     assert!(largest >= 3 << 20, "this thread's 3 MiB: {largest} bytes");
-    assert!(largest < 8 << 20, "not the other thread's 8 MiB: {largest} bytes");
+    assert!(
+        largest < 8 << 20,
+        "not the other thread's 8 MiB: {largest} bytes"
+    );
     assert!(take_largest() < 3 << 20, "taken once");
 }

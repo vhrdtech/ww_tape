@@ -15,7 +15,7 @@ use ww_tape_testalloc::{Counting, take_largest};
 pub const ALLOC_MAX: usize = 128 << 20;
 /// Allocations past this are refused outright, which aborts the process; up to it an allocation over [ALLOC_MAX] is
 /// made and only reported.
-const ALLOC_REFUSED: usize = 1 << 30;
+pub const ALLOC_REFUSED: usize = 1 << 30;
 
 /// The allocator of a binary that runs cases.
 ///
