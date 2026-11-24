@@ -80,6 +80,8 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           components: clippy, rustfmt
+          # spl's cargo-no-std lint (X0007) builds for a bare-metal target
+          target: thumbv7em-none-eabihf
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-binstall
