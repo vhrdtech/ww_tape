@@ -250,7 +250,7 @@ fn place_chunk<T: PieceStore>(
     st: &mut State<'_, T>,
     c: &Placing<'_>,
     summary: Option<Box<ChunkSummary>>,
-) -> Result<ChunkPlaced, WriteError<T::Error>> {
+) -> Result<Placement, WriteError<T::Error>> {
     let Placing {
         head,
         columns,
@@ -298,6 +298,8 @@ fn place_chunk<T: PieceStore>(
                 "a unit placed no chunk",
             )))?
     };
+    // read before the summary, whose defer may cut: the piece the chunk went into, a cut coming before a chunk
+    let placed = placement(chain, head, &first);
     // a summary block is placed after the unit, never inside it
     match summary {
         Some(s) => {
@@ -307,16 +309,15 @@ fn place_chunk<T: PieceStore>(
         }
         None => st.trees.plain(head.track_number),
     }
-    Ok(first)
+    Ok(placed)
 }
 
-/// The receipt of a chunk of `head` placed at `p`, in the piece the chain writes now.
+/// The receipt of a chunk of `head` placed at `p`, in the piece the chain writes now: read right after the chunk.
 fn placement<T: PieceStore>(
     chain: &mut PieceChain<T>,
     head: &ChunkHead,
     p: &ChunkPlaced,
 ) -> Placement {
-    // the piece the chunk went into is the one written: a cut comes before a chunk, never after it
     let piece_start = chain.writer().map_or(0, |w| w.sink().base());
     Placement {
         track: head.track_number,
@@ -362,7 +363,7 @@ fn place<T: PieceStore>(
                 };
                 let r = place_chunk(chain, defs, st, &c, summary);
                 let answer = match &r {
-                    Ok(p) => Ok(placement(chain, &head, p)),
+                    Ok(p) => Ok(*p),
                     Err(_) => Err(Unplaced::Refused),
                 };
                 let ok = r.is_ok();
