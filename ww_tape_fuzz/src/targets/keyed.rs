@@ -299,7 +299,10 @@ fn prefix_lookups(r: &TapeReader<&[u8]>, i: usize, track: TrackNum, prefix: &[u8
     for s in &slots {
         assert_eq!(s.key.has_prefix(prefix) == Some(true), s.sure);
         assert_ne!(s.key.has_prefix(prefix), Some(false));
-        assert!(s.entry.offset < place, "a key's newest record before the place");
+        assert!(
+            s.entry.offset < place,
+            "a key's newest record before the place"
+        );
         assert!(!s.entry.deleted, "a live key");
     }
     let Ok(at) = r.keys_at(i, track, prefix, place) else {
