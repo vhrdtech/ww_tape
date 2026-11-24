@@ -1,51 +1,6 @@
 /* Code blocks: the copy and select buttons sit in the top right corner, so a long first line scrolls under them. The
-   right padding keeps every line clear of the buttons; a line longer than the block scrolls sideways. */
+   right padding keeps every line clear of the buttons; a line longer than the block scrolls sideways. The code
+   colours themselves are vz-code.css, shipped by the book kit. */
 .md-typeset .highlight pre > code {
   padding-right: 4.5rem;
 }
-
-/* Code colours: GitHub's palette over the token classes Pygments gives. The theme folds them into a few colours
-   (TOML keys, macros, dates and booleans plain; types in the keyword colour); here each kind keeps its own. */
-[data-md-color-scheme="default"] {
-  --sl-code-keyword: #cf222e;
-  --sl-code-string: #0a3069;
-  --sl-code-constant: #0550ae;
-  --sl-code-function: #8250df;
-  --sl-code-type: #953800;
-  --sl-code-comment: #6e7781;
-  --sl-code-punct: #57606a;
-  --sl-code-prompt: #116329;
-}
-
-[data-md-color-scheme="slate"] {
-  --sl-code-keyword: #ff7b72;
-  --sl-code-string: #a5d6ff;
-  --sl-code-constant: #79c0ff;
-  --sl-code-function: #d2a8ff;
-  --sl-code-type: #ffa657;
-  --sl-code-comment: #8b949e;
-  --sl-code-punct: #9ea7b3;
-  --sl-code-prompt: #7ee787;
-}
-
-.md-typeset .highlight :is(.k, .kd, .kn, .kp, .kr, .ow) { color: var(--sl-code-keyword); }
-.md-typeset .highlight :is(.s, .s1, .s2, .sb, .sc, .si, .ss, .sh, .sx, .cpf) { color: var(--sl-code-string); }
-.md-typeset .highlight :is(.se, .sr) { color: var(--sl-code-constant); }
-.md-typeset .highlight :is(.m, .mb, .mf, .mh, .mi, .mo, .il, .ld, .kc, .no, .bp, .na, .nv, .vc, .vg, .vi) {
-  color: var(--sl-code-constant);
-}
-.md-typeset .highlight :is(.nf, .fm, .nd, .cp) { color: var(--sl-code-function); }
-.md-typeset .highlight :is(.kt, .nc, .nb, .ne, .nn) { color: var(--sl-code-type); }
-.md-typeset .highlight :is(.c, .c1, .ch, .cm, .cs, .sd) { color: var(--sl-code-comment); font-style: italic; }
-.md-typeset .highlight :is(.o, .p) { color: var(--sl-code-punct); }
-.md-typeset .highlight .n { color: var(--md-code-fg-color); }
-.md-typeset .highlight .gp { color: var(--sl-code-prompt); font-weight: 600; }
-.md-typeset .highlight .go { color: var(--sl-code-comment); }
-
-/* TOML: keys as names of things, table headers as types */
-.md-typeset .language-toml.highlight .n { color: var(--sl-code-constant); }
-.md-typeset .language-toml.highlight .k { color: var(--sl-code-type); font-weight: 600; }
-
-/* Shell sessions (spl_book_ext's spl-console lexer): the command, its subcommands, its flags */
-.md-typeset .language-console.highlight .nf { font-weight: 600; }
-.md-typeset .language-console.highlight .nt { color: var(--sl-code-type); }

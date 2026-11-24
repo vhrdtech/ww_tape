@@ -73,7 +73,7 @@ just tape-golden-update   # rewrite golden/*.hex after a deliberate format chang
 just bench-<name>         # one bench at release, `--json FILE` for its report (ww_tape_benchmarks/README.md lists them)
 just bench-book           # every bench the book draws from into docs/bench/; `just book-figures` draws them
 just book-check           # the book (docs/) with warnings as errors, then spl's prose lints (deny)
-just book-refs            # spl book refs: checks docs/glossary.toml, indexes the code links; every book build runs it
+just book-refs            # vz prep: checks docs/glossary.toml, indexes the code links; every book build runs it
 ```
 
 - Single test: `cargo nextest run -p ww_tape <test>`, or `-p ww_tape_tests` for an integration test. nextest is
