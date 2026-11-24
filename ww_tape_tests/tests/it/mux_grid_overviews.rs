@@ -36,11 +36,12 @@ fn period() -> Ratio64 {
     Ratio64::int(PERIOD as u64).unwrap()
 }
 
-fn grid_axes() -> &'static [FixedAxis<'static>] {
-    let axes: Vec<FixedAxis<'static>> = AXES
+/// The fixed axes `(extent, tile extent, downsample)` named `names`.
+fn grid_axes(axes: &[(u32, u32, bool)], names: &[&'static str]) -> &'static [FixedAxis<'static>] {
+    let axes: Vec<FixedAxis<'static>> = axes
         .iter()
-        .zip(["x", "band", "y"])
-        .map(|(&(extent, tile, downsample), name)| FixedAxis {
+        .zip(names)
+        .map(|(&(extent, tile, downsample), &name)| FixedAxis {
             name,
             extent: UNib32(extent),
             tile_extent: UNib32(tile),
@@ -53,10 +54,20 @@ fn grid_axes() -> &'static [FixedAxis<'static>] {
     Box::leak(axes.into_boxed_slice())
 }
 
-/// A grid of i32 on [CHANNELS] channels, with every statistic summarised over nodes of 16 time steps when `summaries`.
+/// A grid of i32 on [CHANNELS] channels of the axes [AXES], with every statistic summarised over nodes of 16 time
+/// steps when `summaries`.
 fn grid_track(clock: ClockNum, summaries: bool) -> TrackSpec<'static> {
+    grid_track_of(clock, summaries, grid_axes(&AXES, &["x", "band", "y"]))
+}
+
+/// [grid_track] of the fixed axes `axes`.
+fn grid_track_of(
+    clock: ClockNum,
+    summaries: bool,
+    axes: &'static [FixedAxis<'static>],
+) -> TrackSpec<'static> {
     let mut def = GridDef::of::<i32>(CHANNELS, period());
-    def.axes = RefVec::Slice { slice: grid_axes() };
+    def.axes = RefVec::Slice { slice: axes };
     def.summaries = summaries.then(|| ww_tape_summary::SeriesSummarySpec {
         base_shift: 4,
         stats: ww_tape_summary::SeriesStats::all(ElementDesc::of(Element::I32)),
@@ -229,6 +240,65 @@ fn whole_run(per_tile: bool, summaries: bool) -> (Vec<Vec<u8>>, TrackId) {
     };
     write(mux, track, &from);
     (pieces(&mem), id)
+}
+
+/// Axes of the golden overview: x of 4 cells in one tile, a band of 1 kept, y of 3 cells in tiles of 2 (its edge
+/// tile of 1 cell); x and y halve once.
+const GOLDEN_AXES: [(u32, u32, bool); 3] = [(4, 4, true), (1, 1, false), (3, 2, true)];
+
+/// The pieces of the golden run: one handle of the whole grid of [GOLDEN_AXES], one chunk of 4 time steps a tile and
+/// its overview chunk.
+fn golden_run() -> Vec<Vec<u8>> {
+    let mem = MemPieces::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(CUT),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let c = mux.define_clock(clock()).unwrap();
+    let axes = grid_axes(&GOLDEN_AXES, &["x", "band", "y"]);
+    let track = mux.define_track(grid_track_of(c, false, axes)).unwrap();
+    let opts = GridOptions {
+        chunk_steps: 4,
+        latency: None,
+        ..GridOptions::default()
+    };
+    let mut h = mux.grid::<i32>(track, opts).unwrap();
+    let cells: Vec<Range<u32>> = GOLDEN_AXES.iter().map(|(e, ..)| 0..*e).collect();
+    h.push(&box_steps(0..4, &cells)).unwrap();
+    h.finish().unwrap();
+    mux.close().unwrap();
+    pieces(&mem)
+}
+
+/// A golden piece of a grid with a space overview (`WW_TAPE_GOLDEN=update` rewrites it): the overview chunks' level
+/// byte, min, max and mean columns and their entries' level and tile number pin their bytes. The same input gives
+/// the same bytes.
+#[test]
+fn golden_overview() {
+    let pieces = golden_run();
+    assert_eq!(pieces, golden_run());
+    assert_eq!(pieces.len(), 1);
+    let r = TapeReader::open(&pieces[0][..]).unwrap();
+    assert!(r.verify(0).unwrap().holds);
+    let mut chunks = vec![];
+    let mut rd = FileBlocks::new(&pieces[0][..]);
+    while let Some(b) = rd.next_block() {
+        if let Some(c) = b.unwrap().chunk() {
+            chunks.push((c.head().level, c.head().tile));
+        }
+    }
+    let tile = |y| TileCoords::new(&[0, 0, y]).unwrap();
+    assert_eq!(
+        chunks,
+        [(0, tile(0)), (1, tile(0)), (0, tile(1)), (1, tile(1))],
+        "each tile chunk, then its overview"
+    );
+    crate::reclose::golden(&pieces[0], "v1-overview.hex");
 }
 
 /// Every tile chunk has one overview chunk per level of the same time steps, found by a box of that level; each

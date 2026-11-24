@@ -2035,19 +2035,27 @@ extent along a downsampled axis is the tile extent over `2^k` (`TileLayout::over
 every downsampled tile extent halves evenly (`TileLayout::overview_levels`), so a cell has one size across the whole
 grid. A tile extent of 256 gives up to 8 levels, and one of 180 gives 2.
 
-An overview chunk is a series chunk of the same track. Byte 83 of its head holds the level, and its tile coordinates
-are its source tile's. It holds the time steps of the chunk it summarises, with the same grid and scale. Its payload
-holds one `OverviewMin`, `OverviewMax` and `OverviewMean` column each, laid out and coded as a samples column, and the
-flag runs of its time steps; it holds no samples column. Any other chunk holds none of the three columns. Its index
-entry carries the level in the summary-level byte and the tile number under flag bit 4. A reader of format 0.8
-refuses an overview chunk: its byte 83 was 0 in every series chunk.
+An overview chunk is a series chunk of the same track, of the time steps of the chunk it summarises:
 
-A `GridHandle` builds a tile chunk's overview chunks on the producer's thread when it completes the chunk, each level
-from the min, max, sum and count of the level below (`ww_tape_summary::OverviewCells`), and sends them in one unit
-with it. The writing thread places them right after it, in the same piece (`PieceChain::write_follower`). A resumed
-mux reads back the tile chunks the torn piece kept and writes the overview chunks the crash lost after them, before
-anything else, so the chain gets the bytes of the run without the crash. The chunk bytes a handle allows count the
-overview chunks too: three columns of the level-1 cells.
+| Where | What |
+|---|---|
+| head byte 83 | the level k, 1 to `GRID_OVERVIEW_LEVELS_MAX`; 0 in every chunk as written |
+| head grid, scale, tile | those of its source chunk |
+| payload | one `OverviewMin`, `OverviewMax` and `OverviewMean` column each, coded as a samples column; the flag runs |
+| index entry | the level in the summary-level byte; the tile number under flag bit 4 |
+
+It holds no samples column, and no other chunk holds the three statistics columns. An entry a scan made carries the
+level without a tile number, so `grid_tiles` reads that chunk's head. A reader of format 0.8 refuses an overview
+chunk: its byte 83 was 0 in every series chunk. The golden file `v1-overview.hex` pins a piece of two tiles and their
+overviews.
+
+A `GridHandle` builds a tile chunk's overview chunks on the producer's thread when it completes the chunk. Each level
+comes from the min, max, sum and count of the level below (`ww_tape_summary::OverviewCells`). They go to the writing
+thread in one unit with the chunk, which places them right after it in the same piece (`PieceChain::write_follower`).
+The chunk bytes a handle allows count the overview chunks too: three columns of the level-1 cells.
+
+A resumed mux reads back the tile chunks the torn piece kept. It writes the overview chunks the crash lost before
+anything else, so the chain gets the bytes of the run without the crash.
 
 `ww_tape::Overview` reads the three columns in place, each of the tile's cells at the level times the chunk's time
 steps. A viewer picks a level with `TileLayout::level_for`: the highest whose cell is at most a pixel along every
