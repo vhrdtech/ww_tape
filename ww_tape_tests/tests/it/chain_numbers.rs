@@ -4,15 +4,20 @@
 //! whose resume reads only what follows that close.
 
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::chain_removal::{bytes_of, linked, report};
 use crate::definitions::{clock, hold, on_tracks, track};
 use crate::pieces::{chunk, column, scratch};
+use shrink_wrap::prelude::RefVec;
+use ww_tape::reader::ByteSource;
 use ww_tape::sink::TapeSink;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ClockNum, ClockTime, CutPolicy, Definitions,
-    Describe, MemPieces, OwnerId, PieceChain, PieceStore, PieceTapes, Resumed, Slot, SyncPolicy,
-    TapeReader, TrackNum, WriteError, WriterOptions,
+    Describe, Foreign, Items, MemError, MemPiece, MemPieces, MemSink, OwnerId, PieceChain,
+    PieceStore, PieceTapes, Resumed, Schema, Slot, SyncPolicy, TapeReader, TrackDef, TrackNum,
+    WriteError, WriterOptions,
 };
 
 const OWNER: OwnerId = OwnerId([0x4e; 32]);
@@ -354,5 +359,140 @@ fn a_chain_resume_counts_the_definitions_it_could_not_read() {
     assert_eq!(
         resumed.numbers.track(five.id(), five.owner),
         defs.numbers().track(five.id(), five.owner)
+    );
+}
+
+/// Memory pieces whose closed pieces count the bytes read from them.
+struct Counted {
+    mem: MemPieces,
+    read: Arc<AtomicU64>,
+}
+
+/// A closed piece of [Counted].
+struct CountedPiece {
+    inner: MemPiece,
+    read: Arc<AtomicU64>,
+}
+
+impl ByteSource for CountedPiece {
+    type Error = MemError;
+    fn size(&self) -> Result<u64, MemError> {
+        self.inner.size()
+    }
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), MemError> {
+        self.read.fetch_add(buf.len() as u64, Ordering::Relaxed);
+        self.inner.read_at(offset, buf)
+    }
+    fn start(&self) -> Result<u64, MemError> {
+        self.inner.start()
+    }
+}
+
+impl PieceStore for Counted {
+    type Key = u64;
+    type Error = MemError;
+    type Sink = MemSink;
+    type Source = CountedPiece;
+    fn key_of(&self, seq: u64) -> u64 {
+        seq
+    }
+    fn create(&mut self, key: &u64) -> Result<MemSink, MemError> {
+        self.mem.create(key)
+    }
+    fn reopen(&mut self, key: &u64) -> Result<Option<MemSink>, MemError> {
+        self.mem.reopen(key)
+    }
+    fn closed(&self, key: &u64) -> Result<Option<CountedPiece>, MemError> {
+        Ok(self.mem.closed(key)?.map(|inner| CountedPiece {
+            inner,
+            read: self.read.clone(),
+        }))
+    }
+    fn create_whole(&mut self, key: &u64) -> Result<MemSink, MemError> {
+        self.mem.create_whole(key)
+    }
+    fn open_whole(&mut self, key: &u64) -> Result<Option<MemSink>, MemError> {
+        self.mem.open_whole(key)
+    }
+    fn first_from(&self, from: u64) -> Result<Option<u64>, MemError> {
+        self.mem.first_from(from)
+    }
+    fn remove(&mut self, key: &u64) -> Result<bool, MemError> {
+        PieceStore::remove(&mut self.mem, key)
+    }
+    fn drop_front(&mut self, key: &u64, to: u64) -> Result<Option<u64>, MemError> {
+        self.mem.drop_front(key, to)
+    }
+}
+
+/// A chain's resume reads only the track and clock definitions of its closed pieces: the block of a 60 000-byte
+/// schema a track names stays unread, and the track keeps its number.
+#[test]
+fn a_chain_resume_reads_no_other_definition() {
+    let body = vec![b's'; 60_000];
+    let hash = *blake3::hash(&body).as_bytes();
+    let schema = Describe::Schema(Schema {
+        hash: RefVec::Slice { slice: &hash },
+        media_type: "text/plain",
+        bytes: RefVec::Slice { slice: &body },
+    });
+    let Describe::Track(t) = track(2, 1) else {
+        unreachable!("track() gives a track")
+    };
+    let foreign = Describe::Track(TrackDef {
+        items: Items::Foreign(Foreign {
+            name: "com.example.big",
+            media_type: "",
+            version: "1",
+            schema: RefVec::Slice { slice: &hash },
+        }),
+        ..t
+    });
+    let mut defs = Definitions::new();
+    hold(&mut defs, &[clock(1), track(1, 1), schema, foreign.clone()]).unwrap();
+    let read = Arc::new(AtomicU64::new(0));
+    let store = Counted {
+        mem: MemPieces::new(),
+        read: read.clone(),
+    };
+    let mut c = PieceChain::create_on(store, OWNER, 0, &[], options(PieceTapes::Each)).unwrap();
+    chunks(&mut c, &defs, 0, 2);
+    let id = c.writer().unwrap().next_id();
+    c.write_block(&defs, &on_tracks(id, &[(2, 5, b"x")]))
+        .unwrap();
+    // track 2 again, relabeled: its newest definition in a block without the schema
+    let Describe::Track(t) = &foreign else {
+        unreachable!("a track")
+    };
+    let relabeled = TrackDef {
+        label: "again",
+        ..t.clone()
+    };
+    assert_eq!(defs.define_track(relabeled.spec()), Ok(TrackNum::new(2)));
+    let id = c.writer().unwrap().next_id();
+    c.write_block(&defs, &on_tracks(id, &[(2, 6, b"y")]))
+        .unwrap();
+    c.cut_now(&defs).unwrap();
+    let mem = c.store().mem.clone();
+    drop(c);
+    read.store(0, Ordering::Relaxed);
+    let (_, resumed) = PieceChain::resume_on(
+        Counted {
+            mem,
+            read: read.clone(),
+        },
+        OWNER,
+        0,
+        options(PieceTapes::Each),
+    )
+    .unwrap();
+    let got = read.load(Ordering::Relaxed);
+    assert!(got < 60_000, "{got} bytes read from the closed piece");
+    let Describe::Track(foreign) = foreign else {
+        unreachable!("a track")
+    };
+    assert_eq!(
+        resumed.numbers.track(foreign.id(), foreign.owner),
+        Some(TrackNum::new(2))
     );
 }

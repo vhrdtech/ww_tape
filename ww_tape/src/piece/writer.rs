@@ -1177,7 +1177,12 @@ impl ChainNumbers {
                 .take_track(r.track_number, r.track_id, r.owner.0);
         }
         let defs = reader
-            .definitions_at(i, close_at)
+            .definitions_of(i, close_at, |s| {
+                matches!(
+                    s,
+                    crate::state::Slot::Track { .. } | crate::state::Slot::Clock { .. }
+                )
+            })
             .map_err(WriteError::Read)?;
         self.unread = self
             .unread
