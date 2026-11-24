@@ -475,7 +475,7 @@ impl TileLayout {
             let bit = u32::try_from(i)
                 .ok()
                 .and_then(|i| self.downsample.checked_shr(i));
-            if !bit.is_some_and(|b| b & 1 != 0) {
+            if bit.is_none_or(|b| b & 1 == 0) {
                 continue;
             }
             while level > 0 {

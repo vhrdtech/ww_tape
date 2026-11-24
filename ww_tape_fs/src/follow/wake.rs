@@ -195,6 +195,13 @@ impl Drop for TaskWait {
 }
 
 /// The waiting thread: each time a task arms it, wait for a change, then wake the task.
+#[cfg_attr(
+    target_os = "linux",
+    expect(
+        clippy::needless_pass_by_value,
+        reason = "the thread owns the watch's descriptors: they close when it exits"
+    )
+)]
 fn run(shared: &TaskShared, #[cfg(target_os = "linux")] watch: Option<(Arc<OwnedFd>, OwnedFd)>) {
     loop {
         let at_most = {

@@ -1774,7 +1774,7 @@ impl<S: TapeSink> TapeWriter<S> {
             {
                 self.indexer.define(t.number, t.id(), OwnerId(t.owner));
                 self.relations
-                    .define(t.number, crate::open::TrackFacts::of(&t));
+                    .define(t.number, &crate::open::TrackFacts::of(&t));
             }
             self.near
                 .wrote(slot, Some(ItemHash::of(r.item)), at, &self.near_policy);
@@ -1916,7 +1916,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 .indexer
                 .key_of(c.head().track_number, Some(c.head().track_id))
         {
-            self.relations.deferred(key, &c, facts);
+            self.relations.deferred(key, &c, &facts);
         }
         let tracks = data_tracks(&b);
         let d = Deferred {
@@ -2256,10 +2256,10 @@ impl<S: TapeSink> TapeWriter<S> {
             loop {
                 let gap = crate::chunk::chunk_padding(self.at()?, head_len, self.alignment())
                     .ok_or(WriteError::Input(InputError::Alignment(self.alignment())))?;
-                if !self
+                if self
                     .deferred
                     .first()
-                    .is_some_and(|next| next.block.len() <= gap)
+                    .is_none_or(|next| next.block.len() > gap)
                 {
                     break;
                 }

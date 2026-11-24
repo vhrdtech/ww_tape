@@ -761,12 +761,16 @@ impl<'b> ChunkWriter<'b> {
         ];
         let mut d = CRC.digest();
         d.update(self.pre);
-        after_crc.iter().for_each(|p| d.update(p));
+        for p in after_crc {
+            d.update(p);
+        }
         *self.head_crc = d.finalize().to_le_bytes();
         let mut d = CRC.digest();
         d.update(self.pre);
         d.update(self.head_crc);
-        after_crc.iter().for_each(|p| d.update(p));
+        for p in after_crc {
+            d.update(p);
+        }
         *self.crc = d.finalize().to_le_bytes();
         self.len
     }
@@ -792,12 +796,16 @@ impl<'b> ChunkWriter<'b> {
         ];
         let mut d = CRC.digest();
         d.update(self.pre);
-        after_crc.iter().for_each(|p| d.update(p));
+        for p in after_crc {
+            d.update(p);
+        }
         *self.head_crc = d.finalize().to_le_bytes();
         let mut d = CRC.digest();
         d.update(self.pre);
         d.update(self.head_crc);
-        after_crc.iter().for_each(|p| d.update(p));
+        for p in after_crc {
+            d.update(p);
+        }
         let head_all = d.finalize();
         let block_crc = match payload_crc {
             Some(p) => crc32c_combine(head_all, p, len_u64(self.payload.len())),
@@ -949,9 +957,10 @@ pub(crate) fn encode_chunk(
             .ok_or(ChunkError::Invalid("a column the writer was not made with"))?
             .copy_from_slice(bytes);
     }
-    Ok(match payload_crcs {
-        true => w.finish(),
-        false => w.finish_unchecked(),
+    Ok(if payload_crcs {
+        w.finish()
+    } else {
+        w.finish_unchecked()
     })
 }
 

@@ -299,6 +299,15 @@ pub struct Item<'a> {
     pub suspect: bool,
 }
 
+impl<'a, 'b> IntoIterator for &'a Payloads<'b> {
+    type Item = Item<'a>;
+    type IntoIter = Iter<'a, 'b>;
+
+    fn into_iter(self) -> Iter<'a, 'b> {
+        self.iter()
+    }
+}
+
 /// The items of [Payloads] in order ([Payloads::iter]).
 #[derive(Clone, Debug)]
 pub struct Iter<'a, 'b> {

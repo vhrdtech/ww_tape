@@ -756,7 +756,7 @@ impl<R: Read> FileBlocks<R> {
                     Verdict::Stale(_) | Verdict::Backwards { .. } => self.prefix_over = true,
                     // the block before it again with other bytes: a copy met in damage, or a rewrite; reported
                     d @ Verdict::Duplicate { same: false } if verdict == Verdict::Take => {
-                        verdict = d
+                        verdict = d;
                     }
                     _ => {}
                 }

@@ -11,7 +11,13 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 use super::{GROUP, mask32};
-use core::arch::x86_64::*;
+use core::arch::x86_64::{
+    __m512i, _mm512_add_epi32, _mm512_add_epi64, _mm512_and_si512, _mm512_castsi512_si256,
+    _mm512_cvtepu32_epi64, _mm512_extracti64x4_epi64, _mm512_loadu_si512, _mm512_mullo_epi32,
+    _mm512_permutexvar_epi8, _mm512_set1_epi32, _mm512_set1_epi64, _mm512_setr_epi32,
+    _mm512_setr_epi64, _mm512_shrdv_epi32, _mm512_srai_epi64, _mm512_srli_epi32,
+    _mm512_storeu_si512,
+};
 
 /// Blocks of 16 values in a group.
 const BLOCKS: usize = GROUP / 16;

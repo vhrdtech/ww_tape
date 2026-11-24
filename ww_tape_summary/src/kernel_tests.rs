@@ -531,7 +531,7 @@ fn blocks_are_the_same_with_every_kernel() {
         s.take_blocks()
     };
     let want = blocks(Kernel::Portable);
-    assert!(!want.is_empty());
+    assert_ne!(want, [] as [std::vec::Vec<u8>; 0]);
     for kernel in Kernel::all() {
         assert_eq!(blocks(kernel), want, "{kernel:?}");
     }

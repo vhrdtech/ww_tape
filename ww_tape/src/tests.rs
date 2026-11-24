@@ -10,6 +10,15 @@ pub(crate) fn id(seq: u64) -> BlockId {
     BlockId::new(TEST_SESSION, seq)
 }
 
+/// `bytes` in lower-case hex, two digits a byte.
+pub(crate) fn hex(bytes: &[u8]) -> std::string::String {
+    use core::fmt::Write as _;
+    bytes.iter().fold(std::string::String::new(), |mut s, b| {
+        write!(s, "{b:02x}").unwrap();
+        s
+    })
+}
+
 const C1: ClockNum = ClockNum::new(1);
 const C3: ClockNum = ClockNum::new(3);
 
@@ -1061,7 +1070,7 @@ fn resync_skips_bad_and_reports_cut() {
     assert_eq!(rd.next_block().unwrap().unwrap().seq, 0);
     match rd.next_block().unwrap() {
         Err(FileError::Bad { offset, error, .. }) => {
-            assert_eq!((offset, error), (one as u64, BlockError::BadCrc))
+            assert_eq!((offset, error), (one as u64, BlockError::BadCrc));
         }
         other => panic!("{other:?}"),
     }
@@ -1159,7 +1168,7 @@ fn tape(n: u64) -> (Vec<u8>, Vec<usize>) {
             w.push(
                 TrackNum::new(1 + i as u32),
                 at(C1, (seq * 10 + i) as i64),
-                &[&[seq as u8; 7][..(seq as usize % 7) + 1]],
+                &[&[seq as u8; 7][..=(seq as usize % 7)]],
             )
             .unwrap();
         }
@@ -1542,11 +1551,11 @@ fn sample_with_wall_track() -> Vec<Describe<'static>> {
 
 /// A tape of `describe` defined in the order given (a typed item put), a state record put and a records block on two
 /// clocks, written through [TapeWriter] into memory: the bytes before the writer's end.
-fn write_sample_tape(describe: Vec<Describe<'static>>) -> Vec<u8> {
+fn write_sample_tape(describe: &[Describe<'static>]) -> Vec<u8> {
     let mut w = TapeWriter::create_on(crate::MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     w.set_session(TEST_SESSION).unwrap();
-    for d in &describe {
+    for d in describe {
         match d {
             Describe::Producer(p) => w.set_producer(p.name),
             Describe::Layout(l) => w.set_layout(*l).unwrap(),
@@ -1554,8 +1563,8 @@ fn write_sample_tape(describe: Vec<Describe<'static>>) -> Vec<u8> {
         }
     }
     let mut defs = Definitions::new();
-    relay(&mut defs, &describe).unwrap();
-    for d in &describe {
+    relay(&mut defs, describe).unwrap();
+    for d in describe {
         if let Describe::Item(item) = d {
             assert!(w.put_item(&defs, item).unwrap());
         }
@@ -1588,9 +1597,7 @@ fn to_hex_lines(tape: &[u8]) -> String {
     let mut out = String::new();
     let mut rd = FileBlocks::new(tape);
     while let Some(b) = rd.next_block() {
-        for byte in b.unwrap().bytes() {
-            out.push_str(&format!("{byte:02x}"));
-        }
+        out.push_str(&hex(b.unwrap().bytes()));
         out.push('\n');
     }
     out
@@ -1600,8 +1607,8 @@ fn to_hex_lines(tape: &[u8]) -> String {
 /// one block per line, in hex.
 #[test]
 fn deterministic_and_golden() {
-    let a = write_sample_tape(sample_with_wall_track());
-    let b = write_sample_tape(sample_with_wall_track());
+    let a = write_sample_tape(&sample_with_wall_track());
+    let b = write_sample_tape(&sample_with_wall_track());
     assert_eq!(a, b, "two writes of the same input");
 
     let hex = to_hex_lines(&a);

@@ -141,17 +141,24 @@ pub(crate) fn level(mode: u8) -> ww_tape::Integrity {
     }
 }
 
+/// How [template] shapes its piece: whether its layout is byte-aligned, and whether it starts with a piece head.
+#[derive(Clone, Copy, Debug)]
+struct TemplateMode {
+    aligned: bool,
+    head: bool,
+}
+
 /// An unclosed piece of `level`: rounds of chunks, records and deferred records, a clock and a track defined after
 /// half of them; the writer puts the definitions each block needs before it.
-fn template(aligned: bool, head: bool, level: ww_tape::Integrity) -> Vec<u8> {
-    let o = options(aligned);
+fn template(mode: TemplateMode, level: ww_tape::Integrity) -> Vec<u8> {
+    let o = options(mode.aligned);
     let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_layout(o.layout).expect("a new piece takes a layout");
     w.set_producer(&o.producer);
     w.set_index_policy(o.index)
         .expect("a policy with room for a piece head");
     w.set_near_policy(o.near);
-    if head {
+    if mode.head {
         let owner = OwnerId([1; 32]);
         let h = PieceHead {
             ident: PieceIdent {
@@ -236,14 +243,20 @@ pub(crate) fn chain_records(
         .expect("a records block writes");
 }
 
-/// A file of several pieces of `level`: three closed, the last one closed too when `closed`, else stopped after its
-/// deferred blocks; the bytes and where the last piece starts.
+/// How [chain_template] shapes its file: whether its layout is byte-aligned, and whether the last piece is closed.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ChainTemplateMode {
+    pub(crate) aligned: bool,
+    pub(crate) closed: bool,
+}
+
+/// A file of several pieces of `level`: three closed, the last one closed too when `mode.closed`, else stopped after
+/// its deferred blocks; the bytes and where the last piece starts.
 pub(crate) fn chain_template(
-    aligned: bool,
-    closed: bool,
+    mode: ChainTemplateMode,
     level: ww_tape::Integrity,
 ) -> (Vec<u8>, usize) {
-    let options = chain_options(aligned, level);
+    let options = chain_options(mode.aligned, level);
     let mut c =
         PieceChain::create_on(MemPieces::new(), OWNER, 0, &[], options).expect("a chain starts");
     let (defs, on) = template_definitions();
@@ -256,7 +269,7 @@ pub(crate) fn chain_template(
     w.flush_deferred().expect("deferred blocks write");
     let last = w.sink().base();
     let mem = c.store().clone();
-    if closed {
+    if mode.closed {
         c.close().expect("a chain closes");
     }
     let bytes = mem
@@ -271,7 +284,13 @@ pub(crate) fn chain_template(
 /// The closed chain of [chain_template] with its second piece removed and named so by a record appended to its last
 /// piece: a seed of the readers and of `check_chain` linking over removed pieces.
 pub(crate) fn removed_chain() -> Vec<u8> {
-    let (whole, _) = chain_template(false, true, ww_tape::Integrity::Full);
+    let (whole, _) = chain_template(
+        ChainTemplateMode {
+            aligned: false,
+            closed: true,
+        },
+        ww_tape::Integrity::Full,
+    );
     let r = TapeReader::open(&whole[..]).expect("a closed chain opens");
     let spans: Vec<(usize, usize)> = r
         .pieces()
@@ -398,9 +417,24 @@ fn templates() -> &'static [(Vec<u8>, usize); 32] {
         core::array::from_fn(|m| {
             let level = level(m as u8);
             if m & 4 == 0 {
-                (template(m & 1 != 0, m & 2 == 0, level), 0)
+                (
+                    template(
+                        TemplateMode {
+                            aligned: m & 1 != 0,
+                            head: m & 2 == 0,
+                        },
+                        level,
+                    ),
+                    0,
+                )
             } else {
-                chain_template(m & 1 != 0, m & 2 != 0, level)
+                chain_template(
+                    ChainTemplateMode {
+                        aligned: m & 1 != 0,
+                        closed: m & 2 != 0,
+                    },
+                    level,
+                )
             }
         })
     })

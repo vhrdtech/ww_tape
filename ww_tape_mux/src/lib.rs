@@ -432,7 +432,7 @@ where
         match self.facts(track).await? {
             Some(f) if f.state.is_none() => {
                 self.plain(track).await?;
-                Ok(ChunkSender::new(self.shared.clone(), track, f, None))
+                Ok(ChunkSender::new(self.shared.clone(), track, &f, None))
             }
             _ => Err(CallError::Kind { track }.into()),
         }
@@ -459,7 +459,7 @@ where
                 _ => None,
             };
         match (facts, summary) {
-            (Some(f), Some(s)) => Ok(ChunkSender::new(self.shared.clone(), track, f, Some(s))),
+            (Some(f), Some(s)) => Ok(ChunkSender::new(self.shared.clone(), track, &f, Some(s))),
             _ => Err(CallError::Kind { track }.into()),
         }
     }

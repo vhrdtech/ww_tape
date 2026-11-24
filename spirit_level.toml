@@ -1,12 +1,7 @@
 # spirit_level configuration: https://github.com/romixlab/spirit_level (book: configuration)
-# Sets beyond the tier's ladder: every set that fits the repo, without the medium or big tier's own raises.
-# Passing: waivers-strict, printing-strict, state-paranoid, licences, msrv, commits, contracts, workspace-strict,
-# panics-paranoid, stop-gaps-strict, determinism, manifest-strict. With findings left at warn: clippy-pedantic (the
-# Clippy set not yet on in Cargo.toml), panics-strict, tests, size-strict, structure, repo-strict, tests-strict, api,
-# units-strict, units-paranoid.
-# Left out: build-strict and layers need a crate map, not written yet; contracts-strict needs a crate map and a
-# release on crates.io for semver-checks; deps-strict adds only the workspace-hack lints, and the workspace has none.
-extends = ["small-workspace", "ai", "waivers-strict", "printing-strict", "state-paranoid", "licences", "msrv", "commits", "contracts", "workspace-strict", "panics-paranoid", "stop-gaps-strict", "determinism", "manifest-strict", "clippy-pedantic", "panics-strict", "tests", "size-strict", "structure", "repo-strict", "tests-strict", "api", "units-strict", "units-paranoid"]
+# The big tier with the ai add-on, and the units sets beside the tiers. Big brings the crate map below, with its
+# layers, no_std and wasm builds and the unsafe allow list.
+extends = ["big", "ai", "units-strict", "units-paranoid"]
 
 # Override a lint: a level and/or parameters, always with a reason, optionally an expiry.
 # [lints.crate-lines]
@@ -455,3 +450,103 @@ reason = "no finding left; a new one fails the run"
 [lints.taplo-fmt]
 level = "deny"
 reason = "no finding left; a new one fails the run"
+
+# The crate map: layers bottom up, each crate's layer; the graph lints check cargo's graph against it. Dev-dependencies
+# are exempt from the layer rule.
+[map.layers.codecs]
+desc = "Column codecs over slices, ids and scalars, with no notion of a block; no_std"
+allow = ["codecs"]
+
+[map.layers.core]
+desc = "Blocks, tracks, chunks, the writer, the reader and the memory sink; no paths, no threads; no_std"
+allow = ["codecs", "core"]
+
+[map.layers.summary]
+desc = "Summary nodes above the core: event trees, series summaries, the summary read in place; no_std"
+allow = ["codecs", "core", "summary"]
+
+[map.layers.mux]
+desc = "A chain written from its own thread, its handles and the byte-bounded queue"
+allow = ["codecs", "core", "summary", "mux"]
+
+[map.layers.fs]
+desc = "Everything that names a path: file sinks and sources, the lock, chains and muxes on disk, followers"
+allow = ["codecs", "core", "summary", "mux", "fs"]
+
+[map.layers.examples]
+desc = "The book's running example and the capture cases, as libraries the tests, benches and figures call"
+allow = ["codecs", "core", "summary", "mux", "fs", "examples"]
+
+[map.layers.fuzz]
+desc = "Fuzz target bodies, hostile block builders and the seeds"
+allow = ["codecs", "core", "summary", "mux", "fs", "tests", "fuzz"]
+
+[map.layers.tests]
+desc = "Integration tests through the public API and the book's code blocks, and the counting allocator of tests and tools"
+allow = ["codecs", "core", "summary", "mux", "fs", "examples", "tests"]
+
+[map.layers.benches]
+desc = "The bench binaries, what they share and their report"
+allow = ["codecs", "core", "summary", "mux", "fs", "examples", "tests", "benches"]
+
+[map.layers.figures]
+desc = "The book's figures, drawn from blocks ww_tape writes and from bench reports"
+allow = ["codecs", "core", "summary", "mux", "fs", "examples", "benches", "figures"]
+
+[map.crates]
+ww_tape_codecs = { layer = "codecs", no_std = true, wasm = true, unsafe = true }
+ww_tape = { layer = "core", no_std = true, wasm = true }
+ww_tape_summary = { layer = "summary", no_std = true, wasm = true }
+ww_tape_mux = { layer = "mux" }
+ww_tape_fs = { layer = "fs", unsafe = true }
+example_capture = { layer = "examples" }
+example_drive = { layer = "examples" }
+example_ethernet = { layer = "examples" }
+example_images = { layer = "examples" }
+example_rf = { layer = "examples" }
+example_thermal = { layer = "examples" }
+example_wideband = { layer = "examples" }
+ww_tape_fuzz = { layer = "fuzz" }
+ww_tape_tests = { layer = "tests" }
+ww_tape_testalloc = { layer = "tests", unsafe = true }
+ww_tape_bench_report = { layer = "benches" }
+ww_tape_bench = { layer = "benches" }
+ww_tape_benchmarks = { layer = "benches" }
+ww_tape_codecs_benchmarks = { layer = "benches" }
+ww_tape_figures = { layer = "figures" }
+
+# Sibling repos by git, no pin (Cargo.lock fixes the commit); role: the lowest layer that may use the crate
+[map.external]
+exact_units = { git = "https://github.com/romixlab/exact_units", role = "core" }
+shrink_wrap = { git = "https://github.com/romixlab/shrink_wrap", role = "core" }
+ww_version = { git = "https://github.com/vhrdtech/ww_base", role = "core" }
+wire_weaver_evolution = { git = "https://github.com/vhrdtech/wire_weaver", role = "core" }
+motor_sim = { git = "https://github.com/vhrdtech/motor_sim", role = "benches" }
+vc_build = { git = "https://github.com/vhrdtech/vhrd_cli", role = "benches" }
+vc_complete = { git = "https://github.com/vhrdtech/vhrd_cli", role = "benches" }
+vc_ui = { git = "https://github.com/vhrdtech/vhrd_cli", role = "benches" }
+
+# A workspace-hack crate would push its union of features into every build that takes ww_tape by git or from
+# crates.io, and a published crate never depends on one.
+[[exceptions]]
+lint = "hakari-generate"
+paths = ["Cargo.toml"]
+level = "allow"
+reason = "ww_tape and ww_tape_codecs are published, and applications take the crates by git: a workspace-hack would reach their builds"
+expires = "2027-06-30"
+
+[[exceptions]]
+lint = "hakari-manage-deps"
+paths = ["Cargo.toml"]
+level = "allow"
+reason = "ww_tape and ww_tape_codecs are published, and applications take the crates by git: a workspace-hack would reach their builds"
+expires = "2027-06-30"
+
+# ww_tape_tests' unsafe code is in tests/ (a pre_exec between fork and exec), which unsafe-allow-list does not read:
+# the map cannot mark it, and its own [lints] set unsafe_code = "deny" over the workspace's forbid.
+[[exceptions]]
+lint = "workspace-lints"
+paths = ["ww_tape_tests/Cargo.toml"]
+level = "allow"
+reason = "unsafe code in tests/ needs unsafe_code = \"deny\" in the crate's own [lints]; unsafe-allow-list reads only src/"
+expires = "2027-06-30"

@@ -373,18 +373,18 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
         ColumnKind::Samples.to_u8(),
         "no coordinates"
     );
-    grid_chunk_places_its_coordinates(&head_layout, head, scale_at + 2);
+    grid_chunk_places_its_coordinates(&head_layout, &head, scale_at + 2);
 }
 
 /// The chunk of tile (7, 3) of a grid of two fixed axes, else `head`: the mode byte says 2, the coordinates follow the
 /// scale at `coords_at`.
 fn grid_chunk_places_its_coordinates(
     head_layout: &[(usize, String, String)],
-    head: ChunkHead,
+    head: &ChunkHead,
     coords_at: usize,
 ) {
     let tile = ww_tape::TileCoords::new(&[7, 3]).unwrap();
-    let head = ChunkHead { tile, ..head };
+    let head = ChunkHead { tile, ..*head };
     let samples = [0u8; 8];
     let spec = ColumnSpec {
         kind: ColumnKind::Samples,

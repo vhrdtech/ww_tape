@@ -185,7 +185,7 @@ fn a_deferred_block_waits_at_most_the_window() {
 /// puts track 7's definition in the new piece before it (writing side review 3, point 2).
 #[test]
 fn a_relayed_put_takes_its_definitions_into_each_piece() {
-    let mut w = begin_numbered(options(u64::MAX), Layout::UNALIGNED, &[state(7)]);
+    let mut w = begin_numbered(&options(u64::MAX), Layout::UNALIGNED, &[state(7)]);
     w.define(&state(7)).unwrap();
     let producer = BlockId::new(SessionTag::random(), 3);
     w.write_block(&puts_of(producer, &[], &[(7, 1, b"A")]))
@@ -228,7 +228,7 @@ fn a_relayed_put_takes_its_definitions_into_each_piece() {
 /// review 3, point 4).
 #[test]
 fn a_relayed_block_of_definitions_is_put_in_few_blocks() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     let before = puts(&tape.to_vec().unwrap()).len();
     let tracks: Vec<_> = (100..1100).map(|n| track(n, CLOCK)).collect();
@@ -245,7 +245,7 @@ fn a_relayed_block_of_definitions_is_put_in_few_blocks() {
 /// definition's hash is kept with it (writing side review 3, point 3).
 #[test]
 fn a_block_whose_definitions_lie_behind_costs_no_work() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let label: &'static str = Box::leak("x".repeat(60 << 10).into_boxed_str());
     w.define(&labeled(2, CLOCK, label)).unwrap();
     write_on(&mut w, 2, 0, 1);

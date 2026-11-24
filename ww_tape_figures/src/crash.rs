@@ -467,7 +467,7 @@ pub fn resume_svg() -> anyhow::Result<String> {
     let (xk, xc) = (v.x(c.kept), v.x(c.cut));
     s.bracket_over(LEFT, xk - 1.0, rows[1] - 6.0, "thin");
     s.text(
-        (LEFT + xk) / 2.0,
+        f64::midpoint(LEFT, xk),
         rows[1] - 12.0,
         "middle",
         "small",

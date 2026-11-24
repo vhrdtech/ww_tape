@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::{collections::BTreeMap, ops::Range};
 use ww_tape::ClockNum;
 use ww_tape::ItemNum;
@@ -12,6 +13,13 @@ use ww_tape::{
 /// The description of a predefined element.
 fn ed(e: Element) -> ElementDesc {
     ElementDesc::of(e)
+}
+
+/// `bytes` appended to `out` as lowercase hex, two digits per byte: the shape a golden file's byte dump is built in.
+pub(crate) fn push_hex(out: &mut String, bytes: &[u8]) {
+    for byte in bytes {
+        write!(out, "{byte:02x}").unwrap();
+    }
 }
 
 /// xorshift64*: workloads without a dependency.
@@ -883,7 +891,7 @@ fn event_tree_at_the_top_of_the_item_numbers() {
     }
     t.finish().unwrap();
     let blocks = t.take_blocks();
-    assert!(!blocks.is_empty());
+    assert_ne!(blocks, [] as [std::vec::Vec<u8>; 0]);
     for b in &blocks {
         let h = Summary::read(b).unwrap().head();
         assert_eq!((h.first_item.get(), h.items), (first, 50));
@@ -1164,9 +1172,7 @@ fn summary_golden() {
     let mut hex = String::new();
     for b in &blocks {
         Block::read(b).unwrap();
-        for byte in b {
-            hex.push_str(&format!("{byte:02x}"));
-        }
+        push_hex(&mut hex, b);
         hex.push('\n');
     }
     let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-summary.hex");

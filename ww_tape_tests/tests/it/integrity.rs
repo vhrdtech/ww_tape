@@ -140,9 +140,10 @@ fn a_chain_of_each_level_is_full_without_its_hashes() {
 fn store(tapes: &[Vec<u8>], whole: bool) -> MemPieces {
     let mem = MemPieces::new();
     for (k, bytes) in (0u64..).zip(tapes) {
-        let mut sink = match whole {
-            true => mem.create_whole(&k),
-            false => mem.create(&k),
+        let mut sink = if whole {
+            mem.create_whole(&k)
+        } else {
+            mem.create(&k)
         }
         .unwrap();
         sink.write_all(bytes).unwrap();

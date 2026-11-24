@@ -47,7 +47,7 @@ pub fn payloads(data: &[u8]) -> Vec<u8> {
     let groups = n.div_ceil(GROUP);
     let lengths = kinds.iter().position(|k| *k == ColumnKind::PayloadLengths);
     let payloads = kinds.iter().position(|k| *k == ColumnKind::Payloads);
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         match d.u8() % 10 {
             9 => hit_head(&mut d, &mut b),
             1 => {

@@ -301,19 +301,16 @@ pub fn grid_hostile(data: &[u8]) {
         );
         if let (Some(g), Some(whole)) = (&def, &whole) {
             let l = &g.layout;
-            match l.pack(&h.tile) {
-                Some(n) => {
-                    assert_eq!(l.unpack(n), Some(h.tile));
-                    assert!(whole.holds(n), "the whole grid holds the tile number");
-                    assert!(whole.holds_coords(&h.tile), "the whole grid holds the tile");
-                }
-                None => {
-                    assert!(
-                        !l.holds(&h.tile),
-                        "a tile that doesn't pack isn't the grid's"
-                    );
-                    assert!(!whole.holds_coords(&h.tile), "nor in the whole grid's box");
-                }
+            if let Some(n) = l.pack(&h.tile) {
+                assert_eq!(l.unpack(n), Some(h.tile));
+                assert!(whole.holds(n), "the whole grid holds the tile number");
+                assert!(whole.holds_coords(&h.tile), "the whole grid holds the tile");
+            } else {
+                assert!(
+                    !l.holds(&h.tile),
+                    "a tile that doesn't pack isn't the grid's"
+                );
+                assert!(!whole.holds_coords(&h.tile), "nor in the whole grid's box");
             }
             if let (Ok(blk), Some(shape)) = (Block::salvage(b), g.shape)
                 && let Some(c) = blk.chunk()

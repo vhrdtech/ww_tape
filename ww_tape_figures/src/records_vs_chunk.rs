@@ -217,7 +217,7 @@ pub fn records_vs_chunk() -> anyhow::Result<String> {
     );
     s.bracket_under(x0, x1, y0 + h + 8.0, "thin");
     s.text(
-        (x0 + x1) / 2.0,
+        f64::midpoint(x0, x1),
         y0 + h + 22.0,
         "middle",
         "small",

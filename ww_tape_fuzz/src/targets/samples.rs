@@ -63,7 +63,7 @@ fn round<T: Sample>(codec: Codec, shape: SampleShape, data: &[u8], from: usize) 
         };
         let mut values = vec![T::default(); count * lanes];
         if raw.decode(0, &mut values).is_ok() {
-            round_values(codec, shape, values, from);
+            round_values(codec, shape, &values, from);
         }
         return;
     }
@@ -94,18 +94,18 @@ fn round<T: Sample>(codec: Codec, shape: SampleShape, data: &[u8], from: usize) 
         })
         .collect();
     values.truncate(values.len() / lanes * lanes);
-    round_values(codec, shape, values, from);
+    round_values(codec, shape, &values, from);
 }
 
 /// Code whole samples `values` and decode them back, whole and from `from` on.
-fn round_values<T: Sample>(codec: Codec, shape: SampleShape, values: Vec<T>, from: usize) {
+fn round_values<T: Sample>(codec: Codec, shape: SampleShape, values: &[T], from: usize) {
     let lanes = shape.lanes().expect("1 to 4 channels of 1 or 2 parts") as usize;
     let count = values.len() / lanes;
     let Ok(max) = max_encoded_len(codec, shape, count) else {
         return;
     };
     let mut out = vec![0u8; max];
-    let Ok(n) = encode(codec, shape, &values, &mut out) else {
+    let Ok(n) = encode(codec, shape, values, &mut out) else {
         return;
     };
     let s = Samples::new(codec, shape, count, &out[..n]).expect("written columns check");
@@ -113,7 +113,7 @@ fn round_values<T: Sample>(codec: Codec, shape: SampleShape, values: Vec<T>, fro
     s.decode(0, &mut back).expect("written columns decode");
     assert!(
         back.iter()
-            .zip(&values)
+            .zip(values)
             .all(|(a, b)| a.to_bits() == b.to_bits()),
         "the columns decode to the values written"
     );

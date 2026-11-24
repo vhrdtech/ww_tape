@@ -760,7 +760,7 @@ fn two_chains_merge_by_time() {
         for (s, t) in tracks.iter_mut().enumerate() {
             match t.try_next().unwrap() {
                 Some(i @ TrackItem::Event { start, .. }) => {
-                    merge.push(s, i128::from(start), i, now)
+                    merge.push(s, i128::from(start), i, now);
                 }
                 Some(i) => panic!("{i:?}"),
                 None if t.chain().is_closed() && open[s] => {

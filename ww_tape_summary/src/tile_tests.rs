@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use crate::tests::Rng;
+use crate::tests::{Rng, push_hex};
 use ww_tape::{
     Block, Element, ElementDesc, ItemNum, Magnitude, Ratio64, SampleShape, SeriesGrid, TileCoords,
     TrackId, TrackNum,
@@ -193,9 +193,7 @@ fn grid_summary_golden() {
         let h = Block::read(b).unwrap().summary_head().unwrap();
         assert_eq!(h.tile, TileCoords::new(&[1, 0, 2]).unwrap());
         assert!(b.len() <= 1024);
-        for byte in b {
-            hex.push_str(&format!("{byte:02x}"));
-        }
+        push_hex(&mut hex, b);
         hex.push('\n');
     }
     let golden =

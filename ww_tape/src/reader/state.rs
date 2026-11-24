@@ -654,7 +654,7 @@ impl<S: ByteSource> TapeReader<S> {
             match self.read_once(i, next, reads)? {
                 Read::Spent => return Ok(Read::Spent),
                 Read::Bad => return Ok(Read::Bad),
-                r => match marks(r) {
+                r @ Read::Kept { .. } => match marks(r) {
                     Some((true, m, false)) => marked = m,
                     _ => return Ok(Read::Bad),
                 },

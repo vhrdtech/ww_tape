@@ -147,12 +147,11 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
     let most = if d.bool() { most.min(64) } else { most };
     let count = 1 + d.below(most);
     let shape = SampleShape::new(element, channels);
-    let col = match column(&mut d, codec, shape, count) {
-        Some(c) => c,
-        None => {
-            codec = Codec::RAW;
-            column(&mut d, codec, shape, count).unwrap_or_default()
-        }
+    let col = if let Some(c) = column(&mut d, codec, shape, count) {
+        c
+    } else {
+        codec = Codec::RAW;
+        column(&mut d, codec, shape, count).unwrap_or_default()
     };
     let groups = count.div_ceil(ww_tape::samples::DELTA_GROUP);
     let mut count = count as u64;
@@ -197,7 +196,7 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
     let mut b = build(&head, &[(spec, &col)]);
     let at = column_start(&b, 0).expect("the column is in the block");
     let scalar = (element.container_bits() as usize / 8).max(1);
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         match d.u8() % 8 {
             7 => hit_head(&mut d, &mut b),
             1 => {

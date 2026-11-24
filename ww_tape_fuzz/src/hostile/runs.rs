@@ -142,7 +142,7 @@ pub fn runs(data: &[u8]) -> Vec<u8> {
         .filter(|(_, _, k)| *k == BlockKind::Records)
         .collect();
     let runs: Vec<_> = all.iter().filter(|(at, ..)| marked(&f, *at)).collect();
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         match d.below(4) {
             0 => {
                 if let Some((at, len, _)) = records.get(d.below(records.len().max(1))) {

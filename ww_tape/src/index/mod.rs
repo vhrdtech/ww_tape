@@ -353,7 +353,7 @@ impl IndexEntry {
                 }
             }
             BlockKind::Records => e.repeat = block.is_repeat(),
-            _ => {}
+            BlockKind::Other(_) => {}
         }
         Some(e)
     }
@@ -475,9 +475,10 @@ impl IndexEntry {
             return Err(IndexError::Invalid("an entry flag this build doesn't know"));
         }
         let e = Self::decode(b);
-        match e.is_valid() {
-            true => Ok(e),
-            false => Err(IndexError::BadEntries),
+        if e.is_valid() {
+            Ok(e)
+        } else {
+            Err(IndexError::BadEntries)
         }
     }
 
@@ -696,9 +697,12 @@ impl From<BoundError> for IndexError {
 pub(crate) fn in_file_order<'a>(entries: impl IntoIterator<Item = &'a IndexEntry>) -> bool {
     let mut prev: Option<&IndexEntry> = None;
     for e in entries {
-        let fits = prev.is_none_or(|p| match p.offset == e.offset {
-            true => p.track_id == STATE_TRACK_ID && e.track_id == STATE_TRACK_ID && p.len == e.len,
-            false => p.offset.saturating_add(u64::from(p.len)) <= e.offset,
+        let fits = prev.is_none_or(|p| {
+            if p.offset == e.offset {
+                p.track_id == STATE_TRACK_ID && e.track_id == STATE_TRACK_ID && p.len == e.len
+            } else {
+                p.offset.saturating_add(u64::from(p.len)) <= e.offset
+            }
         });
         if !fits {
             return false;

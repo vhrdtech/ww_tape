@@ -61,7 +61,7 @@ struct BitWriter<'o> {
     n: u32,
 }
 
-impl<'o> BitWriter<'o> {
+impl BitWriter<'_> {
     /// Append the low `bits` bits of `v` (`bits` up to 64; the bits above them are zero).
     #[inline(always)]
     fn put(&mut self, v: u64, bits: u32) {
@@ -98,7 +98,7 @@ struct BitReader<'a> {
     bit: usize,
 }
 
-impl<'a> BitReader<'a> {
+impl BitReader<'_> {
     /// The next `bits` bits (up to 57), or None past the end.
     #[inline(always)]
     fn get(&mut self, bits: u32) -> Option<u64> {

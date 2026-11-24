@@ -155,7 +155,7 @@ fn samples_golden() {
     fn col<T: Sample>(c: Codec, shape: SampleShape, v: &[T]) -> String {
         let bytes = roundtrip(c, shape, v);
         let lanes = shape.lanes().unwrap() as usize;
-        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let hex = crate::tests::hex(&bytes);
         // a predefined element by its name, one word as the fuzz seeds parse it
         let element = shape.element.element().expect("predefined elements");
         format!(
@@ -206,10 +206,7 @@ fn samples_golden() {
         out.truncate(n);
         out
     };
-    lines.push(format!(
-        "48 payload: {}",
-        lz4.iter().map(|b| format!("{b:02x}")).collect::<String>()
-    ));
+    lines.push(format!("48 payload: {}", crate::tests::hex(&lz4)));
     // a series chunk: channel 0 packed 12-bit, channel 1 delta
     let shape = s(Element::I16);
     let c0 = encode_vec(Codec::PACKED12_LSB, shape, &i16s);
@@ -253,10 +250,7 @@ fn samples_golden() {
         samples.decode(0, &mut out).unwrap();
         assert_eq!(out, i16s);
     }
-    lines.push(format!(
-        "chunk: {}",
-        block.iter().map(|b| format!("{b:02x}")).collect::<String>()
-    ));
+    lines.push(format!("chunk: {}", crate::tests::hex(&block)));
     let text = lines.join("\n") + "\n";
     let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-samples.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {

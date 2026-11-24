@@ -210,7 +210,8 @@ pub fn run(path: &Path, drive: &Drive) -> Result<String, FirstTapeError> {
     let bytes = std::fs::read(path).map_err(FirstTapeError::Io)?;
     let mut out = format!("{} bytes in one piece\n", closed.len);
     for track in tracks(&bytes)? {
-        out.push_str(&format!("{track}\n"));
+        out.push_str(&track.to_string());
+        out.push('\n');
     }
     Ok(out)
 }

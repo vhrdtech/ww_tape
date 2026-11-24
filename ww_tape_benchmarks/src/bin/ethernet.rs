@@ -125,7 +125,9 @@ where
     Ok(Run {
         captured,
         wall,
-        cpu: cpu_time().zip(cpu_start).map(|(end, start)| end - start),
+        cpu: cpu_time()
+            .zip(cpu_start)
+            .and_then(|(end, start)| end.checked_sub(start)),
         written,
         waits,
     })

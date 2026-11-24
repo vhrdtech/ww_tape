@@ -150,7 +150,7 @@ fn keeps_the_pieces_around_each_reset(chains: u32) {
         MuxOptions::default(),
     )
     .expect("the results' mux");
-    let run = c.run(kept.to_vec(), &results).expect("the capture runs");
+    let run = c.run(kept.clone(), &results).expect("the capture runs");
     assert_eq!(run.triaged.len(), chains as usize);
     let pieces: u64 = run.triaged.iter().map(|t| t.pieces).sum();
     assert!(pieces > 40, "{pieces} pieces");
@@ -295,11 +295,11 @@ fn a_quiet_link_keeps_nothing() {
     )
     .expect("the results' mux");
     let run = c.run(kept.to_vec(), &results).expect("the capture runs");
-    assert!(run.resets.is_empty());
+    assert_eq!(run.resets, [] as [example_ethernet::ram::Reset; 0]);
     for (t, kept) in run.triaged.iter().zip(&kept) {
-        assert!(t.kept.is_empty());
+        assert_eq!(t.kept, [] as [u64; 0]);
         assert_eq!(t.looked, t.pieces);
-        assert!(kept.keys().expect("the keys").is_empty());
+        assert_eq!(kept.keys().expect("the keys"), [] as [u64; 0]);
     }
     results.close().expect("the results close");
 }
@@ -371,7 +371,7 @@ fn outcome(c: &RamCapture) -> (Vec<Reset>, Vec<Reset>) {
         MuxOptions::default(),
     )
     .expect("the results' mux");
-    let run = c.run(kept.to_vec(), &results).expect("the capture runs");
+    let run = c.run(kept.clone(), &results).expect("the capture runs");
     kept_pieces_hold_their_frames(c, &run, &kept);
     let closed = results.close().expect("the results close");
     let pieces = example_capture::pieces(&results_tapes, &closed).expect("the results' pieces");
