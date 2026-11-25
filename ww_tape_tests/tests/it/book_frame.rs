@@ -40,7 +40,7 @@ fn vz_check(book: &Path) -> Output {
         Ok(out) => out,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             panic!(
-                "skipped: vz check of the book's frame, uv missing: install uv (https://docs.astral.sh/uv/)"
+                "uv missing: vz check of the book's frame cannot run; install uv (https://docs.astral.sh/uv/)"
             )
         }
         Err(e) => panic!("uv: {e}"),

@@ -104,6 +104,14 @@ fn rounded_on_the_pages(w: &Writing) {
                 round_bytes(put_bytes)
             ),
         ),
+        (
+            "damaged_pieces.md",
+            format!(
+                "The drive's hour spends {} of its {} on all its puts and copies",
+                round_bytes(put_bytes),
+                round_bytes(total)
+            ),
+        ),
     ] {
         assert!(page(name).contains(&phrase), "docs/{name} says {phrase:?}");
     }
