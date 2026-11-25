@@ -96,7 +96,7 @@ pub enum InputError {
     /// Nothing is written and the piece stays unclosed, so none of them is in the piece; close after the unit's last
     /// chunk instead.
     Waiting {
-        dropped: Vec<Vec<crate::state::Slot>>,
+        dropped: alloc::vec::Vec<alloc::vec::Vec<crate::state::Slot>>,
     },
     /// A put by key that would make the keys every cut carries take `needed` of `limit`'s `max`: a piece could not
     /// hold them with the layout, the producer and one put more. Nothing is written; a deletion makes room.
