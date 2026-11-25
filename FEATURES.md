@@ -195,7 +195,7 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
 - ✅ **WRITE-1 Pieces and chains** · `v0.5`
 
-  A recording is cut into complete pieces by bytes (the final index counted), chunks or age. The cut comes before a chunk or a call of puts and never leaves a piece empty. Each piece names the one before by its id and content hash. A chain check reports gaps, broken links, an open end and a lost first piece.
+  A recording is cut into complete pieces by bytes (the final index counted, the carry left out), chunks or age. The cut comes before a chunk or a call of puts, never leaves a piece empty and always makes progress, however large the carry. Each piece names the one before by its id and content hash. A chain check reports gaps, broken links, an open end and a lost first piece.
 
   Read more: [Anatomy of a piece](docs/anatomy.md), [Pieces and chains](docs/pieces.md).
 

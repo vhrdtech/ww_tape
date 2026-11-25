@@ -26,6 +26,7 @@ mod checks;
 mod clock;
 mod crafted;
 mod crashes;
+mod cut_progress;
 mod definitions;
 mod definitions_twice;
 mod durable;

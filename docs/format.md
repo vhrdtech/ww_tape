@@ -2635,8 +2635,13 @@ The writer's policies (`WriterOptions`, `PieceChain`'s `ChainOptions`):
 | `CutPolicy::bytes`, `chunks`, `interval` | none: 0 or None turns each off | when a chain cuts to a new piece: by size, chunk count or age |
 
 A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`. That is the chunk or call that takes it over, with
-its final index entries, then the close and the tail. `CutPolicy::bytes` counts the final index of what came before.
-A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
+its final index entries, then the close and the tail. A memory sink reserves the cut size plus `CUT_SLACK` when a
+piece starts.
+
+`CutPolicy::bytes` counts the final index of what came before and leaves out the piece's carry
+(`TapeWriter::carried_bytes`), so a piece grows to its carry and the budget. A mux counts the definitions and items it
+puts again after a cut as carry. A resume finds the carry in the blocks after the head that belong with the next. A
+piece resumed after its close counts it as data.
 
 A track's state policy (`StatePolicy`) is part of its definition, and track 0's is in the layout:
 
