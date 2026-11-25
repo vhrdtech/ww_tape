@@ -77,9 +77,9 @@ was not synced when the power failed at minute 37:
 | Policy | Syncs | Bytes not synced | Whole blocks not synced | Of the run |
 |---|---:|---:|---:|---:|
 | `Interval(1 s)` | 2222 | 1263 | 0 | 0.333 s |
-| `EveryBlocks(1)` | 8526 | 1263 | 0 | 0.333 s |
-| `EveryBlocks(256)` | 36 | 625282 | 76 | 20.333 s |
-| `None` | 4 | 13423537 | 1612 | 420.999 s |
+| `EveryBlocks(1)` | 8534 | 1263 | 0 | 0.333 s |
+| `EveryBlocks(256)` | 36 | 653290 | 79 | 21.000 s |
+| `None` | 4 | 13425607 | 1615 | 420.999 s |
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/sync_loss.svg"

@@ -46,9 +46,20 @@ fn batch(twice: bool) -> Vec<Describe<'static>> {
     ]
 }
 
-/// The default policies: track 0 repeated as [StatePolicy::DEFAULT](ww_tape::StatePolicy), copies 1 MiB apart, so
-/// a piece under 1 MiB holds no copy spaced apart.
+/// The default policies but no first copy: track 0 repeated as [StatePolicy::DEFAULT](ww_tape::StatePolicy), the
+/// first copy never due and later ones 1 MiB apart, so a piece under 1 MiB holds no copy spaced apart.
 fn options() -> WriterOptions {
+    WriterOptions {
+        near: NearPolicy {
+            copy_first: exact_units::Bytes::new(u64::MAX),
+            ..NearPolicy::default()
+        },
+        ..default_options()
+    }
+}
+
+/// The default policies: the first copy 4 KiB after its record.
+fn default_options() -> WriterOptions {
     WriterOptions {
         sync: SyncPolicy::None,
         clock: ww_tape::ClockRef::NONE,
@@ -62,7 +73,11 @@ fn options() -> WriterOptions {
 
 /// A first piece under [options], begun but given no call yet.
 fn begin() -> TapeWriter<MemSink> {
-    let o = options();
+    begin_with(&options())
+}
+
+/// A first piece under `o`, begun but given no call yet.
+fn begin_with(o: &WriterOptions) -> TapeWriter<MemSink> {
     let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_layout(o.layout).unwrap();
     w.set_producer(&o.producer);
@@ -86,8 +101,13 @@ fn write_from(w: &mut TapeWriter<MemSink>, defs: &Definitions, from: i64, until:
 
 /// A closed piece of just under 64 KiB.
 fn piece(twice: bool) -> Vec<u8> {
+    piece_with(twice, &options())
+}
+
+/// [piece] under `o`.
+fn piece_with(twice: bool, o: &WriterOptions) -> Vec<u8> {
     let defs = held(&batch(twice));
-    let mut w = begin();
+    let mut w = begin_with(o);
     let tape = w.sink().tape();
     write_from(&mut w, &defs, 0, PIECE_MAX as u64 / 3);
     w.close().unwrap();
@@ -226,6 +246,27 @@ fn either_record_reads_when_the_other_is_damaged() {
 fn every_definition_reads_after_one_damaged_block() {
     assert!(survives_any_one(&piece(true)));
     assert!(!survives_any_one(&piece(false)));
+}
+
+/// Under the default policies every definition gets its first copy 4 KiB on: in a 64 KiB piece each one reads after
+/// any one damaged block, asked for twice or not, the beside track's too.
+#[test]
+fn the_first_copies_keep_every_definition_after_one_damaged_block() {
+    let all = [
+        NEEDED[0],
+        NEEDED[1],
+        Slot::Track {
+            number: TrackNum::new(ONCE),
+        },
+        Slot::Layout,
+        Slot::Producer,
+    ];
+    for twice in [false, true] {
+        assert!(
+            survives(&piece_with(twice, &default_options()), &all),
+            "twice {twice}"
+        );
+    }
 }
 
 /// A state track written twice at once, beside [TWICE] and [ONCE].

@@ -29,20 +29,20 @@ need, two checkpoints, the final index, the close with its padding, and the 164-
 </figure>
 
 The drive's first piece holds the first 15 minutes of the run in about 29 MB. The [[series chunks]] of `phase_a` take
-most of it, and the blocks a [[reader]] uses to find its way take about 2.8 % of it. `cargo run -p example_drive` prints this table
+most of it, and the blocks a [[reader]] uses to find its way take about 2.9 % of it. `cargo run -p example_drive` prints this table
 and that share:
 
 | Blocks | Count | Bytes |
 |---|---:|---:|
 | piece head | 1 | 156 |
-| records blocks of puts and copies | 11 | 1526 |
+| records blocks of puts and copies | 13 | 2160 |
 | records blocks | 900 | 199882 |
 | events chunks | 900 | 2161164 |
 | series chunks | 900 | 25373597 |
 | summary blocks | 735 | 825050 |
-| checkpoints | 6 | 389632 |
-| final index | 1 | 442912 |
-| close | 1 | 2909 |
+| checkpoints | 6 | 391168 |
+| final index | 1 | 444448 |
+| close | 1 | 3299 |
 | tail | 1 | 164 |
 
 How much disk a whole run takes, and what writing it costs, is the subject of [Sizes and
@@ -73,7 +73,7 @@ back. It then knows every block before the newest checkpoint without reading the
 
 The [[final index]] lists every [[block]] of the [[piece]], sorted by track, with a directory of [[tracks]] at its
 start. A [[reader]] of one track out of thousands reads that directory and that track's list, and nothing else. The
-drive's first final index takes about 443 KB of its piece's 29 MB.
+drive's first final index takes about 444 KB of its piece's 29 MB.
 
 The [[close record]] states how the piece ended. Besides the reason, it holds three things:
 

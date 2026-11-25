@@ -757,16 +757,17 @@ pub struct StatePolicy {
     /// An item used at a place has a copy at most this many bytes behind it, in the same piece: how far a reader
     /// looks back for it.
     pub near: Bytes<u32>,
-    /// Copies an item gets after it is first written in a piece, spaced apart (a writer's
-    /// [NearPolicy::copy_spacing](crate::writer::NearPolicy)), against damage around one place; 0 for none.
+    /// Copies an item gets after it is first written in a piece, against damage around one place; 0 for none. The
+    /// first lies a writer's [NearPolicy::copy_first](crate::writer::NearPolicy) behind the first record, each later
+    /// one [NearPolicy::copy_spacing](crate::writer::NearPolicy) behind the copy before it.
     pub copies: Count<Item, u8>,
 }
 
 impl StatePolicy {
-    /// A copy at most [NEAR_DEFAULT] behind, one more copy at the first write.
+    /// A copy at most [NEAR_DEFAULT] behind, two more copies after the first write: 4 KiB and 1 MiB on.
     pub const DEFAULT: Self = Self {
         near: Bytes::new(NEAR_DEFAULT),
-        copies: Count::new(1),
+        copies: Count::new(2),
     };
 }
 

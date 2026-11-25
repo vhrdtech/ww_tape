@@ -30,8 +30,9 @@ use crate::{ChunkHead, ColumnSpec, Definitions, HEADER_LEN, SessionTag};
 /// then would start the same piece again.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct CutPolicy {
-    /// Once a piece holds this many bytes past its carry, the final index it will list counted
-    /// ([TapeWriter::data_bytes]). A carry larger than this makes pieces of the carry and this many bytes.
+    /// Once a piece holds this many bytes past its carry, the final index and the close's rows it will list counted
+    /// ([TapeWriter::data_bytes]), or would with the first copies the next call writes
+    /// ([TapeWriter::first_copies_len]). A carry larger than this makes pieces of the carry and this many bytes.
     pub bytes: Bytes<u64>,
     /// Once a piece holds this many chunk blocks.
     pub chunks: Count<Chunk, u64>,
@@ -545,7 +546,7 @@ impl<T: PieceStore> PieceChain<T> {
         defs: &Definitions,
         block: &[u8],
     ) -> Result<(), WriteError<T::Error>> {
-        if !self.cut_due() {
+        if !self.cut_due_for(defs) {
             return Ok(());
         }
         let chunk = crate::Block::read(block)
@@ -573,7 +574,7 @@ impl<T: PieceStore> PieceChain<T> {
         defs: &Definitions,
         tracks: &[TrackNum],
     ) -> Result<(), WriteError<T::Error>> {
-        if !self.cut_due() {
+        if !self.cut_due_for(defs) {
             return Ok(());
         }
         let w = self.writer()?;
@@ -688,6 +689,24 @@ impl<T: PieceStore> PieceChain<T> {
                 .is_some_and(|t| w.clock().passed(self.started, t))
     }
 
+    /// [Self::cut_due] before a call given `defs`, with the first copies it would write in its run counted as its
+    /// data ([TapeWriter::first_copies_len]): a piece cut by bytes so ends within its carry, its budget and the
+    /// call over it. The copies never cut a piece that holds its carry alone, so a cut makes progress.
+    fn cut_due_for(&self, defs: &Definitions) -> bool {
+        if self.cut_due() {
+            return true;
+        }
+        let Some(w) = self.writer.as_ref() else {
+            return false;
+        };
+        let budget = self.cut.bytes.get();
+        let data = w.data_bytes();
+        if budget == 0 || data == 0 || w.unit_open() {
+            return false;
+        }
+        data.saturating_add(w.first_copies_len(defs)) > budget
+    }
+
     /// A chunk ([TapeWriter::write_chunk]), in a new piece when [Self::cut_due]: a cut happens before a chunk, never
     /// after the last one, so no piece is left empty. A chunk whose definitions fit no piece
     /// ([crate::InputError::CarriedEntries]) is refused before that cut, so it cuts no piece either. Where it landed.
@@ -726,7 +745,7 @@ impl<T: PieceStore> PieceChain<T> {
         defs: &Definitions,
         chunks: &[crate::UnitChunk<'_>],
     ) -> Result<Vec<ChunkPlaced>, WriteError<T::Error>> {
-        if self.cut_due() {
+        if self.cut_due_for(defs) {
             let track = chunks.first().map(|c| c.head.track_number);
             if let Some(track) = track {
                 self.cut_for(defs, track)?;
@@ -751,7 +770,7 @@ impl<T: PieceStore> PieceChain<T> {
         columns: &[(ColumnSpec, &[u8])],
         payload_hash: Option<[u8; 32]>,
     ) -> Result<ChunkPlaced, WriteError<T::Error>> {
-        if self.cut_due() {
+        if self.cut_due_for(defs) {
             self.cut_for(defs, head.track_number)?;
         }
         self.place_chunk(defs, head, columns, payload_hash)
@@ -826,12 +845,21 @@ impl<T: PieceStore> PieceChain<T> {
     /// of its own. A `TapeMux` carries at most its `HELD_ITEMS_MAX` items of `HELD_ITEM_BYTES_MAX` bytes so.
     pub fn as_carry<R>(&mut self, call: impl FnOnce(&mut Self) -> R) -> R {
         let seq = self.seq;
-        let before = self.writer.as_ref().map(TapeWriter::closed_bytes);
+        let before = self
+            .writer
+            .as_ref()
+            .map(|w| (w.closed_bytes(), w.carried_bytes()));
         let r = call(self);
-        if let (Some(before), Some(w)) = (before, self.writer.as_mut())
+        if let (Some((before, carried)), Some(w)) = (before, self.writer.as_mut())
             && self.seq == seq
         {
-            w.add_carried(w.closed_bytes().saturating_sub(before));
+            // what the call wrote, less what the writer counted as carry already (the piece head's run)
+            let counted = w.carried_bytes().saturating_sub(carried);
+            w.add_carried(
+                w.closed_bytes()
+                    .saturating_sub(before)
+                    .saturating_sub(counted),
+            );
         }
         r
     }

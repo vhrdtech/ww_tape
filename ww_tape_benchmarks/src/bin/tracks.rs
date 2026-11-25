@@ -310,11 +310,13 @@ fn main() -> anyhow::Result<()> {
     let mut puts = bench.table(
         "puts",
         &format!(
-            "Put and copied bytes in a piece of {} MiB, {} tracks defined, records blocks of {} KiB on the tracks in use in turn; the default policies: a near of {} MiB, a copy {} MiB after the newest record.",
+            "Put and copied bytes in a piece of {} MiB, {} tracks defined, records blocks of {} KiB on the tracks in use in turn; the default policies: a near of {} MiB, {} copies, the first {} KiB after the first record, the next {} MiB after it.",
             args.piece_mib,
             args.tracks,
             args.block_kib,
             ww_tape::NEAR_DEFAULT >> 20,
+            ww_tape::StatePolicy::DEFAULT.copies.get(),
+            ww_tape::NearPolicy::default().copy_first.get() >> 10,
             ww_tape::NearPolicy::default().copy_spacing.get() >> 20
         ),
         &["Tracks in use", "Put and copied bytes", "Of the piece, %"],

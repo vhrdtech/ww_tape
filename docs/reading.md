@@ -48,7 +48,7 @@ one track's list, then (4) only the needed blocks. Below, an unclosed piece: the
 pointers list every earlier block, and the reader scans the blocks after it.</figcaption>
 </figure>
 
-For the drive's chain, opening reads about 17 KB in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
+For the drive's chain, opening reads about 19 KB in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
 [`PieceInfo`] holds the piece's start and end, its head and its close with a row per track. The row of `phase_a` says
 which ticks the track's [[chunks]] cover in that piece. The program picks the piece whose row reaches 52:00, without
 another read:
@@ -153,12 +153,12 @@ index to the one block it needs:
     --8<-- "examples/example_drive/src/fault.rs:in_force_item"
     ```
 
-At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:35 lies about 12 MB behind. That
+At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:36 lies about 12 MB behind. That
 record is the [[state copy]] which the [[writer]] adds after the record the cut carried into the last [[piece]]. At the chunk
 from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies about 2 KB behind.
 
 The number of `mode` is only the file's name for the track, so the reader first finds it by its key among the
-definitions in force. With that, both lookups together read about 4.2 KB in 10 reads. Each record lies within [[near]],
+definitions in force. With that, both lookups together read about 5.7 KB in 10 reads. Each record lies within [[near]],
 32 MiB, so a reader of the last piece alone finds both.
 
 [`TapeReader::definitions_at`] answers the same question for every [[definition]] at once: the clocks, the clock map

@@ -68,7 +68,7 @@ A [`CutPolicy`] has three limits, and the first one reached cuts:
 
 | Limit | Cuts when the piece holds |
 |---|---|
-| `bytes` | that many bytes past its carry, with the final index it will list, such as 256 MiB |
+| `bytes` | that many bytes past its carry, with the final index and the close it will list, such as 256 MiB |
 | `chunks` | that many [[chunks]] |
 | `interval` | data for that long, counted from its start or its resume |
 
@@ -132,7 +132,7 @@ with its head and two blocks of puts that carry the definitions, before its firs
 <code>ww_tape_figures</code> from the drive's chain at 1/1000 of its data; each row has its own scale.</figcaption>
 </figure>
 
-At full rate, piece 0 of the drive ends with a final index of 443 kB. The close takes 2909 bytes, 2033 of them padding,
+At full rate, piece 0 of the drive ends with a final index of 444 kB. The close takes 3299 bytes, 2423 of them padding,
 and the tail 164 bytes. Piece 1 starts with a head of 636 bytes, then 2 blocks of puts of 624 bytes in all.
 
 The head lists every track the chain has used so far, a [[state track]] included. The puts after it carry their
@@ -143,10 +143,10 @@ The four pieces of the hour end on 4 KiB:
 
 | Piece | Bytes | Close padding |
 |---|---:|---:|
-| 0 | 29396992 | 2033 |
-| 1 | 29614080 | 1692 |
-| 2 | 29605888 | 1559 |
-| 3 | 26890240 | 2778 |
+| 0 | 29401088 | 2423 |
+| 1 | 29618176 | 2310 |
+| 2 | 29609984 | 2177 |
+| 3 | 26894336 | 3114 |
 
 A [`TapeWriter`] without a chain cuts the same way. [`TapeWriter::cut_on`] takes a sink the caller made, and
 [`writer::cut`] the path of the next file. Only a piece of a chain can be cut: such a piece starts with a piece head,

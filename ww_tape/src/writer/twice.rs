@@ -180,6 +180,7 @@ mod tests {
             rule: Rule {
                 near: exact_units::Bytes::new(0),
                 copies: exact_units::Count::new(1),
+                first: exact_units::Bytes::new(0),
                 spacing: exact_units::Bytes::new(0),
                 twice: true,
             },
