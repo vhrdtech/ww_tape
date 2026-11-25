@@ -14,6 +14,12 @@ The example is a query on the drive's recording for the second around the fault 
 is a chain of four [[pieces]], about 116 MB in all. Every number below comes from [`src/fault.rs`]. This program
 runs each step on that recording and counts the bytes it reads. `cargo run -p example_drive` prints them.
 
+??? example "What `cargo run -p example_drive` prints for the query"
+
+    ```text
+    --8<-- "docs/generated/fault.txt"
+    ```
+
 ## Byte sources
 
 A [[reader]], [`TapeReader`], reads a [[tape]] through a [[byte source]]: anything with a length that reads bytes at an

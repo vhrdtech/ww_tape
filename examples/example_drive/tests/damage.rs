@@ -29,7 +29,7 @@ fn says(name: &str, phrase: &str) {
 }
 
 #[test]
-fn damage_to_the_last_piece_costs_what_the_book_says() -> Result<(), Error> {
+fn book_output_damage_to_the_last_piece_costs_what_the_book_says() -> Result<(), Error> {
     let drive = Drive::full();
     let recording = drive.record()?;
     let [flip, first, last] = recording.story_damage()?;
@@ -43,12 +43,45 @@ fn damage_to_the_last_piece_costs_what_the_book_says() -> Result<(), Error> {
             "the fault itself stays readable"
         );
     };
-    check_flip(&drive, &flip)?;
-    check_first(&drive, &first)?;
-    check_last(&drive, &last)
+    let (flip_row, walks) = check_flip(&drive, &flip)?;
+    let first_row = check_first(&drive, &first)?;
+    let last_row = check_last(&drive, &last)?;
+    let cases = format!(
+        "| Damage | The reader finds the piece by | Content hash | Blocks that read | Definitions found |\n\
+         |---|---|---|---:|---:|\n{flip_row}{first_row}{last_row}"
+    );
+    ww_tape_book_outputs::check("damage_cases.txt", &cases);
+    ww_tape_book_outputs::check("damage_walks.txt", &walks);
+    Ok(())
 }
 
-fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
+/// The row of the table of damages that docs/damaged_pieces.md includes (`docs/generated/damage_cases.txt`).
+fn case_row(damage: &str, r: &example_drive::Damage) -> String {
+    let found = match r.found {
+        Found::Tail => "its tail".to_owned(),
+        Found::Checkpoint { scanned: 0 } => {
+            "its final index, with no byte to scan after it".to_owned()
+        }
+        Found::Checkpoint { scanned } => format!(
+            "its newest checkpoint, scanning {} after it",
+            about(scanned)
+        ),
+        Found::Scan { scanned } => format!("a scan of {}", about(scanned)),
+    };
+    let holds = match r.holds {
+        Some(true) => "holds",
+        Some(false) => "does not hold",
+        None => "no close to check",
+    };
+    format!(
+        "| {damage} | {found} | {holds} | {} | {} of {} |\n",
+        r.read.len(),
+        r.definitions,
+        r.definitions_written
+    )
+}
+
+fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(String, String), Error> {
     // a flipped bit: one chunk of phase_a, its one segment, its second of samples; every other block reads
     let r = flip.read(drive)?;
     assert_eq!(r.found, Found::Tail);
@@ -80,7 +113,7 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
     // the numbers the chapter "When bytes go bad" gives
     assert_eq!(flip.damage.start, 9_740_029, "the flipped byte");
     assert_eq!(s.block.len, 28_171, "the flipped chunk's bytes");
-    flip_on_the_page(flip.damage.start, s.block.len, stop.0);
+    flip_on_the_page(flip.damage.start, s.block.len);
     assert_eq!(
         (r.read.len(), r.data_blocks(), r.mode_unknown.len()),
         (3448, 3449, 0),
@@ -92,12 +125,29 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
         "Prefix's blocks and where it stops"
     );
     assert_eq!(r.resync.blocks.len(), 3459, "the blocks Resync hands out");
-    Ok(())
+    says(
+        "damaged_pieces.md",
+        &format!(
+            "the piece holds {} blocks that its index lists",
+            r.data_blocks()
+        ),
+    );
+    // the walks of docs/reading_past_damage.md (`docs/generated/damage_walks.txt`)
+    let walks = format!(
+        "| Walk over the flipped piece | Blocks it hands out | Where it ends |\n\
+         |---|---:|---|\n\
+         | `Recovery::Prefix` | {} | stops at the damaged chunk, about {} in |\n\
+         | `Recovery::Resync` | {} | reads to the end, the damaged chunk among its blocks, with {} reports |\n",
+        r.prefix.blocks.len(),
+        about(stop.0),
+        r.resync.blocks.len(),
+        r.resync.reports.len()
+    );
+    Ok((case_row("a flipped bit", &r), walks))
 }
 
-/// The rounded numbers "When bytes go bad" and "Reading past damage" give for the flipped bit: the byte, the chunk's
-/// size, where Prefix stops.
-fn flip_on_the_page(byte: u64, chunk: u64, stop: u64) {
+/// The rounded numbers "When bytes go bad" gives for the flipped bit: the byte and the chunk's size.
+fn flip_on_the_page(byte: u64, chunk: u64) {
     says(
         "damage.md",
         &format!("a flipped bit about {} in", about(byte)),
@@ -106,13 +156,9 @@ fn flip_on_the_page(byte: u64, chunk: u64, stop: u64) {
         "damage.md",
         &format!("in about {}. That is less than one segment", about(chunk)),
     );
-    says(
-        "reading_past_damage.md",
-        &format!("then stops about {} in", about(stop)),
-    );
 }
 
-fn check_first(drive: &Drive, first: &Damaged) -> Result<(), Error> {
+fn check_first(drive: &Drive, first: &Damaged) -> Result<String, Error> {
     // the first 4 KiB: the blocks in them; every definition comes from its copy, the producer and the layout too
     let r = first.read(drive)?;
     assert_eq!(r.found, Found::Tail);
@@ -137,10 +183,18 @@ fn check_first(drive: &Drive, first: &Damaged) -> Result<(), Error> {
         "damaged_pieces.md",
         "no mode in force over the piece's first second, 45:00",
     );
-    Ok(())
+    says(
+        "damaged_pieces.md",
+        &format!(
+            "every block outside the lost bytes, {} of the {}",
+            r.read.len(),
+            r.data_blocks()
+        ),
+    );
+    Ok(case_row("the first 4 KiB lost", &r))
 }
 
-fn check_last(drive: &Drive, last: &Damaged) -> Result<(), Error> {
+fn check_last(drive: &Drive, last: &Damaged) -> Result<String, Error> {
     // the last 4 KiB: the padding, the close and the tail; the final index ends before them and reads whole, so the
     // reader takes it as the newest index block with no byte to scan after it
     let r = last.read(drive)?;
@@ -152,9 +206,9 @@ fn check_last(drive: &Drive, last: &Damaged) -> Result<(), Error> {
     assert!(r.mode_unknown.is_empty(), "the mode reads at every chunk");
     says(
         "damaged_pieces.md",
-        "its final index, with no byte to scan after it",
+        &format!("Every one of the {} blocks of data reads", r.data_blocks()),
     );
-    Ok(())
+    Ok(case_row("the last 4 KiB lost", &r))
 }
 
 #[test]

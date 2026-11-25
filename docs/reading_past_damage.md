@@ -28,7 +28,10 @@ on. Drawn by <code>ww_tape_figures</code> from the drive's last piece at 1/1000 
 | at a bad block | stops and reports [`FileError::Cut`] | reports [`FileError::Bad`] and reads on |
 | a chunk with a good chunk head and a bad payload | stops there | hands it out, marked |
 | sequence numbers | must not go backwards | may go anywhere; a repeated one is checked |
-| in the flipped piece | 1155 blocks, then stops about 9.7 MB in | all 3456 blocks, the damaged chunk among them |
+
+Over the drive's flipped piece, `cargo run -p example_drive` counts what each walk hands out:
+
+--8<-- "docs/generated/damage_walks.txt"
 
 ### Prefix
 

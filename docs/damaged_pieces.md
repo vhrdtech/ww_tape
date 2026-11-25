@@ -4,11 +4,14 @@ level: basic
 
 # What a damaged piece gives
 
-Damage to a [[piece]] lands in one of three places: the start, the end or somewhere between. Each place holds different
-blocks, so each costs a [[reader]] something different. This page shows all three on the drive's last piece, each on its
-own copy. The copies hold the flipped bit of [When bytes go bad](damage.md), the first 4 KiB lost and the last 4 KiB
-lost. A lost
-stretch here reads as zeros, as sectors that a disk could not read.
+Damage to a [[piece]] lands at its start, at its end or somewhere between. Each place holds different blocks, so each
+costs a [[reader]] something different. This page damages the drive's last piece three ways, each on its own copy:
+
+- the flipped bit of [When bytes go bad](damage.md);
+- the first 4 KiB lost;
+- the last 4 KiB lost.
+
+A lost stretch here reads as zeros, as sectors that a disk could not read.
 
 ## Three damages, one piece each
 
@@ -23,11 +26,7 @@ data, where 4 KiB is a larger share.</figcaption>
 At full scale, the piece holds 3449 blocks that its index lists. `cargo run -p example_drive` prints what each damage
 leaves:
 
-| Damage | The reader finds the piece by | Content hash | Blocks that read | Definitions found |
-|---|---|---|---:|---:|
-| a flipped bit | its tail | does not hold | 3448 | 10 of 10 |
-| the first 4 KiB lost | its tail | does not hold | 3444 | 10 of 10 |
-| the last 4 KiB lost | its final index, with no byte to scan after it | no close to check | 3449 | 10 of 10 |
+--8<-- "docs/generated/damage_cases.txt"
 
 ### The first 4 KiB lost
 

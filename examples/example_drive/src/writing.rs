@@ -5,7 +5,7 @@
 //! with its first piece deleted, and the hour relayed from the board's own tape.
 //!
 //! [Writing::of] computes them from a recording; its [Display](core::fmt::Display) is what
-//! `cargo run -p example_drive` prints from "Writing the drive's hour" on and what `tests/writing.out` pins.
+//! `cargo run -p example_drive` prints from "Writing the drive's hour" on and what `docs/generated/writing.txt` pins.
 
 #![expect(
     clippy::cast_precision_loss,
@@ -1105,7 +1105,8 @@ fn percent(part: u64, whole: u64) -> String {
 }
 
 /// `bytes` rounded for prose: three significant digits at most, in B, kB, MB or GB.
-fn round_bytes(bytes: u64) -> String {
+#[must_use]
+pub fn round_bytes(bytes: u64) -> String {
     let units = [("GB", 1e9), ("MB", 1e6), ("kB", 1e3)];
     let b = bytes as f64;
     units.iter().find(|(_, n)| b >= *n).map_or_else(
@@ -1115,7 +1116,8 @@ fn round_bytes(bytes: u64) -> String {
 }
 
 /// A count rounded for prose: exact below 1000, else to three significant digits.
-fn round_count(n: u64) -> String {
+#[must_use]
+pub fn round_count(n: u64) -> String {
     if n < 1000 {
         return n.to_string();
     }
@@ -1125,7 +1127,8 @@ fn round_count(n: u64) -> String {
 }
 
 /// A share rounded for prose: one decimal below 10 %, whole percent above.
-fn round_percent(part: u64, whole: u64) -> String {
+#[must_use]
+pub fn round_percent(part: u64, whole: u64) -> String {
     format!("{} %", round_sig(part as f64 * 100.0 / whole.max(1) as f64))
 }
 
@@ -1146,42 +1149,65 @@ fn policy(p: SyncPolicy) -> String {
     }
 }
 
-impl fmt::Display for Writing {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Writing {
+    /// The bytes of every block of the hour.
+    #[must_use]
+    pub fn total_bytes(&self) -> u64 {
+        self.blocks.iter().map(|b| b.bytes).sum()
+    }
+
+    /// The bytes of the blocks the writer made itself.
+    #[must_use]
+    pub fn writer_bytes(&self) -> u64 {
+        self.blocks
+            .iter()
+            .filter(|b| b.by_writer)
+            .map(|b| b.bytes)
+            .sum()
+    }
+
+    /// The table of the handle calls, the writer calls they make and their counts, as the book shows it.
+    #[must_use]
+    pub fn calls_table(&self) -> String {
         let c = &self.calls;
-        writeln!(f, "Writing the drive's hour:")?;
-        writeln!(f)?;
-        writeln!(f, "| Handle call | Writer call | Count |")?;
-        writeln!(f, "|---|---|---:|")?;
-        writeln!(
-            f,
-            "| StateHandle::put, the mode | put | {} ({} wrote) |",
-            c.puts, c.puts_wrote
-        )?;
-        writeln!(
-            f,
-            "| RecordsHandle::send, log lines and temperatures | write_block | {} |",
-            c.records
-        )?;
-        writeln!(
-            f,
-            "| ChunkSender::send, can0 | write_chunk | {} |",
-            c.frame_chunks
-        )?;
-        writeln!(
-            f,
-            "| GridHandle::push, phase_a | write_chunk_hashed | {} |",
-            c.sample_chunks
-        )?;
-        writeln!(
-            f,
-            "| none: the mux's summaries of phase_a | defer_block | {} |",
-            c.summaries
-        )?;
-        writeln!(f)?;
-        writeln!(f, "| Blocks | Made by | Count | Bytes |")?;
-        writeln!(f, "|---|---|---:|---:|")?;
-        let total: u64 = self.blocks.iter().map(|b| b.bytes).sum();
+        let rows = [
+            (
+                "`StateHandle::put`, the mode",
+                "`TapeWriter::put`",
+                format!("{} ({} wrote)", c.puts, c.puts_wrote),
+            ),
+            (
+                "`RecordsHandle::send`, log lines and temperatures",
+                "`TapeWriter::write_block`",
+                c.records.to_string(),
+            ),
+            (
+                "`ChunkSender::send`, `can0`",
+                "`TapeWriter::write_chunk`",
+                c.frame_chunks.to_string(),
+            ),
+            (
+                "`GridHandle::push`, `phase_a`",
+                "`TapeWriter::write_chunk_hashed`",
+                c.sample_chunks.to_string(),
+            ),
+            (
+                "none: the mux's summaries of `phase_a`",
+                "`TapeWriter::defer_block`",
+                c.summaries.to_string(),
+            ),
+        ];
+        let mut t = String::from("| Handle call | Writer call | Count |\n|---|---|---:|\n");
+        for (handle, writer, count) in rows {
+            t += &format!("| {handle} | {writer} | {count} |\n");
+        }
+        t
+    }
+
+    /// The table of the blocks of the hour, who made them, their count and bytes.
+    #[must_use]
+    pub fn blocks_table(&self) -> String {
+        let mut t = String::from("| Blocks | Made by | Count | Bytes |\n|---|---|---:|---:|\n");
         for b in &self.blocks {
             let by = if b.by_writer {
                 "the writer"
@@ -1190,14 +1216,20 @@ impl fmt::Display for Writing {
             } else {
                 "the recorder"
             };
-            writeln!(f, "| {} | {by} | {} | {} |", b.part, b.count, b.bytes)?;
+            t += &format!("| {} | {by} | {} | {} |\n", b.part, b.count, b.bytes);
         }
-        let writer: u64 = self
-            .blocks
-            .iter()
-            .filter(|b| b.by_writer)
-            .map(|b| b.bytes)
-            .sum();
+        t
+    }
+}
+
+impl fmt::Display for Writing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Writing the drive's hour:")?;
+        writeln!(f)?;
+        write!(f, "{}", self.calls_table())?;
+        writeln!(f)?;
+        write!(f, "{}", self.blocks_table())?;
+        let (writer, total) = (self.writer_bytes(), self.total_bytes());
         writeln!(f)?;
         writeln!(
             f,
@@ -1343,6 +1375,7 @@ impl fmt::Display for Writing {
             .iter()
             .find(|s| s.policy == SyncPolicy::EveryBlocks(1))
             .map_or(0, |s| s.syncs);
+        let (writer, total) = (self.writer_bytes(), self.total_bytes());
         writeln!(f)?;
         writeln!(f, "Rounded for the text:")?;
         writeln!(

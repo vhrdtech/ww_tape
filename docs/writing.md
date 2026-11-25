@@ -67,15 +67,15 @@ The drive's recorder hands the hour to the mux through four handles. Each second
 current. The mux turns each into one call of the writer, and adds the [[summary]] blocks of the phase current.
 `cargo run -p example_drive` counts the calls:
 
-| Handle call | Writer call | Count |
-|---|---|---:|
-| [`StateHandle::put`], the mode | [`TapeWriter::put`] | 3600 (18 wrote) |
-| [`RecordsHandle::send`], log lines and temperatures | [`TapeWriter::write_block`] | 3600 |
-| [`ChunkSender::send`], `can0` | [`TapeWriter::write_chunk`] | 3600 |
-| [`GridHandle::push`], `phase_a` | [`TapeWriter::write_chunk_hashed`] | 3600 |
-| none: the mux's summaries of `phase_a` | [`TapeWriter::defer_block`] | 2948 |
+--8<-- "docs/generated/writing_calls.txt"
 
-Only 12 of the 3600 puts wrote a record, 3 of them the puts that started pieces 1 to 3 with the mode carried. A put
+??? example "What `cargo run -p example_drive` prints for the writing chapters"
+
+    ```text
+    --8<-- "docs/generated/writing.txt"
+    ```
+
+Only 18 of the 3600 puts wrote a record, 3 of them the puts that started pieces 1 to 3 with the mode carried. A put
 writes its [[state item]] only when no record of the same item lies [[near]] behind, as [State in
 force](state.md#near-puts-and-copies) explains. The recorder therefore puts the mode before every block and
 never keeps track of what it put.

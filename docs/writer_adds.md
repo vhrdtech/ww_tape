@@ -4,9 +4,14 @@ level: basic
 
 # What the writer adds
 
-A piece holds more than the application's data. A [[reader]] may open it later without the program that wrote it.
-It then needs the [[definitions]] of the tracks, an index to find blocks and a way to tell that the piece is complete. Which blocks does the [[writer]] add for that, what does it check, and why does it never go back to change
-them?
+A piece holds more than the application's data. A [[reader]] may open it later without the program that wrote it,
+and then needs three things:
+
+- the [[definitions]] of the tracks;
+- an index to find blocks;
+- a way to tell that the piece is complete.
+
+This page shows which blocks the [[writer]] adds for that, what it checks, and why it never goes back to change them.
 
 ## Definitions with every call
 
@@ -44,18 +49,7 @@ that needs it.
 The writer's own blocks hold what a [[reader]] needs to find and understand the data. For the drive's hour they are
 the [[piece heads]], the puts, the [[checkpoints]] and the end of each piece:
 
-| Blocks | Made by | Count | Bytes |
-|---|---|---:|---:|
-| piece head | the writer | 4 | 2064 |
-| records blocks of puts and copies | the writer | 43 | 8306 |
-| records blocks | the recorder | 3600 | 811071 |
-| events chunks | the recorder | 3600 | 8400924 |
-| series chunks | the recorder | 3600 | 99617283 |
-| summary blocks | the mux | 2948 | 3301304 |
-| checkpoints | the writer | 24 | 1590400 |
-| final index | the writer | 4 | 1778048 |
-| close | the writer | 4 | 13528 |
-| tail | the writer | 4 | 656 |
+--8<-- "docs/generated/writing_blocks.txt"
 
 The writer's own blocks take 3.4 MB of the hour's 116 MB, 2.9 %. Most of that is index: the checkpoints while the
 pieces grow, and each piece's final index. The 43 blocks of puts hold every definition and mode change of four pieces,
