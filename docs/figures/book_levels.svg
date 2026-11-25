@@ -1,0 +1,26 @@
+<svg class="ww-svg" viewBox="0 0 680 190" width="680" height="190" role="img" aria-label="The book's navigation. The reading ramp runs Introduction, Basic, Advanced, Nomicon, and the level of the pages only rises along it: basic, basic, advanced, nomicon. After the ramp come the Reference and Articles shelves, whose pages keep any level. vz check holds the navigation to book_checks.toml and fails a step down, a page without a level and a page listed twice" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="20" class="soft small">the reading ramp: next never steps down</text>
+  <rect x="20.5" y="110" width="96" height="40" rx="4" class="tint-blue"/>
+  <text x="68.5" y="128" text-anchor="middle" class="small">Introduction</text>
+  <text x="68.5" y="143" text-anchor="middle" class="small mono soft">basic</text>
+  <rect x="124.5" y="110" width="96" height="40" rx="4" class="tint-blue"/>
+  <text x="172.5" y="128" text-anchor="middle" class="small">Basic</text>
+  <text x="172.5" y="143" text-anchor="middle" class="small mono soft">basic</text>
+  <rect x="228.5" y="76" width="96" height="74" rx="4" class="tint-purple"/>
+  <text x="276.5" y="128" text-anchor="middle" class="small">Advanced</text>
+  <text x="276.5" y="143" text-anchor="middle" class="small mono soft">advanced</text>
+  <rect x="332.5" y="42" width="96" height="108" rx="4" class="tint-accent"/>
+  <text x="380.5" y="128" text-anchor="middle" class="small">Nomicon</text>
+  <text x="380.5" y="143" text-anchor="middle" class="small mono soft">nomicon</text>
+  <path d="M20 162 H428" class="thin"/>
+  <path d="M434 162 l-8 -4 v8 Z" class="thin head"/>
+  <path d="M446 30 V170" class="thin dash"/>
+  <text x="556" y="20" text-anchor="middle" class="soft small">shelves: pages of any level</text>
+  <rect x="464.5" y="42" width="196" height="50" rx="4" class="tint-teal"/>
+  <text x="476" y="62" class="small">Reference</text>
+  <text x="476" y="80" class="small soft">glossary, sizes, format, this page</text>
+  <rect x="464.5" y="100" width="196" height="50" rx="4" class="tint-teal"/>
+  <text x="476" y="120" class="small">Articles</text>
+  <text x="476" y="138" class="small soft">whole cases, end to end</text>
+  <text x="20" y="184" class="small"><tspan class="mono">vz check</tspan> fails a step down, a page without a level and a page listed twice</text>
+</svg>

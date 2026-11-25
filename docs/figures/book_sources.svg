@@ -1,0 +1,49 @@
+<svg class="ww-svg" viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="Where each kind of content on a page comes from. A marked section of a compiled test or example becomes a rust block. A program's output passes ww_tape_book_outputs::check into docs/generated and becomes a text block. ww_tape_figures draws blocks ww_tape writes into docs/plots, and drawings by hand sit in docs/figures; both become figures. docs/glossary.toml and the crates' public items become the cards of terms and code links. Every source is checked: by the tests, by a stale file failing, by the figures test, and by vz prep" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="20" class="soft small">source, checked by the tests</text>
+  <text x="660" y="20" text-anchor="end" class="soft small">on the page</text>
+  <!-- row 1 -->
+  <rect x="20.5" y="32" width="270" height="40" rx="4" class="tint-blue"/>
+  <text x="32" y="49" class="small">a marked section of a test or example</text>
+  <text x="32" y="64" class="small mono soft">// --8&lt;-- [start:NAME]</text>
+  <path d="M292 52 H446" class="line"/>
+  <path d="M452 52 l-8 -4 v8 Z" class="line head"/>
+  <text x="370" y="44" text-anchor="middle" class="small soft">--8&lt;-- "path:NAME"</text>
+  <rect x="456.5" y="32" width="204" height="40" rx="4" class="tint-green"/>
+  <text x="468" y="56" class="small">a <tspan class="mono">rust</tspan> block</text>
+  <!-- row 2 -->
+  <rect x="20.5" y="84" width="270" height="40" rx="4" class="tint-blue"/>
+  <text x="32" y="101" class="small">what a program prints, through</text>
+  <text x="32" y="116" class="small mono soft">ww_tape_book_outputs::check</text>
+  <path d="M292 104 H310" class="line"/>
+  <rect x="312.5" y="92" width="116" height="24" rx="3" class="faint"/>
+  <text x="370" y="108" text-anchor="middle" class="small mono">docs/generated</text>
+  <path d="M430 104 H446" class="line"/>
+  <path d="M452 104 l-8 -4 v8 Z" class="line head"/>
+  <rect x="456.5" y="84" width="204" height="40" rx="4" class="tint-green"/>
+  <text x="468" y="108" class="small">a <tspan class="mono">text</tspan> block</text>
+  <!-- row 3 -->
+  <rect x="20.5" y="136" width="270" height="40" rx="4" class="tint-blue"/>
+  <text x="32" y="153" class="small">blocks ww_tape writes, drawn by</text>
+  <text x="32" y="168" class="small mono soft">ww_tape_figures</text>
+  <path d="M292 156 H310" class="line"/>
+  <rect x="312.5" y="144" width="116" height="24" rx="3" class="faint"/>
+  <text x="370" y="160" text-anchor="middle" class="small mono">docs/plots</text>
+  <path d="M430 156 C440 156 440 174 452 174" class="line"/>
+  <rect x="20.5" y="182" width="270" height="24" rx="4" class="tint-purple"/>
+  <text x="32" y="198" class="small">a drawing of a mechanism, by hand</text>
+  <path d="M292 194 H310" class="line"/>
+  <rect x="312.5" y="182" width="116" height="24" rx="3" class="faint"/>
+  <text x="370" y="198" text-anchor="middle" class="small mono">docs/figures</text>
+  <path d="M430 194 C440 194 440 180 452 180" class="line"/>
+  <path d="M456 177 l-8 -4 v8 Z" class="line head"/>
+  <rect x="456.5" y="156" width="204" height="40" rx="4" class="tint-green"/>
+  <text x="468" y="180" class="small">a <tspan class="mono">figure</tspan> element</text>
+  <!-- row 4 -->
+  <rect x="20.5" y="218" width="270" height="26" rx="4" class="tint-amber"/>
+  <text x="32" y="235" class="small"><tspan class="mono">glossary.toml</tspan>, the crates' public items</text>
+  <path d="M292 231 H446" class="line"/>
+  <path d="M452 231 l-8 -4 v8 Z" class="line head"/>
+  <text x="370" y="223" text-anchor="middle" class="small soft">vz prep</text>
+  <rect x="456.5" y="218" width="204" height="26" rx="4" class="tint-green"/>
+  <text x="468" y="235" class="small">cards of terms and code links</text>
+</svg>
