@@ -113,7 +113,6 @@ fn caller_flags(kind: BlockKind) -> u16 {
         // a chunk of a unit as another writer made it ([TapeWriter::write_chunk_unit])
         BlockKind::Events => crate::FLAG_RELATION_BREAK | crate::FLAG_WITH_NEXT,
         BlockKind::Series => crate::FLAG_GRID_START | crate::FLAG_WITH_NEXT,
-        BlockKind::Summary => crate::FLAG_TILE,
         _ => 0,
     }
 }
@@ -2195,7 +2194,11 @@ impl<S: TapeSink> TapeWriter<S> {
     fn check_data(defs: &Definitions, b: &crate::Block<'_>) -> Result<(), WriteError<S::Error>> {
         let ours = matches!(
             b.kind,
-            BlockKind::Records | BlockKind::Events | BlockKind::Series | BlockKind::Summary
+            BlockKind::Records
+                | BlockKind::Events
+                | BlockKind::Series
+                | BlockKind::Summary
+                | BlockKind::TileSummary
         );
         if !ours || !b.body_known() {
             return Err(WriteError::Input(InputError::Unknown {
@@ -2270,7 +2273,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let counted = !repeat && !crate::index::is_structural(kind);
         let tile = match &chunk {
             Some(c) => self.relations.tile(c),
-            None if kind == BlockKind::Summary => crate::Block::read_trusted(block)
+            None if kind.is_summary() => crate::Block::read_trusted(block)
                 .ok()
                 .and_then(|b| b.summary_head())
                 .and_then(|h| self.relations.summary_tile(&h)),

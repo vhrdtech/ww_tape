@@ -96,7 +96,7 @@ pub fn parts(piece: &[u8]) -> Result<Vec<Part>, Error> {
             BlockKind::Records => "records blocks",
             BlockKind::Events => "events chunks",
             BlockKind::Series => "series chunks",
-            BlockKind::Summary => "summary blocks",
+            BlockKind::Summary | BlockKind::TileSummary => "summary blocks",
             BlockKind::Index => match IndexBlock::read(&b)?.kind() {
                 IndexKind::Checkpoint => "checkpoints",
                 IndexKind::Final => "final index",

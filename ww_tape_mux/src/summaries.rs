@@ -185,7 +185,7 @@ impl Trees {
         let mut buf = Vec::new();
         // a kept block is known by its head: a tile's coordinates are in it, an entry a scan made has no tile number
         self.kept = BTreeSet::new();
-        for e in entries.iter().filter(|e| e.kind == BlockKind::Summary) {
+        for e in entries.iter().filter(|e| e.kind.is_summary()) {
             if let Some(c) = read_block(chain.writer()?.sink(), e, &mut buf)
                 .map_err(ww_tape::sink::sink_err("reading a kept summary block back"))?
                 .and_then(|()| Covers::of_block(&buf))

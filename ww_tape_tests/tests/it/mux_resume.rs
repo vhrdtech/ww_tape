@@ -210,7 +210,7 @@ fn summaries_mid_piece(pieces: &[Vec<u8>]) -> (usize, usize) {
             .unwrap_or(0);
         for e in entries
             .iter()
-            .filter(|e| e.kind == BlockKind::Summary && e.offset < last_chunk)
+            .filter(|e| e.kind.is_summary() && e.offset < last_chunk)
         {
             match e.tree {
                 1 => events += 1,
@@ -315,7 +315,7 @@ pub(crate) fn summary_flags(pieces: &[Vec<u8>], series: TrackId) -> u32 {
     for p in pieces {
         let r = TapeReader::open(&p[..]).unwrap();
         for e in r.entries(0).unwrap() {
-            if e.kind != BlockKind::Summary || e.track_id != series {
+            if !e.kind.is_summary() || e.track_id != series {
                 continue;
             }
             let b = r.read_block(0, &e, &mut buf).unwrap();

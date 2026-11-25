@@ -141,7 +141,7 @@ fn spans() -> anyhow::Result<(u64, Vec<Span>)> {
                 );
                 Part::Samples
             }
-            BlockKind::Summary => Part::Summary,
+            BlockKind::Summary | BlockKind::TileSummary => Part::Summary,
             BlockKind::Index => Part::Index,
             BlockKind::Close => {
                 let c = ww_tape::piece::CloseBlock::read(&b).or_debug()?;

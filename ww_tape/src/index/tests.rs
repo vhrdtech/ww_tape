@@ -626,11 +626,12 @@ fn an_entry_is_checked_the_same_on_every_read() {
     );
 }
 
-/// A tile number on a series summary block's entry reads back; on an event tree's summary block it is refused.
+/// A tile number on the entry of a tile's series summary block (kind 17) reads back; on an event tree's summary block
+/// or on a summary block of no tile (kind 6) it is refused.
 #[test]
 fn summary_entries_carry_tile_numbers() {
     let tree = |t: crate::summary::Tree| IndexEntry {
-        kind: BlockKind::Summary,
+        kind: BlockKind::TileSummary,
         tree: t.to_u8(),
         range: None,
         tile: Some(7 << 12 | 3 << 6 | 2 << 3 | 5),
@@ -650,8 +651,16 @@ fn summary_entries_carry_tile_numbers() {
     refused_both_ways(
         |e| {
             e[15] = ENTRY_TILE;
-            e[12] = BlockKind::Summary.to_u8();
+            e[12] = BlockKind::TileSummary.to_u8();
             e[14] = crate::summary::Tree::Events.to_u8();
+        },
+        IndexError::BadEntries,
+    );
+    refused_both_ways(
+        |e| {
+            e[15] = ENTRY_TILE;
+            e[12] = BlockKind::Summary.to_u8();
+            e[14] = crate::summary::Tree::Series.to_u8();
         },
         IndexError::BadEntries,
     );
@@ -870,7 +879,10 @@ fn a_key_and_the_kind_of_keyed_puts_go_together() {
         kind: BlockKind::Records,
         ..keyed
     };
-    assert!(!plain_kind.is_valid(), "a key on an entry of a records block");
+    assert!(
+        !plain_kind.is_valid(),
+        "a key on an entry of a records block"
+    );
     let no_key = IndexEntry {
         key: None,
         second: 0,

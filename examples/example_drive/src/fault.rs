@@ -511,7 +511,7 @@ fn nodes<S: ByteSource>(
             // entries: phase_a's index entries in piece i
             let wanted =
                 e.first_item < ItemNum::new(items.end) && e.end_item() > ItemNum::new(items.start);
-            if e.kind != BlockKind::Summary || e.level != level || !wanted {
+            if !e.kind.is_summary() || e.level != level || !wanted {
                 continue; // another block, another level, or outside the range drawn
             }
             let block = reader.read_block(i, e, &mut buf)?;

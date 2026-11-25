@@ -2287,6 +2287,7 @@ fn unfolded(kind: BlockKind) -> bool {
             | BlockKind::Records
             | BlockKind::KeyedPuts
             | BlockKind::Summary
+            | BlockKind::TileSummary
     )
 }
 

@@ -21,9 +21,8 @@
 //!          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
-//!          the start of a grid or scale (FLAG_GRID_START, the same bit), bit 5 on a summary block
-//!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-//!          without it refuses the block), bit 6 retired (keyed puts are kind 16), bit 7 on a block of puts
+//!          the start of a grid or scale (FLAG_GRID_START, the same bit), bits 5 and 6 retired (tile summaries are
+//!          kind 17, keyed puts kind 16), bit 7 on a block of puts
 //!          definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP),
 //!          bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
@@ -401,11 +400,6 @@ const _: () = assert!(
     FLAG_GRID_START == FLAG_RELATION_BREAK,
     "the grid start of a series chunk takes the bit an events chunk's relation break takes"
 );
-/// Header flag on summary blocks: the block belongs to the tree of one tile of a grid, whose coordinates follow its
-/// scale ([summary](crate::summary#tiles)).
-///
-/// Its index entry carries the tile number, as the tile's chunks' entries do.
-pub const FLAG_TILE: u16 = 1 << 5;
 /// Header flag on blocks of puts ([FLAG_REPEAT]): definitions written twice at once.
 ///
 /// Such definitions are those of [TrackDef::defined_twice](crate::TrackDef::defined_twice). A block linked into a run
@@ -458,6 +452,9 @@ pub enum BlockKind {
     /// A block of puts of keyed state records ([state]): a records body whose every record is a [KeyedItem], marked
     /// [FLAG_REPEAT].
     KeyedPuts,
+    /// One batch of nodes of one level of the summary tree of one tile of a grid: a summary block whose tile
+    /// coordinates follow its scale ([summary](crate::summary#tiles)).
+    TileSummary,
     /// A kind this reader doesn't know: its body isn't read.
     Other(u8),
 }
@@ -484,6 +481,7 @@ impl BlockKind {
             13 => Self::AppendHead,
             14 => Self::CloseSummary,
             16 => Self::KeyedPuts,
+            17 => Self::TileSummary,
             other => Self::Other(other),
         }
     }
@@ -491,6 +489,11 @@ impl BlockKind {
     /// Whether a block of this kind holds records ([Block::records]): records blocks and keyed puts.
     pub fn holds_records(self) -> bool {
         matches!(self, Self::Records | Self::KeyedPuts)
+    }
+
+    /// Whether a block of this kind is a summary block ([summary]): of a series or events tree, or of a tile's.
+    pub fn is_summary(self) -> bool {
+        matches!(self, Self::Summary | Self::TileSummary)
     }
 
     pub fn to_u8(self) -> u8 {
@@ -507,6 +510,7 @@ impl BlockKind {
             Self::AppendHead => 13,
             Self::CloseSummary => 14,
             Self::KeyedPuts => 16,
+            Self::TileSummary => 17,
             Self::Other(v) => v,
         }
     }
@@ -1504,7 +1508,7 @@ impl<'b> Block<'b> {
     }
 
     fn is_summary(&self) -> bool {
-        self.body_known() && self.kind == BlockKind::Summary
+        self.body_known() && self.kind.is_summary()
     }
 
     /// The head of a summary block whose body this reader knows: what an index lists, without the nodes.

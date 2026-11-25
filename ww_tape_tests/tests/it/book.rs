@@ -468,6 +468,7 @@ fn format_page_kinds_are_block_kinds() {
         (13, Some(BlockKind::AppendHead), "append head"),
         (14, Some(BlockKind::CloseSummary), "close summary"),
         (16, Some(BlockKind::KeyedPuts), "keyed puts"),
+        (17, Some(BlockKind::TileSummary), "tile summary"),
     ];
     assert_eq!(rows.len(), kinds.len());
     for (row, (n, kind, name)) in rows.iter().zip(kinds) {
@@ -746,7 +747,7 @@ fn format_page_relations_and_owner_read_a_chain() {
         "bit 3 relation break (events chunk) or grid start (series chunk of level 0), bit 4 tile",
         "72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0",
         "80 u64 its largest value, else 0",
-        "72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0",
+        "72 u128 a grid chunk's or a tile summary's tile number (flag bit 4) in place of the range, else 0",
         "88 [32] a chunk's unit hash, else 0",
         "32 u32  entries offset from the block start",
         "58 u16  entry length, 128",

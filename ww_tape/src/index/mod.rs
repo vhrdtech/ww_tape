@@ -33,7 +33,7 @@
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
 //!           72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0
 //!           80 u64 its largest value, else 0
-//!           72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0
+//!           72 u128 a grid chunk's or a tile summary's tile number (flag bit 4) in place of the range, else 0
 //!           72 [16] a keyed state record's key id (flag bit 5) in place of the range, below
 //!           88 [32] a chunk's unit hash, else 0
 //!          120 [8] reserved: written zero, not read
@@ -380,7 +380,7 @@ impl IndexEntry {
                     });
                 }
             }
-            BlockKind::Summary => {
+            BlockKind::Summary | BlockKind::TileSummary => {
                 if let Some(h) = block.summary_head() {
                     e.track_id = h.track_id;
                     e.number = h.track_number.get();
@@ -447,7 +447,7 @@ impl IndexEntry {
     pub fn track(&self) -> Option<TrackNum> {
         let block = matches!(
             self.kind,
-            BlockKind::Events | BlockKind::Series | BlockKind::Summary
+            BlockKind::Events | BlockKind::Series | BlockKind::Summary | BlockKind::TileSummary
         );
         if block && self.track_id != STATE_TRACK_ID {
             TrackNum::try_new(self.number)
@@ -610,7 +610,7 @@ impl IndexEntry {
         let tile = self.tile.is_none()
             || (self.range.is_none()
                 && (self.kind == BlockKind::Series
-                    || (self.kind == BlockKind::Summary
+                    || (self.kind == BlockKind::TileSummary
                         && self.tree == crate::summary::Tree::Series.to_u8())));
         let mark = (!self.relation_break || self.kind == BlockKind::Events)
             && (!self.grid_start || (self.kind == BlockKind::Series && self.level == 0));

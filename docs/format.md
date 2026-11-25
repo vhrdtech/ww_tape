@@ -122,9 +122,8 @@ off size field
          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
-         the start of a grid or scale (FLAG_GRID_START, the same bit), bit 5 on a summary block
-         a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-         without it refuses the block), bit 6 retired (keyed puts are kind 16), bit 7 on a block of puts
+         the start of a grid or scale (FLAG_GRID_START, the same bit), bits 5 and 6 retired (tile summaries are
+         kind 17, keyed puts kind 16), bit 7 on a block of puts
          definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP),
          bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
   8 u32  len: the whole block, header and CRC included
@@ -174,14 +173,14 @@ The header's kind byte says what the body holds (`BlockKind`):
 | 13 | append head |
 | 14 | close summary |
 | 16 | keyed puts ([Keyed state tracks](#keyed-state-tracks)) |
+| 17 | tile summary ([Summaries of tiles](#summaries-of-tiles)) |
 
 A reader reads a block of kind 2, or of a kind not in this table, as a block whose body it doesn't know. It skips such a
 block by its length, and the block is not damage.
 
 ### 3.2 Header flags {#header-flags}
 
-Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know, except bit 5 on a summary block. Bit 5 moves
-the block's body behind the tile: a reader without it refuses the block.
+Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know.
 
 | Bit | Flag | Marks |
 |---:|---|---|
@@ -190,7 +189,7 @@ the block's body behind the tile: a reader without it refuses the block.
 | 2 | `FLAG_WITH_NEXT` | puts or a chunk that belong with the block after it ([State tracks](#state-tracks), [Space overviews](#space-overviews)) |
 | 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
 | 4 | `FLAG_RELATION_BREAK`, `FLAG_GRID_START` | by kind: an events chunk where a track's monotone relations start again ([below](#relation-breaks)); a series chunk of level 0 where a grid or scale starts ([Grid starts](#grid-starts)) |
-| 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
+| 5 | | retired: written 0, ignored, not reused in version 1 (tile summaries are kind 17) |
 | 6 | | retired: written 0, ignored, not reused in version 1 (keyed puts are kind 16) |
 | 7 | `FLAG_TWICE` | a block of puts of definitions written twice at once, or its copy ([below](#definitions-written-twice-at-once)) |
 | 8 | `FLAG_GROUP` | a block of puts of a group, taken whole or not at all ([Groups of puts](#groups-of-puts)); it only marks, and a reader that doesn't know it reads the block as any block of puts |
@@ -522,7 +521,7 @@ off size field
  88 i64  latest end: the largest end of a covered item, at least the last tick
  96 ...  scale of a series: what a stored minimum, maximum or sum is worth in the sample type's unit, as the
          shrink_wrap bytes of an exact_units Magnitude (10⁻³ is fa 00); squares and powers are at its square
-96+s ... a tile's block only (header flag FLAG_TILE): u8 fixed axes a, 1 to GRID_FIXED_AXES_MAX, then a × u32 tile
+96+s ... a tile's block only (kind 17, TileSummary): u8 fixed axes a, 1 to GRID_FIXED_AXES_MAX, then a × u32 tile
          coordinates, as a grid chunk's head carries them (TileCoords)
  ...  ... body: columns of n values each, n the node count, little-endian, back to back
 len-4 u32 CRC over bytes 0..len-4, as in every block
@@ -1253,7 +1252,7 @@ off size field
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
           72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0
           80 u64 its largest value, else 0
-          72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0
+          72 u128 a grid chunk's or a tile summary's tile number (flag bit 4) in place of the range, else 0
           72 [16] a keyed state record's key id (flag bit 5) in place of the range, below
           88 [32] a chunk's unit hash, else 0
          120 [8] reserved: written zero, not read
@@ -2424,10 +2423,11 @@ tree is a time step. A node holds `2^base_shift` time steps of the tile, and eac
 statistics. A level-0 node of a tile of 6 cells and 16 time steps thus summarises 96 samples per channel. Nothing is
 downsampled along the fixed axes.
 
-A tile's summary block carries header flag 5 (`FLAG_TILE`). After the scale it holds the count of fixed axes and the
-tile's coordinates, one u32 each, as the chunk head does ([Summary blocks](#summary-blocks)). Its index entry carries
-the tile number under flag bit 4, as the tile's chunks' entries do. A series has one tree, and its blocks keep the
-bytes they had before grids: no flag, no tile. A writer refuses a summary block of a grid's tile its grid doesn't
+A tile's summary block is a **tile summary** (kind 17, `BlockKind::TileSummary`). After the scale it holds the count
+of fixed axes and the tile's coordinates, one u32 each, as the chunk head does ([Summary blocks](#summary-blocks)). Its
+index entry carries the tile number under flag bit 4, as the tile's chunks' entries do; an entry of kind 6 never does.
+A series has one tree, and its blocks are summary blocks (kind 6) without a tile. A reader that doesn't know kind 17
+skips a tile's block by its length, so it never reads the tile's coordinates as nodes. A writer refuses a summary block of a grid's tile its grid doesn't
 hold, or a series block without a tile on a grid (`SeriesError::TileOutside`).
 
 `TapeReader::grid_summaries` finds the summary blocks of one level of the tiles a box meets, as `grid_tiles` finds

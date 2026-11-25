@@ -479,7 +479,7 @@ pub fn summary_nodes<S: ByteSource>(
     };
     let mut out = Vec::new();
     for entry in reader.track_entries(0, id)? {
-        if entry.kind != BlockKind::Summary || entry.level != level {
+        if !entry.kind.is_summary() || entry.level != level {
             continue;
         }
         let block = reader.read_block(0, &entry, buf)?;
