@@ -40,6 +40,7 @@ chapter reads and how it marks terms, links code and includes tested code.
 | `ww_tape_benchmarks/` | one binary per bench: `summaries`, `tracks`, `chunks`, `drive`, `event_times`, `starts`, `relations`, `mem_reader`, `carried`, `memory`, `rf_core`, `rf_chain`, `handles`, `read_check`, `levels` (README lists what each measures) |
 | `examples/example_drive/` | the book's running example: the drive motor controller's hour at any scale, a crash at any byte, the resume; `cargo run -p example_drive` prints the story's numbers |
 | `examples/example_capture/` | what the cases share: the memory window and its triage (`window`), the RF signal (`rf`), deterministic chain options |
+| `examples/example_settings/` | the settings case: a controller's parameters on a keyed state track, a group of puts, a firmware image on a bytes track |
 | `examples/example_rf/`, `examples/example_ethernet/`, `examples/example_wideband/` | the cases: the RF capture into a piece or two chains; a 10 Gbps link over receive queues and muxes; a 1 GS/s receiver in channels; `ram` of the last two into the memory window, keeping the pieces around each TCP reset or burst |
 | `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |

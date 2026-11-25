@@ -66,6 +66,7 @@ crate's module docs.
 | [`example_ethernet`](examples/example_ethernet) | examples | The ww_tape book's protocol analyser: both directions of a 10 Gbps Ethernet link, captured into memory and triaged |
 | [`example_images`](examples/example_images) | examples | The ww_tape book's image sequence: frames of pixels on a 2-D grid over time, read by box and level |
 | [`example_rf`](examples/example_rf) | examples | The ww_tape book's RF capture: IQ at 20 MS/s into a piece, or into two chains from two muxes, followed live |
+| [`example_settings`](examples/example_settings) | examples | The ww_tape book's settings case: a controller's parameters by key, a profile switched in a group, its firmware read whole |
 | [`example_thermal`](examples/example_thermal) | examples | The ww_tape book's thermal field: a plate of sensors on a 2-D grid over time, read by box, region and level |
 | [`example_wideband`](examples/example_wideband) | examples | The ww_tape book's wideband receiver: 1 GS/s of IQ in channels over several muxes, captured into memory and triaged |
 | [`ww_tape_fuzz`](ww_tape_fuzz) | fuzz | Fuzz target bodies, hostile block builders and seed replay for ww_tape's decoders |
