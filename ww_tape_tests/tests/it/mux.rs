@@ -767,7 +767,7 @@ fn groups_through_the_mux_write_the_bytes_of_a_chain_written_directly() {
         let puts = [ww_tape::GroupPut {
             track: TrackNum::new(STATE),
             ticks: k as i64,
-            item: &i,
+            item: ww_tape::GroupItem::State(&i),
         }];
         chain.put_group(&defs, &puts).unwrap();
     }
@@ -792,7 +792,7 @@ fn groups_through_the_mux_write_the_bytes_of_a_chain_written_directly() {
     let elsewhere = [ww_tape::GroupPut {
         track: TrackNum::new(1),
         ticks: 0,
-        item: b"x",
+        item: ww_tape::GroupItem::State(b"x"),
     }];
     assert!(matches!(
         group.put_group(&elsewhere),
@@ -803,7 +803,7 @@ fn groups_through_the_mux_write_the_bytes_of_a_chain_written_directly() {
         let puts = [ww_tape::GroupPut {
             track: TrackNum::new(STATE),
             ticks: k as i64,
-            item: &i,
+            item: ww_tape::GroupItem::State(&i),
         }];
         assert_eq!(group.put_group(&puts).unwrap(), Sent::Queued);
     }
@@ -831,7 +831,7 @@ fn a_group_handle_refuses_a_group_at_the_call() {
     let twice = [0, 1].map(|k| ww_tape::GroupPut {
         track: TrackNum::new(STATE),
         ticks: k,
-        item: b"x",
+        item: ww_tape::GroupItem::State(b"x"),
     });
     assert!(matches!(
         group.put_group(&twice),
@@ -843,7 +843,7 @@ fn a_group_handle_refuses_a_group_at_the_call() {
     let long = [ww_tape::GroupPut {
         track: TrackNum::new(STATE),
         ticks: 0,
-        item: &big,
+        item: ww_tape::GroupItem::State(&big),
     }];
     assert!(matches!(
         group.put_group(&long),
@@ -854,7 +854,7 @@ fn a_group_handle_refuses_a_group_at_the_call() {
     let one = [ww_tape::GroupPut {
         track: TrackNum::new(STATE),
         ticks: 0,
-        item: b"y",
+        item: ww_tape::GroupItem::State(b"y"),
     }];
     assert_eq!(group.put_group(&one).unwrap(), Sent::Queued);
     group.flush().unwrap();

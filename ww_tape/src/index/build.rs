@@ -147,6 +147,11 @@ impl Indexer {
 
     /// The track of number `number`, its id `id` when the block says it: by the definition placed in the piece, else
     /// by the head; a chunk whose number names no track of its id is of the piece's owner.
+    /// Every track a number stands for here.
+    pub(crate) fn known(&self) -> impl Iterator<Item = TrackIdent> + '_ {
+        self.numbers.values().copied()
+    }
+
     pub(crate) fn key_of(&self, number: TrackNum, id: Option<TrackId>) -> Option<TrackIdent> {
         let fits = |k: &&TrackIdent| id.is_none_or(|id| k.0 == id);
         self.numbers
@@ -577,6 +582,7 @@ pub(crate) fn next_starts<'r>(
         .map(|t| {
             let t = TrackStart {
                 not_carried: false,
+                keys_carried: false,
                 ..*t
             };
             ((t.track_id, t.owner), t)
@@ -592,6 +598,7 @@ pub(crate) fn next_starts<'r>(
             hash: TrackHash::START,
             incomplete: false,
             not_carried: false,
+            keys_carried: false,
         });
         s.track_number = t.track_number;
         s.hash = t.hash;

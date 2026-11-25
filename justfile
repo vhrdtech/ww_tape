@@ -15,7 +15,7 @@ rf_gib := "100"
 # The WireWeaver command line that checks the API snapshot: `ww` from PATH, or the binary `WW` names
 ww := env_var_or_default('WW', 'ww')
 
-fuzz_targets := "reader resume reclose stores seal chunk summary index times samples series grid grid-hostile payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile flags flags-hostile runs runs-hostile"
+fuzz_targets := "reader resume reclose stores seal chunk summary index times samples series grid grid-hostile payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile flags flags-hostile runs runs-hostile keyed keyed-hostile"
 # cargo-fuzz defaults its fuzz target to the triple its own binary was built for; a
 # prebuilt cargo-fuzz release (taiki-e/install-action's cargo-binstall fallback uses
 # one) is a static musl build, so that default becomes a musl target this host never
@@ -409,6 +409,16 @@ fuzz-tape-grid:
 [working-directory('fuzz')]
 fuzz-tape-grid-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-grid-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
+
+# Fuzz ww_tape keyed state: keyed items, key ids, keyed blocks and keyed index entries from any bytes (TRACK-8)
+[working-directory('fuzz')]
+fuzz-tape-keyed:
+    cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-keyed -- -max_len=4096 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
+
+# Fuzz a piece of keyed puts whose keyed blocks and index entries lie behind good CRCs: key lookups and resume (TRACK-8)
+[working-directory('fuzz')]
+fuzz-tape-keyed-hostile:
+    cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-keyed-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
 # Fuzz ww_tape series chunks' flag runs on any bytes, and runs built from pushes read back (FMT-13)
 [working-directory('fuzz')]

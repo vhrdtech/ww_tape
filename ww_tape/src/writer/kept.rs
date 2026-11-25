@@ -10,14 +10,23 @@
 //! - **Cap.** The items kept take at most [NearPolicy::kept_bytes_max](super::NearPolicy::kept_bytes_max) bytes; past
 //!   it the item placed longest ago is forgotten. A forgotten item isn't carried: the next put of its track writes it
 //!   again, and [Closed::states_unknown](super::Closed::states_unknown) counts the tracks a cut found without one.
+//! - **Keyed state.** A keyed state track keeps every live key ([Keys]), never forgotten: a cut carries them all. The
+//!   keys are complete when the writer saw every record of the track since its first, directly or through the
+//!   pieces before ([Keys::complete]); a cut marks the track's row then ([TrackStart::keys_carried]). The keyed
+//!   items count against the cap first, so the plain items are forgotten to make room for them; the writer refuses a
+//!   put that would bring the keyed items alone past it ([CarryLimit::KeptBytes](super::CarryLimit::KeptBytes)).
+//!
+//! [TrackStart::keys_carried]: crate::piece::TrackStart::keys_carried
 
 use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 
+use alloc::vec::Vec;
+
 use crate::ClockTime;
 use crate::index::TrackIdent;
-use crate::state::ItemHash;
+use crate::state::{ItemHash, KeyId, KeyedItem};
 
 /// Bytes of state items a writer keeps for its cuts by default ([NearPolicy::kept_bytes_max](super::NearPolicy)):
 /// 64 MiB.
@@ -35,6 +44,147 @@ pub(crate) struct State {
     placed: u64,
 }
 
+/// The live keys of one keyed state track, see the [module docs](self).
+#[derive(Clone, Debug)]
+pub(crate) struct Keys {
+    /// The track the number stood for when its records were placed
+    pub(crate) key: TrackIdent,
+    /// The newest record of each live key, by key: its keyed item
+    pub(crate) live: BTreeMap<Vec<u8>, State>,
+    /// The live keys by their id, each of them: a key of another key's id collides
+    ids: BTreeMap<KeyId, BTreeSet<Vec<u8>>>,
+    /// The keys deleted while the keys are not complete: older keys taken after these ([Kept::after]) stay deleted
+    gone: BTreeSet<Vec<u8>>,
+    /// Bytes of the keys in [Self::gone], counted under the bytes kept ([Kept::trim])
+    gone_bytes: usize,
+    /// Older keys are never taken after these: none can follow ([Kept::seal_keys]), or the keys deleted since were
+    /// forgotten to keep within the bytes kept
+    sealed: bool,
+    /// Bytes of the live keys' items
+    bytes: usize,
+    /// Every record of the track since its first was seen: the live keys are all of them
+    pub(crate) complete: bool,
+    /// A record of the track didn't read: the keys stay incomplete whatever older keys are taken after them
+    doubted: bool,
+}
+
+impl Keys {
+    fn new(key: TrackIdent, complete: bool) -> Self {
+        Self {
+            key,
+            live: BTreeMap::new(),
+            ids: BTreeMap::new(),
+            gone: BTreeSet::new(),
+            gone_bytes: 0,
+            sealed: false,
+            bytes: 0,
+            complete,
+            doubted: false,
+        }
+    }
+
+    /// The live keys of id `id`: more than one only where records put without the writer's check hold them.
+    pub(crate) fn id_keys(&self, id: KeyId) -> impl Iterator<Item = &[u8]> {
+        self.ids.get(&id).into_iter().flatten().map(Vec::as_slice)
+    }
+
+    /// Key `key` is live: listed under its id.
+    fn list_id(&mut self, key: &[u8]) {
+        if let Some(id) = KeyId::of(key) {
+            self.ids.entry(id).or_default().insert(key.to_vec());
+        }
+    }
+
+    /// The live keys.
+    pub(crate) fn count(&self) -> usize {
+        self.live.len()
+    }
+
+    /// Take the keyed record `item` at `at` (its key and value, or a deletion), placed as the `placed`th item.
+    fn take(&mut self, keyed: KeyedItem<'_>, at: Option<ClockTime>, item: &[u8], placed: u64) {
+        self.remove(keyed.key);
+        if keyed.value.is_none() {
+            if !self.complete && !self.sealed && self.gone.insert(keyed.key.to_vec()) {
+                self.gone_bytes = self.gone_bytes.saturating_add(keyed.key.len());
+            }
+            return;
+        }
+        if self.gone.remove(keyed.key) {
+            self.gone_bytes = self.gone_bytes.saturating_sub(keyed.key.len());
+        }
+        self.list_id(keyed.key);
+        self.bytes = self.bytes.saturating_add(item.len());
+        self.live.insert(
+            keyed.key.to_vec(),
+            State {
+                key: self.key,
+                at,
+                item: Arc::from(item),
+                hash: ItemHash::of(item),
+                placed,
+            },
+        );
+    }
+
+    fn remove(&mut self, key: &[u8]) {
+        if let Some(old) = self.live.remove(key) {
+            self.bytes = self.bytes.saturating_sub(old.item.len());
+            if let Some(id) = KeyId::of(key)
+                && let Some(keys) = self.ids.get_mut(&id)
+            {
+                keys.remove(key);
+                if keys.is_empty() {
+                    self.ids.remove(&id);
+                }
+            }
+        }
+    }
+
+    /// A record of the track didn't read: the keys may miss it.
+    fn doubt(&mut self) {
+        self.complete = false;
+        self.doubted = true;
+    }
+
+    /// Take no older keys after these from here on, and forget the keys deleted ([Self::gone]).
+    fn seal(&mut self) {
+        self.gone.clear();
+        self.gone_bytes = 0;
+        self.sealed = true;
+    }
+
+    /// These keys after `older`, the keys of the same track before them: these alone when complete, sealed or
+    /// doubted (they may miss deletions of older keys), else `older`'s live keys less those these deleted, then these,
+    /// complete when `older` is.
+    fn after(self, older: Self) -> Self {
+        if self.complete || self.sealed || self.doubted || older.key != self.key {
+            return self;
+        }
+        let mut out = older;
+        for k in &self.gone {
+            out.remove(k);
+        }
+        if !out.complete {
+            out.gone.extend(self.gone);
+        }
+        for (k, st) in self.live {
+            out.remove(&k);
+            out.gone.remove(&k);
+            out.list_id(&k);
+            out.bytes = out.bytes.saturating_add(st.item.len());
+            out.live.insert(k, st);
+        }
+        if out.complete {
+            out.gone.clear();
+        }
+        out.gone_bytes = out
+            .gone
+            .iter()
+            .fold(0usize, |n, k| n.saturating_add(k.len()));
+        out
+    }
+}
+
 /// The newest item of each state track, by track number, see the [module docs](self).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Kept {
@@ -43,6 +193,17 @@ pub(crate) struct Kept {
     by_age: BTreeSet<(u64, TrackNum)>,
     bytes: usize,
     placed: u64,
+    /// The live keys of each keyed state track, by track number
+    keyed: BTreeMap<TrackNum, Keys>,
+    /// Bytes of the keyed items, [Keys::bytes] of every track
+    keyed_bytes: usize,
+    /// Bytes of the keys deleted, [Keys::gone_bytes] of every track
+    gone_bytes: usize,
+    /// No older keys follow: every track's keys are sealed, those first seen later too ([Self::seal_keys])
+    sealed: bool,
+    /// The tracks whose keys are doubted for bytes no block explains: those the writer knew then, also when first
+    /// seen later or brought by older keys ([Self::all_keys_doubted])
+    doubted: BTreeSet<TrackIdent>,
 }
 
 impl Kept {
@@ -73,12 +234,133 @@ impl Kept {
                 placed: self.placed,
             },
         );
-        while self.bytes > bytes_max {
+        self.trim(bytes_max);
+    }
+
+    /// Forget the plain items placed longest ago until those, the keyed items and the keys deleted take at most
+    /// `bytes_max` bytes, or no plain item is left; then, still past it, the keys deleted ([Keys::seal]).
+    pub(crate) fn trim(&mut self, bytes_max: usize) {
+        let total = |k: &Self| {
+            k.bytes
+                .saturating_add(k.keyed_bytes)
+                .saturating_add(k.gone_bytes)
+        };
+        while total(self) > bytes_max {
             let Some((_, oldest)) = self.by_age.first().copied() else {
                 break;
             };
             self.forget(oldest);
         }
+        if total(self) > bytes_max && self.gone_bytes > 0 {
+            self.seal_keys();
+        }
+    }
+
+    /// No older keys follow ([Self::keys_after]): the keys deleted are forgotten, and keys that aren't complete stay
+    /// so.
+    pub(crate) fn seal_keys(&mut self) {
+        if self.sealed && self.gone_bytes == 0 {
+            return;
+        }
+        for k in self.keyed.values_mut() {
+            k.seal();
+        }
+        self.sealed = true;
+        self.sum_keyed();
+    }
+
+    /// Keyed record `item` on keyed state track `number` at `at`, standing for `key`: a value or a deletion of its
+    /// key. A track first seen here starts with the keys `complete` says ([Keys::complete]); at most `bytes_max`
+    /// bytes stay kept, the plain items forgotten first. An item that isn't a keyed item is passed over.
+    pub(crate) fn key_placed(
+        &mut self,
+        number: TrackNum,
+        key: TrackIdent,
+        at: Option<ClockTime>,
+        item: &[u8],
+        complete: bool,
+        bytes_max: usize,
+    ) {
+        let Ok(keyed) = KeyedItem::read(item) else {
+            return;
+        };
+        self.placed = self.placed.saturating_add(1);
+        let placed = self.placed;
+        let keys = self.keys_entry(number, key, complete);
+        keys.take(keyed, at, item, placed);
+        self.sum_keyed();
+        self.trim(bytes_max);
+    }
+
+    /// The keys of track `number` standing for `key`, made with `complete` when the track has none or stood for
+    /// another track.
+    fn keys_entry(&mut self, number: TrackNum, key: TrackIdent, complete: bool) -> &mut Keys {
+        let (sealed, doubted) = (self.sealed, self.doubted.contains(&key));
+        let new = || Keys {
+            sealed,
+            doubted,
+            complete: complete && !doubted,
+            ..Keys::new(key, complete)
+        };
+        let keys = self.keyed.entry(number).or_insert_with(new);
+        if keys.key != key {
+            *keys = new();
+        }
+        keys
+    }
+
+    /// Whether the keys of keyed state track `number`, standing for `key`, are all of them, unless doubted: given an
+    /// empty set of keys when it has none yet.
+    pub(crate) fn keys_known(&mut self, number: TrackNum, key: TrackIdent, complete: bool) {
+        let keys = self.keys_entry(number, key, complete);
+        keys.complete = complete && !keys.doubted;
+    }
+
+    /// The keys of track `number` may miss some: a record of it doesn't read.
+    pub(crate) fn keys_doubted(&mut self, number: TrackNum, key: TrackIdent) {
+        self.keys_entry(number, key, false).doubt();
+    }
+
+    /// The keys of every keyed track among `tracks`, the tracks the writer knows, and of every track with keys may
+    /// miss some: bytes no block explains may hold their records. A track first defined later can't have records
+    /// there.
+    pub(crate) fn all_keys_doubted(&mut self, tracks: impl IntoIterator<Item = TrackIdent>) {
+        self.doubted.extend(tracks);
+        for k in self.keyed.values_mut() {
+            self.doubted.insert(k.key);
+            k.doubt();
+        }
+    }
+
+    /// Whether the keys of the track `key` stands for are doubted ([Self::all_keys_doubted]).
+    pub(crate) fn is_doubted(&self, key: TrackIdent) -> bool {
+        self.doubted.contains(&key)
+    }
+
+    /// The live keys of keyed state track `number` while it stands for `key`.
+    pub(crate) fn keys(&self, number: TrackNum, key: TrackIdent) -> Option<&Keys> {
+        self.keyed.get(&number).filter(|k| k.key == key)
+    }
+
+    /// Each keyed state track with keys, by number, and the track it stands for.
+    pub(crate) fn keyed_tracks(&self) -> impl Iterator<Item = (TrackNum, TrackIdent)> + '_ {
+        self.keyed.iter().map(|(n, k)| (*n, k.key))
+    }
+
+    /// Bytes of the keyed items of every track.
+    pub(crate) fn keyed_bytes(&self) -> usize {
+        self.keyed_bytes
+    }
+
+    fn sum_keyed(&mut self) {
+        self.keyed_bytes = self
+            .keyed
+            .values()
+            .fold(0usize, |n, k| n.saturating_add(k.bytes));
+        self.gone_bytes = self
+            .keyed
+            .values()
+            .fold(0usize, |n, k| n.saturating_add(k.gone_bytes));
     }
 
     /// Forget the item of track `number`: its newest record lies in a block that doesn't read.
@@ -96,9 +378,13 @@ impl Kept {
 
     /// Go on after `older`, the items kept before these: each of them, oldest first, then each of these, at most
     /// `bytes_max` bytes.
-    pub(crate) fn after(&mut self, older: Self, bytes_max: usize) {
+    pub(crate) fn after(&mut self, mut older: Self, bytes_max: usize) {
         let mut out = Self::default();
-        for from in [older, core::mem::take(self)] {
+        let mut newer = core::mem::take(self);
+        out.keyed = core::mem::take(&mut newer.keyed);
+        out.doubted = core::mem::take(&mut newer.doubted);
+        out.keys_after(older.take_keys());
+        for from in [older, newer] {
             for (_, n) in &from.by_age {
                 if let Some(st) = from.states.get(n) {
                     out.placed(*n, st.key, st.at, &st.item, bytes_max);
@@ -106,6 +392,36 @@ impl Kept {
             }
         }
         *self = out;
+    }
+
+    /// Go on with the keys of these after those of `older`, the keys before them ([Keys::after]); the plain items
+    /// stay as they are.
+    pub(crate) fn keys_after(&mut self, mut older: Self) {
+        let mut keyed = core::mem::take(&mut older.keyed);
+        for k in keyed.values_mut() {
+            if self.doubted.contains(&k.key) {
+                k.doubt();
+            }
+        }
+        for (n, k) in core::mem::take(&mut self.keyed) {
+            let k = match keyed.remove(&n) {
+                Some(old) => k.after(old),
+                None => k,
+            };
+            keyed.insert(n, k);
+        }
+        self.keyed = keyed;
+        self.sum_keyed();
+    }
+
+    /// The keys of every keyed track, taken out: these keep the plain items alone.
+    pub(crate) fn take_keys(&mut self) -> Self {
+        let keyed = core::mem::take(&mut self.keyed);
+        self.sum_keyed();
+        Self {
+            keyed,
+            ..Self::default()
+        }
     }
 
     /// Keep only the items of the tracks `keep` holds by number and key: those a next piece's head carries.
@@ -119,6 +435,8 @@ impl Kept {
         for n in gone {
             self.forget(n);
         }
+        self.keyed.retain(|n, k| keep.get(n) == Some(&k.key));
+        self.sum_keyed();
     }
 
     /// Bytes of the items kept.
@@ -171,5 +489,80 @@ mod tests {
         assert!(k.get(TrackNum::new(1), KEY).is_some());
         assert!(k.get(TrackNum::new(2), KEY).is_none());
         assert_eq!(k.bytes(), 1);
+    }
+
+    /// The keyed item of `key`, its value `value`, or a deletion for None.
+    fn keyed(key: &[u8], value: Option<&[u8]>) -> Vec<u8> {
+        let mut out = vec![];
+        KeyedItem { key, value }.encode_into(&mut out).unwrap();
+        out
+    }
+
+    /// Keys deleted while a track's keys aren't complete are kept for keys older than them to follow, at most the
+    /// bytes kept: past them they are forgotten, and older keys taken later can no longer bring a deleted key back.
+    #[test]
+    fn keys_deleted_while_incomplete_stay_within_the_bytes_kept() {
+        let n = TrackNum::new(1);
+        let mut older = Kept::default();
+        older.key_placed(n, KEY, None, &keyed(b"/k/0", Some(b"v")), true, 1 << 20);
+        let mut k = Kept::default();
+        for i in 0..100u32 {
+            let key = alloc::format!("/k/{i}");
+            k.key_placed(n, KEY, None, &keyed(key.as_bytes(), None), false, 64);
+            assert!(
+                k.gone_bytes <= 64,
+                "{} bytes of deleted keys kept",
+                k.gone_bytes
+            );
+        }
+        k.keys_after(older);
+        let keys = k.keys(n, KEY).unwrap();
+        assert!(
+            keys.live.is_empty(),
+            "a deleted key came back: {:?}",
+            keys.live.keys()
+        );
+        assert!(!keys.complete, "the older keys weren't taken");
+    }
+
+    /// Once no older keys follow ([Kept::seal_keys], at each call), the keys deleted are forgotten and no more are
+    /// kept.
+    #[test]
+    fn sealed_keys_keep_no_deleted_keys() {
+        let n = TrackNum::new(1);
+        let mut k = Kept::default();
+        k.key_placed(n, KEY, None, &keyed(b"/a", None), false, 1 << 20);
+        assert_eq!(k.gone_bytes, 2);
+        k.seal_keys();
+        assert_eq!(k.gone_bytes, 0);
+        k.key_placed(n, KEY, None, &keyed(b"/b", None), false, 1 << 20);
+        k.key_placed(
+            TrackNum::new(2),
+            KEY,
+            None,
+            &keyed(b"/c", None),
+            false,
+            1 << 20,
+        );
+        assert_eq!(k.gone_bytes, 0);
+        assert!(k.keyed.values().all(|k| k.gone.is_empty()));
+    }
+
+    /// Two live keys of one id, which records put without the writer's check may hold: deleting one leaves the other
+    /// listed under the id.
+    #[test]
+    fn every_live_key_of_an_id_stays_listed() {
+        // two keys of one id, from the collision pair of ww_tape_tests' keyed_carry.rs
+        let a = 0x2f73_746f_7265_2f6b_dc4f_5a16_d038_5228u128.to_be_bytes();
+        let b = 0x2f73_746f_7265_2f6b_c181_e23c_3f48_f913u128.to_be_bytes();
+        let id = KeyId::of(&a).unwrap();
+        assert_eq!(KeyId::of(&b), Some(id), "the pair shares an id");
+        let n = TrackNum::new(1);
+        let mut k = Kept::default();
+        k.key_placed(n, KEY, None, &keyed(&a, Some(b"1")), true, 1 << 20);
+        k.key_placed(n, KEY, None, &keyed(&b, Some(b"2")), true, 1 << 20);
+        k.key_placed(n, KEY, None, &keyed(&b, None), true, 1 << 20);
+        let keys = k.keys(n, KEY).unwrap();
+        assert_eq!(keys.id_keys(id).collect::<Vec<_>>(), [&a[..]]);
     }
 }

@@ -16,6 +16,9 @@ const PIECES: usize = 25_000;
 /// Inputs of the state target: a piece of about 70 blocks each. One costs about 12 ms in the test profile (the
 /// lookups at four places, a resume, its close and a content hash check).
 const STATE_PIECES: usize = 300;
+/// Inputs of the keyed target: a piece of about 40 blocks each, looked up key by key at four places by four readers,
+/// then resumed.
+const KEYED_PIECES: usize = 300;
 /// Inputs of the grid target: a block of definitions and up to 4 grid chunks each, read as blocks and as a tape.
 const GRID_PIECES: usize = 100_000;
 /// Hostile run pieces a stream checks: each opens a piece, follows a file of it and resumes it.
@@ -132,5 +135,6 @@ streams! {
     state_hostile_stream: "tape-state-hostile" => targets::state_hostile, 0x9b05_688c_2b3e_6c1f, STATE_PIECES;
     flags_hostile_stream: "tape-flags-hostile" => targets::flags_hostile, 0x1f83_d9ab_fb41_bd6b, CASES;
     grid_hostile_stream: "tape-grid-hostile" => targets::grid_hostile, 0x5be0_cd19_137e_2179, GRID_PIECES;
+    keyed_hostile_stream: "tape-keyed-hostile" => targets::keyed_hostile, 0xcbbb_9d5d_c105_9ed8, KEYED_PIECES;
     runs_hostile_stream: "tape-runs-hostile" => targets::runs_hostile, 0x2f1e_8a3b_c4d5_6e7f, RUNS_PIECES;
 }

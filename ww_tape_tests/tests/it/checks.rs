@@ -166,7 +166,7 @@ fn the_layout_and_the_producer_are_the_writers() {
             .records()
             .map(|r| {
                 let r = r.unwrap();
-                ww_tape::Slot::of(r.track, r.item).unwrap()
+                ww_tape::Slot::of(r.track, r.item, b.is_keyed()).unwrap()
             })
             .collect();
         assert_eq!(slots, [ww_tape::Slot::Layout, ww_tape::Slot::Producer]);

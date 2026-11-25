@@ -116,7 +116,7 @@ fn a_follower_holds_a_runs_places_not_its_bytes() {
             .map(|(track, item)| GroupPut {
                 track: *track,
                 ticks: 1,
-                item,
+                item: ww_tape::GroupItem::State(item),
             })
             .collect();
         w.put_group(&defs, &p).unwrap();
@@ -178,7 +178,7 @@ fn group_blocks(defs: &Definitions, tracks: &[TrackNum], items: &[Vec<u8>]) -> V
         .map(|(track, item)| GroupPut {
             track: *track,
             ticks: 1,
-            item,
+            item: ww_tape::GroupItem::State(item),
         })
         .collect();
     w.put_group(defs, &puts).unwrap();

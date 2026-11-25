@@ -7,7 +7,9 @@
 //! - a record of a state track fills the track's slot, [Slot::State];
 //! - a definition fills the slot of what it defines: the producer, the layout, a track or a clock by number, a map by
 //!   its two clocks;
-//! - a bundle, a schema, a typed item, or a definition of a kind this crate doesn't know is a slot of its own, by its hash.
+//! - a bundle, a schema, a typed item, or a definition of a kind this crate doesn't know is a slot of its own, by its hash;
+//! - a record of a keyed state track ([TrackRepeat::Keyed](crate::TrackRepeat::Keyed)) fills the slot of its key,
+//!   [Slot::Keyed].
 //!
 //! An item is known by its [ItemHash]: BLAKE3 of its bytes, cut to 128 bits. A writer puts an item again only when
 //! the newest record of its slot isn't the same item close behind ([TrackRepeat::State](crate::TrackRepeat::State)'s
@@ -17,10 +19,206 @@
 //!
 //! The index lists every state record by its slot and hash ([crate::index]), so a reader finds the item in force at a
 //! place, or an item by its hash, without a scan.
+//!
+//! **Keyed state.** A keyed state track holds many slots, one per key: bytes of at most [STATE_KEY_LEN_MAX]. Its
+//! records sit in blocks of their own, marked [FLAG_KEYED](crate::FLAG_KEYED), and each item is a [KeyedItem]: the
+//! key, then the value, or no value for a deletion, which ends the key:
+//!
+//! ```text
+//! uvar head: key length << 1 | 1 for a deletion; the length at most STATE_KEY_LEN_MAX (1024)
+//! key bytes
+//! value bytes, the rest of the item: none in a deletion
+//! ```
+//!
+//! The index lists a keyed record by its
+//! [KeyId]: the key's first [KEY_HEAD_LEN] bytes, its length and a 64-bit hash of the whole key. Ordered by the
+//! head first, the index lists a key range in order, and a key of at most [KEY_HEAD_LEN] bytes is whole in it.
+//!
+//! Two different keys of the same head, length and 64-bit hash share a slot. That happens by chance only about once
+//! in 2^64 pairs, but a key set crafted for it costs about 2^32 BLAKE3 hashes. A lookup of one key
+//! ([TapeReader::key_at](crate::reader::TapeReader::key_at)) reads the full key of each record and stays exact; a
+//! listing ([TapeReader::keys_at](crate::reader::TapeReader::keys_at)) reads the newest record of each slot and so
+//! shows only the newer of two keys that share one. A writer refuses a key of another live key's id
+//! ([DescribeError::KeyCollision](crate::DescribeError::KeyCollision)), so only bytes written otherwise hold two.
 
 use shrink_wrap::prelude::*;
 
-use crate::{ClockNum, Describe, RecordTrack, TrackNum};
+use crate::varint;
+use crate::{BoundError, ClockNum, Describe, FromFile, RecordTrack, TrackNum};
+
+/// Longest key of a keyed state track, in bytes: a store's path limit.
+pub const STATE_KEY_LEN_MAX: usize = 1024;
+/// Bytes of a key's head ([KeyId::head]) an index entry holds.
+pub const KEY_HEAD_LEN: usize = 8;
+
+/// How the index knows a key of a keyed state track: its head, its length and a hash of the whole key.
+///
+/// Ordered by head, then length, then hash: keys of at most [KEY_HEAD_LEN] bytes in byte order, longer keys grouped
+/// by their head.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct KeyId {
+    /// The key's first [KEY_HEAD_LEN] bytes, zero past its end.
+    pub head: [u8; KEY_HEAD_LEN],
+    /// The key's length in bytes, at most [STATE_KEY_LEN_MAX].
+    pub len: u32,
+    /// The first 8 bytes of BLAKE3 of the key, little endian.
+    pub hash: u64,
+}
+
+impl KeyId {
+    /// The id of `key`; None for a key longer than [STATE_KEY_LEN_MAX].
+    pub fn of(key: &[u8]) -> Option<Self> {
+        if key.len() > STATE_KEY_LEN_MAX {
+            return None;
+        }
+        let mut head = [0u8; KEY_HEAD_LEN];
+        for (d, s) in head.iter_mut().zip(key) {
+            *d = *s;
+        }
+        let full = blake3::hash(key);
+        let mut hash = [0u8; 8];
+        for (d, s) in hash.iter_mut().zip(full.as_bytes()) {
+            *d = *s;
+        }
+        Some(Self {
+            head,
+            len: u32::try_from(key.len()).ok()?,
+            hash: u64::from_le_bytes(hash),
+        })
+    }
+
+    /// The whole key, when it is at most [KEY_HEAD_LEN] bytes long: the index alone holds it.
+    pub fn key(&self) -> Option<&[u8]> {
+        self.head.get(..crate::from_file::u32_to_usize(self.len))
+    }
+
+    /// Whether a key of this id starts with `prefix`: Some when the id decides it, None when only the key can (a
+    /// prefix longer than [KEY_HEAD_LEN] whose head matches).
+    pub fn has_prefix(&self, prefix: &[u8]) -> Option<bool> {
+        if crate::from_file::u32_to_usize(self.len) < prefix.len() {
+            return Some(false);
+        }
+        let n = prefix.len().min(KEY_HEAD_LEN);
+        let (known, rest) = prefix.split_at(n);
+        if self.head.get(..n) != Some(known) {
+            return Some(false);
+        }
+        if rest.is_empty() { Some(true) } else { None }
+    }
+
+    /// Whether the head is one a key of this length has: zero past the key's end, the length within
+    /// [STATE_KEY_LEN_MAX].
+    pub fn is_valid(&self) -> bool {
+        let len = crate::from_file::u32_to_usize(self.len);
+        len <= STATE_KEY_LEN_MAX && self.head.iter().skip(len).all(|b| *b == 0)
+    }
+}
+
+/// Whether a record of `track` holding `item` may sit in a block marked [FLAG_KEYED](crate::FLAG_KEYED): a data
+/// track's, its item a [KeyedItem].
+pub(crate) fn keyed_record(track: RecordTrack, item: &[u8]) -> bool {
+    matches!(track, RecordTrack::Data(_)) && KeyedItem::read(item).is_ok()
+}
+
+/// A keyed state record's item read: the key, then the value; no value for a deletion, which ends the key. The
+/// bytes are in the [module docs](self).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct KeyedItem<'a> {
+    pub key: &'a [u8],
+    /// The value, None for a deletion.
+    pub value: Option<&'a [u8]>,
+}
+
+/// Why a keyed state record's item doesn't read.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum KeyedError {
+    /// The head doesn't read.
+    Head,
+    /// The key is longer than [STATE_KEY_LEN_MAX].
+    KeyLength(BoundError),
+    /// The key runs past the item.
+    Short,
+    /// A deletion with value bytes after its key.
+    DeletionValue,
+}
+
+impl core::fmt::Display for KeyedError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Head => f.write_str("a keyed item's head doesn't read"),
+            Self::KeyLength(e) => write!(f, "a keyed item's key length: {e}"),
+            Self::Short => f.write_str("a keyed item's key runs past the item"),
+            Self::DeletionValue => f.write_str("a deletion carries a value"),
+        }
+    }
+}
+
+impl core::error::Error for KeyedError {}
+
+impl<'a> KeyedItem<'a> {
+    /// Read the keyed item `item`.
+    pub fn read(item: &'a [u8]) -> Result<Self, KeyedError> {
+        let mut rd = varint::Reader(item);
+        let head = rd.uvar().ok_or(KeyedError::Head)?;
+        let deleted = head & 1 != 0;
+        let len = FromFile::new(head >> 1)
+            .at_most(STATE_KEY_LEN_MAX)
+            .map_err(KeyedError::KeyLength)?;
+        let key = rd.take(len).ok_or(KeyedError::Short)?;
+        let value = rd.0;
+        if deleted {
+            if !value.is_empty() {
+                return Err(KeyedError::DeletionValue);
+            }
+            return Ok(Self { key, value: None });
+        }
+        Ok(Self {
+            key,
+            value: Some(value),
+        })
+    }
+
+    /// Bytes of the item: its head, key and value.
+    pub fn len(&self) -> usize {
+        let head = self.head();
+        crate::uvar_len(head)
+            .saturating_add(self.key.len())
+            .saturating_add(self.value.map_or(0, <[u8]>::len))
+    }
+
+    /// Whether the item has no bytes: never, the head takes one at least.
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+
+    #[expect(
+        clippy::expect_used,
+        reason = "a usize fits a u64: the crate builds for targets of at most 64 bits"
+    )]
+    fn head(&self) -> u64 {
+        let len = u64::try_from(self.key.len()).expect("a usize fits a u64");
+        len.saturating_mul(2) | u64::from(self.value.is_none())
+    }
+
+    /// The item's bytes, appended to `out`; None when the key is longer than [STATE_KEY_LEN_MAX].
+    #[cfg(feature = "alloc")]
+    pub fn encode_into(&self, out: &mut alloc::vec::Vec<u8>) -> Option<()> {
+        if self.key.len() > STATE_KEY_LEN_MAX {
+            return None;
+        }
+        let mut head = [0u8; 10];
+        let n = varint::put_uvar(&mut head, self.head())?;
+        out.extend_from_slice(head.get(..n)?);
+        out.extend_from_slice(self.key);
+        out.extend_from_slice(self.value.unwrap_or_default());
+        Some(())
+    }
+
+    /// The id of its key; None for a key longer than [STATE_KEY_LEN_MAX], which no item read has.
+    pub fn id(&self) -> Option<KeyId> {
+        KeyId::of(self.key)
+    }
+}
 
 /// Bytes of an [ItemHash].
 pub const ITEM_HASH_LEN: usize = 16;
@@ -141,6 +339,11 @@ pub enum Slot {
         from: ClockNum,
         to: ClockNum,
     },
+    /// The key `key` of keyed state track `track`.
+    Keyed {
+        track: TrackNum,
+        key: KeyId,
+    },
     /// A bundle, a schema, a typed item or a definition of a kind this crate doesn't know: each item a slot of its own.
     Own {
         kind: DefinitionKind,
@@ -149,10 +352,18 @@ pub enum Slot {
 }
 
 impl Slot {
-    /// The slot of record `item` on `track`: on track 0 by the definition it decodes to, None when it doesn't decode.
-    pub fn of(track: RecordTrack, item: &[u8]) -> Option<Self> {
-        if let RecordTrack::Data(track) = track {
-            return Some(Self::State { track });
+    /// The slot of record `item` on `track`, in a block marked [FLAG_KEYED](crate::FLAG_KEYED) with `keyed`: on
+    /// track 0 by the definition it decodes to, on a keyed track by its key; None when it doesn't decode, and for a
+    /// record of track 0 in a keyed block.
+    pub fn of(track: RecordTrack, item: &[u8], keyed: bool) -> Option<Self> {
+        match (track, keyed) {
+            (RecordTrack::Data(track), false) => return Some(Self::State { track }),
+            (RecordTrack::Data(track), true) => {
+                let key = KeyedItem::read(item).ok()?.id()?;
+                return Some(Self::Keyed { track, key });
+            }
+            (RecordTrack::Definitions, true) => return None,
+            (RecordTrack::Definitions, false) => {}
         }
         let d = Describe::from_ww_bytes(item).ok()?;
         Some(Self::of_definition(&d, || ItemHash::of(item)))
@@ -178,22 +389,24 @@ impl Slot {
 
     /// Whether the slot is a definition's (track 0).
     pub fn is_definition(&self) -> bool {
-        !matches!(self, Self::State { .. })
+        !matches!(self, Self::State { .. } | Self::Keyed { .. })
     }
 
     /// The track its records are on: the definitions for a definition.
     pub fn track(&self) -> RecordTrack {
         match self {
-            Self::State { track } => RecordTrack::Data(*track),
+            Self::State { track } | Self::Keyed { track, .. } => RecordTrack::Data(*track),
             _ => RecordTrack::Definitions,
         }
     }
 
     #[cfg(feature = "alloc")]
-    /// How an index entry lists the slot: its level code, number and second number.
+    /// How an index entry lists the slot: its level code, number and second number; a key's head and hash go
+    /// elsewhere ([KeyId]).
     pub(crate) fn code(&self) -> (u8, u32, u32) {
         match *self {
             Self::State { track } => (0, track.get(), 0),
+            Self::Keyed { track, key } => (0, track.get(), key.len),
             Self::Producer => (DefinitionKind::Producer.to_u8(), 0, 0),
             Self::Layout => (DefinitionKind::Layout.to_u8(), 0, 0),
             Self::Track { number } => (DefinitionKind::Track.to_u8(), number.get(), 0),
@@ -203,13 +416,24 @@ impl Slot {
         }
     }
 
-    /// The slot an index entry lists by `code`, with the item's `hash`; None for a level no slot has, or a track or
-    /// clock numbered 0.
-    pub(crate) fn from_code(level: u8, number: u32, second: u32, hash: ItemHash) -> Option<Self> {
+    /// The slot an index entry lists by `code`, with the item's `hash` and a keyed record's `key`; None for a level
+    /// no slot has, a key on a definition, or a track or clock numbered 0.
+    pub(crate) fn from_code(
+        level: u8,
+        number: u32,
+        second: u32,
+        hash: ItemHash,
+        key: Option<KeyId>,
+    ) -> Option<Self> {
         if level == 0 {
-            return Some(Self::State {
-                track: TrackNum::try_new(number)?,
+            let track = TrackNum::try_new(number)?;
+            return Some(match key {
+                Some(key) => Self::Keyed { track, key },
+                None => Self::State { track },
             });
+        }
+        if key.is_some() {
+            return None;
         }
         Some(match DefinitionKind::from_u8(level)? {
             DefinitionKind::Producer => Self::Producer,
@@ -267,9 +491,83 @@ mod tests {
         ];
         for s in slots {
             let (level, n, second) = s.code();
-            assert_eq!(Slot::from_code(level, n, second, hash), Some(s));
+            assert_eq!(Slot::from_code(level, n, second, hash, None), Some(s));
         }
-        assert_eq!(Slot::from_code(16, 0, 0, hash), None);
+        assert_eq!(Slot::from_code(16, 0, 0, hash, None), None);
+        let key = KeyId::of(b"/a/b").unwrap();
+        let keyed = Slot::Keyed {
+            track: TrackNum::new(4),
+            key,
+        };
+        let (level, n, second) = keyed.code();
+        assert_eq!(second, 4);
+        assert_eq!(
+            Slot::from_code(level, n, second, hash, Some(key)),
+            Some(keyed)
+        );
+        assert_eq!(Slot::from_code(2, 1, 0, hash, Some(key)), None);
+    }
+
+    #[test]
+    fn a_keyed_item_reads_back() {
+        for (key, value) in [
+            (&b""[..], Some(&b""[..])),
+            (b"/x", Some(b"value")),
+            (b"/x", None),
+            (&[7u8; STATE_KEY_LEN_MAX][..], Some(b"v")),
+        ] {
+            let it = KeyedItem { key, value };
+            let mut out = alloc::vec::Vec::new();
+            it.encode_into(&mut out).unwrap();
+            assert_eq!(out.len(), it.len());
+            assert_eq!(KeyedItem::read(&out), Ok(it));
+        }
+        let long = [0u8; STATE_KEY_LEN_MAX + 1];
+        let it = KeyedItem {
+            key: &long,
+            value: None,
+        };
+        assert_eq!(it.encode_into(&mut alloc::vec::Vec::new()), None);
+    }
+
+    #[test]
+    fn hostile_keyed_items_are_refused() {
+        assert_eq!(KeyedItem::read(&[]), Err(KeyedError::Head));
+        assert_eq!(KeyedItem::read(&[0x80]), Err(KeyedError::Head));
+        // a key of 1025 bytes: head 2050
+        assert!(matches!(
+            KeyedItem::read(&[0x82, 0x10]),
+            Err(KeyedError::KeyLength(_))
+        ));
+        assert_eq!(KeyedItem::read(&[6, b'a']), Err(KeyedError::Short));
+        assert_eq!(
+            KeyedItem::read(&[3, b'a', b'v']),
+            Err(KeyedError::DeletionValue)
+        );
+        let max = [0xff; 10];
+        assert!(KeyedItem::read(&max).is_err());
+    }
+
+    #[test]
+    fn key_ids_order_short_keys_as_bytes_and_decide_prefixes() {
+        let ids: alloc::vec::Vec<KeyId> = [&b""[..], b"a", b"a\0", b"ab", b"b"]
+            .iter()
+            .map(|k| KeyId::of(k).unwrap())
+            .collect();
+        assert!(ids.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(ids[3].key(), Some(&b"ab"[..]));
+        let long = KeyId::of(b"/eventfull/layouts/a").unwrap();
+        assert_eq!(long.key(), None);
+        assert_eq!(long.has_prefix(b"/eve"), Some(true));
+        assert_eq!(long.has_prefix(b"/x"), Some(false));
+        assert_eq!(long.has_prefix(b"/eventfull/"), None);
+        assert_eq!(long.has_prefix(b"/eventfX/"), Some(false));
+        assert_eq!(ids[1].has_prefix(b"ab"), Some(false));
+        assert!(long.is_valid());
+        let mut bad = ids[1];
+        bad.head[3] = 1;
+        assert!(!bad.is_valid());
+        assert_eq!(KeyId::of(&[0; STATE_KEY_LEN_MAX + 1]), None);
     }
 
     #[test]

@@ -46,9 +46,10 @@ fn slots_of(block: &[u8]) -> Vec<Slot> {
     let Ok(b) = b.decode(&mut buf) else {
         return Vec::new();
     };
+    let keyed = b.is_keyed();
     b.records()
         .filter_map(Result::ok)
-        .filter_map(|r| Slot::of(r.track, r.item))
+        .filter_map(|r| Slot::of(r.track, r.item, keyed))
         .collect()
 }
 
@@ -187,11 +188,14 @@ mod tests {
             hash: ItemHash::of(&bytes),
             item: Item::Given(&bytes),
         };
-        let one = puts_len::<()>(&[RecordRef {
-            track: RecordTrack::Definitions,
-            at: None,
-            item: &bytes,
-        }])
+        let one = puts_len::<()>(&[(
+            RecordRef {
+                track: RecordTrack::Definitions,
+                at: None,
+                item: &bytes,
+            },
+            false,
+        )])
         .unwrap();
         let upper = puts_len_upper(&[c]);
         assert!(upper >= one.saturating_mul(2), "{upper} < 2 * {one}");

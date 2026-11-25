@@ -42,7 +42,7 @@ fn template() -> Vec<u8> {
         let puts = [0, 1].map(|t| GroupPut {
             track: on.states[t],
             ticks: k,
-            item: &items[t],
+            item: ww_tape::GroupItem::State(&items[t]),
         });
         w.put_group(&defs, &puts).expect("a group");
         w.write_block(&defs, &state_records(w.next_id(), on, k))

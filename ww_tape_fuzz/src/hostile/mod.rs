@@ -15,6 +15,7 @@ mod file;
 mod flags;
 mod grid;
 mod index;
+mod keyed;
 mod payloads;
 mod records;
 mod runs;
@@ -29,6 +30,13 @@ pub use file::file;
 pub use flags::flags;
 pub use grid::grid;
 pub use index::index;
+pub use keyed::{
+    KeyedAttacked, KeyedTracks, attacked as keyed_attacked, keyed, keyed_template,
+    keys as keyed_keys, prefixes as keyed_prefixes,
+};
+pub(crate) use keyed::{
+    definitions as keyed_definitions, fresh_writer as keyed_writer, options as keyed_options,
+};
 pub use payloads::payloads;
 pub use records::records;
 #[cfg(test)]

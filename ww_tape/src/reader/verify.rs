@@ -469,7 +469,7 @@ impl<L: Listed> Replay<L> {
                 }
                 continue;
             }
-            if let Some(Slot::Track { .. }) = Slot::of(r.track, r.item)
+            if let Some(Slot::Track { .. }) = Slot::of(r.track, r.item, false)
                 && let Ok(Describe::Track(t)) = Describe::from_ww_bytes(r.item)
             {
                 self.numbers.insert(t.number, (t.id(), OwnerId(t.owner)));

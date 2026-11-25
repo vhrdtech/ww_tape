@@ -328,7 +328,7 @@ pub(crate) fn puts(bytes: &[u8]) -> Vec<(u64, Vec<Slot>)> {
                 .records()
                 .map(|r| {
                     let r = r.unwrap();
-                    Slot::of(r.track, r.item).unwrap()
+                    Slot::of(r.track, r.item, block.is_keyed()).unwrap()
                 })
                 .collect();
             (b.offset, slots)
@@ -341,10 +341,12 @@ pub(crate) fn writes_of(bytes: &[u8], slot: Slot) -> Vec<u64> {
     record_blocks(bytes)
         .into_iter()
         .filter(|b| {
-            Block::read(&b.bytes)
-                .unwrap()
-                .records()
-                .any(|r| r.ok().and_then(|r| Slot::of(r.track, r.item)) == Some(slot))
+            let block = Block::read(&b.bytes).unwrap();
+            block.records().any(|r| {
+                r.ok()
+                    .and_then(|r| Slot::of(r.track, r.item, block.is_keyed()))
+                    == Some(slot)
+            })
         })
         .map(|b| b.offset)
         .collect()
@@ -394,6 +396,7 @@ pub(crate) fn begin_numbered(o: &WriterOptions, layout: Layout, later: &[Describ
             prev: None,
             prev_session: SessionTag::NONE,
             integrity: ww_tape::Integrity::Full,
+            unlisted_keys_unknown: false,
         },
         &[],
     )

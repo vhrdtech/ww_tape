@@ -10,6 +10,11 @@
 //! most [STATE_READ_MAX] bytes (a setting), coded, decoded and held; it keeps only the records it may return. A coded
 //! body's decoded length is charged before it is decoded. A lookup whose budget runs out stops there and says so
 //! ([Lookup::spent]): that is not damage, and no block is listed lost for it.
+//!
+//! A keyed state track's keys are slots of their own ([Slot::Keyed]), sorted by [KeyId]: a key's records and a key
+//! range are found from the index ([TapeReader::key_entries], [TapeReader::key_slots]), and only the records a lookup
+//! returns are read ([TapeReader::key_at], [TapeReader::key_history], [TapeReader::keys_at]). A record whose full
+//! key isn't the one looked up, a key of the same [KeyId], is passed over, not lost.
 
 use crate::TrackId;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -19,9 +24,10 @@ use core::ops::Range;
 use shrink_wrap::prelude::DeserializeShrinkWrap;
 
 use super::{ByteSource, PieceInfo, R, ReadError, TapeReader, wide};
+use crate::TrackNum;
 use crate::index::{IndexEntry, STATE_TRACK_ID, StateEntry};
 use crate::piece::TrackStart;
-use crate::state::{ItemHash, Slot};
+use crate::state::{ItemHash, KeyId, KeyedItem, Slot};
 use crate::{Block, ClockTime};
 
 /// Most bytes one lookup spends by default ([OpenOptions::state_read_max](super::OpenOptions::state_read_max)): the
@@ -148,6 +154,75 @@ pub struct StateItem {
     pub item: Vec<u8>,
 }
 
+impl StateItem {
+    /// The key and the value or deletion of a keyed state record; None for another slot's record.
+    pub fn keyed(&self) -> Option<KeyedItem<'_>> {
+        match self.slot {
+            Slot::Keyed { .. } => KeyedItem::read(&self.item).ok(),
+            _ => None,
+        }
+    }
+}
+
+/// Every record of one key behind a place, see [TapeReader::key_history].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct History {
+    /// The key's records that read, newest first: values and deletions.
+    pub items: Vec<StateItem>,
+    /// The blocks of the key's records that didn't read.
+    pub lost: Vec<Lost>,
+    /// Stretches of the piece before the place that the index doesn't cover: a record of the key there is not among
+    /// the items.
+    pub uncovered: Vec<Range<u64>>,
+    /// The lookup's budget ran out: older records were not read.
+    pub spent: bool,
+}
+
+impl History {
+    /// Whether every record of the key in this piece behind the place is among the items. Records in the pieces
+    /// before never are: [TapeReader::key_at] says whether the piece may lack the key's newest one
+    /// ([Lookup::not_carried]).
+    pub fn is_whole(&self) -> bool {
+        self.lost.is_empty() && self.uncovered.is_empty() && !self.spent
+    }
+}
+
+/// A key of a keyed state track as the index lists it, see [TapeReader::key_slots].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct KeySlot {
+    pub key: KeyId,
+    /// The entry of the key's newest record: where its block starts and the item's hash.
+    pub entry: IndexEntry,
+    /// The index alone decides that the key has the prefix asked for: false for a prefix longer than the key head
+    /// that the head matches, which only the key read from the record decides.
+    pub sure: bool,
+}
+
+/// The value of every key of a keyed state track in force at a place, see [TapeReader::keys_at].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeysAt {
+    /// Each key's newest record, by key: the keys whose newest record is a deletion are not among them.
+    pub items: BTreeMap<Vec<u8>, StateItem>,
+    /// The blocks that didn't read: their keys may hold an older value, or none.
+    pub lost: Vec<Lost>,
+    /// Stretches of the piece before the place that the index doesn't cover: a key's record there is not among the
+    /// items.
+    pub uncovered: Vec<Range<u64>>,
+    /// The lookup's budget ran out: the keys not yet read are not among the items.
+    pub spent: bool,
+    /// The piece doesn't carry the keys in force at its start ([TrackStart::keys_carried]): a key whose records lie
+    /// only in the pieces before is not among the items.
+    pub not_carried: bool,
+}
+
+impl KeysAt {
+    /// Whether every block read, the budget lasted, the index covers the piece to the place and the piece carries
+    /// the keys in force at its start.
+    pub fn is_whole(&self) -> bool {
+        self.lost.is_empty() && self.uncovered.is_empty() && !self.spent && !self.not_carried
+    }
+}
+
 /// A block of state records a lookup didn't take: it doesn't read, or its record isn't the one its entry names. The
 /// slot may have a newer record than the one found.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -170,13 +245,17 @@ pub struct Lookup {
     /// The lookup's budget ([OpenOptions::state_read_max](super::OpenOptions::state_read_max)) ran out before it found a record that reads: older candidates were
     /// not read.
     pub spent: bool,
+    /// A key lookup ([TapeReader::key_at], [TapeReader::state_at] of a [Slot::Keyed]) found no record, or only one the
+    /// piece's carry holds, and the piece doesn't carry the keys in force at its start
+    /// ([TrackStart::keys_carried]): the key's newest record may lie only in the pieces before.
+    pub not_carried: bool,
 }
 
 impl Lookup {
-    /// Whether nothing newer can hide: every block read, the budget lasted and the index covers the stretch to the
-    /// place.
+    /// Whether nothing newer can hide: every block read, the budget lasted, the index covers the stretch to the
+    /// place and, for a key, the piece carries the keys in force at its start or holds a record of it.
     pub fn is_whole(&self) -> bool {
-        self.lost.is_empty() && self.uncovered.is_empty() && !self.spent
+        self.lost.is_empty() && self.uncovered.is_empty() && !self.spent && !self.not_carried
     }
 }
 
@@ -323,6 +402,56 @@ impl StateIndex {
             .filter_map(|i| self.at(i))
     }
 
+    /// The keyed slots of `track` whose key may start with `prefix` and that have an entry whose block starts before
+    /// `before`, in key order, each once with its newest such entry and whether the index alone decides the prefix.
+    fn key_slots(
+        &self,
+        track: TrackNum,
+        prefix: &[u8],
+        before: u64,
+    ) -> Vec<(KeyId, &(IndexEntry, StateEntry), bool)> {
+        let mut head = [0u8; crate::KEY_HEAD_LEN];
+        for (d, s) in head.iter_mut().zip(prefix) {
+            *d = *s;
+        }
+        let from = Slot::Keyed {
+            track,
+            key: KeyId {
+                head,
+                len: 0,
+                hash: 0,
+            },
+        };
+        let key = |i: &usize| self.at(i).map(|(_, s)| s.slot);
+        let lo = self.by_slot.partition_point(|i| key(i) < Some(from));
+        let n = prefix.len().min(crate::KEY_HEAD_LEN);
+        let mut out: Vec<(KeyId, &(IndexEntry, StateEntry), bool)> = Vec::new();
+        for i in self.by_slot.get(lo..).unwrap_or_default() {
+            let Some(found) = self.at(i) else { continue };
+            let Slot::Keyed { track: t, key } = found.1.slot else {
+                break;
+            };
+            if t != track || key.head.get(..n) != prefix.get(..n) {
+                break;
+            }
+            let Some(sure) = key
+                .has_prefix(prefix)
+                .map_or(Some(false), |m| m.then_some(true))
+            else {
+                continue;
+            };
+            if found.0.offset >= before {
+                continue;
+            }
+            match out.last_mut() {
+                // sorted by offset within a slot: a later one is newer
+                Some(last) if last.0 == key => last.1 = found,
+                _ => out.push((key, found, sure)),
+            }
+        }
+        out
+    }
+
     /// The definition slots with an entry whose block starts before `before`.
     #[cfg(test)]
     fn definition_slots(&self, before: u64) -> Vec<Slot> {
@@ -411,6 +540,9 @@ impl<S: ByteSource> TapeReader<S> {
         let mut found = self.first_good(i, &ix, &candidates)?;
         let from = found.item.as_ref().map_or(0, |s| s.offset);
         found.uncovered = uncovered(self.piece(i)?, from..offset);
+        if let Slot::Keyed { track, .. } = slot {
+            found.not_carried = self.key_not_carried(i, track, &found)?;
+        }
         Ok(found)
     }
 
@@ -503,6 +635,247 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(out)
     }
 
+    /// The keyed state tracks with records in piece `i`, from the index alone.
+    pub(crate) fn keyed_tracks_in(&self, i: usize) -> R<BTreeSet<TrackNum>, S> {
+        let ix = self.state_index(i)?;
+        Ok(ix
+            .slots(u64::MAX, |s| matches!(s, Slot::Keyed { .. }))
+            .into_iter()
+            .filter_map(|s| match s {
+                Slot::Keyed { track, .. } => Some(track),
+                _ => None,
+            })
+            .collect())
+    }
+
+    /// The index entries of key `key`'s records on keyed state track `track` in piece `i`, oldest first, from the
+    /// index alone. Another key of the same [KeyId] would share them; the records decide ([Self::key_at]).
+    pub fn key_entries(
+        &self,
+        i: usize,
+        track: TrackNum,
+        key: &[u8],
+    ) -> R<Vec<(IndexEntry, StateEntry)>, S> {
+        let Some(key) = KeyId::of(key) else {
+            return Ok(Vec::new());
+        };
+        let ix = self.state_index(i)?;
+        Ok(ix
+            .of_slot(Slot::Keyed { track, key }, u64::MAX)
+            .copied()
+            .collect())
+    }
+
+    /// The record of key `key` on keyed state track `track` in force at `offset` in piece `i`: the newest one whose
+    /// block starts before `offset`, a value or a deletion ([StateItem::keyed]).
+    pub fn key_at(&self, i: usize, track: TrackNum, key: &[u8], offset: u64) -> R<Lookup, S> {
+        let mut found = Lookup::default();
+        if let Some(id) = KeyId::of(key) {
+            let ix = self.state_index(i)?;
+            let slot = Slot::Keyed { track, key: id };
+            let candidates: Vec<&(IndexEntry, StateEntry)> =
+                ix.of_slot(slot, offset).rev().collect();
+            let mut reads = Reads {
+                blocks: BTreeMap::new(),
+                wanted: &candidates.iter().map(|(_, s)| (s.slot, s.hash)).collect(),
+                left: self.state_read_max,
+            };
+            for (e, s) in candidates {
+                match self.take(i, &ix, e, s, &mut reads)? {
+                    Taken::Item(item) if is_key(&item, key) => {
+                        found.item = Some(item);
+                        break;
+                    }
+                    Taken::Item(_) => {}
+                    Taken::Lost => found.lost.push(Lost {
+                        offset: e.offset,
+                        slot: s.slot,
+                    }),
+                    Taken::Spent => {
+                        found.spent = true;
+                        break;
+                    }
+                }
+            }
+        }
+        let from = found.item.as_ref().map_or(0, |s| s.offset);
+        found.uncovered = uncovered(self.piece(i)?, from..offset);
+        found.not_carried = self.key_not_carried(i, track, &found)?;
+        Ok(found)
+    }
+
+    /// Every record of key `key` on keyed state track `track` in piece `i` whose block starts before `before`,
+    /// newest first: its history, values and deletions.
+    pub fn key_history(&self, i: usize, track: TrackNum, key: &[u8], before: u64) -> R<History, S> {
+        let mut out = History::default();
+        if let Some(id) = KeyId::of(key) {
+            let ix = self.state_index(i)?;
+            let slot = Slot::Keyed { track, key: id };
+            let candidates: Vec<&(IndexEntry, StateEntry)> =
+                ix.of_slot(slot, before).rev().collect();
+            let mut reads = Reads {
+                blocks: BTreeMap::new(),
+                wanted: &candidates.iter().map(|(_, s)| (s.slot, s.hash)).collect(),
+                left: self.state_read_max,
+            };
+            for (e, s) in candidates {
+                match self.take(i, &ix, e, s, &mut reads)? {
+                    Taken::Item(item) if is_key(&item, key) => out.items.push(item),
+                    Taken::Item(_) => {}
+                    Taken::Lost => out.lost.push(Lost {
+                        offset: e.offset,
+                        slot: s.slot,
+                    }),
+                    Taken::Spent => {
+                        out.spent = true;
+                        break;
+                    }
+                }
+            }
+        }
+        out.uncovered = uncovered(self.piece(i)?, 0..before);
+        Ok(out)
+    }
+
+    /// The live keys of keyed state track `track` in piece `i` that may start with `prefix`, as of `offset`, from
+    /// the index alone, in key order: each key whose newest record before `offset` is not a deletion. Exact for a
+    /// prefix of at most [KEY_HEAD_LEN](crate::KEY_HEAD_LEN) bytes; past that [KeySlot::sure] says which only the
+    /// record decides. Keys of one [KeyId] are one slot. A deletion is the index's mark, which no record checks
+    /// here; [Self::keys_at] reads the records.
+    ///
+    /// The slots say nothing of what they may miss: keys the piece doesn't carry from the pieces before, records in
+    /// blocks that don't read or in bytes the index doesn't cover. A caller that needs the set whole asks
+    /// [Self::keys_at] ([KeysAt::is_whole]).
+    pub fn key_slots(
+        &self,
+        i: usize,
+        track: TrackNum,
+        prefix: &[u8],
+        offset: u64,
+    ) -> R<Vec<KeySlot>, S> {
+        let ix = self.state_index(i)?;
+        Ok(ix
+            .key_slots(track, prefix, offset)
+            .into_iter()
+            .filter(|(_, (_, s), _)| !s.deleted)
+            .map(|(key, (entry, _), sure)| KeySlot {
+                key,
+                entry: *entry,
+                sure,
+            })
+            .collect())
+    }
+
+    /// The value of every key of keyed state track `track` in piece `i` that starts with `prefix`, in force at
+    /// `offset`: each key's newest record whose block starts before `offset`, an older one where that block doesn't
+    /// read. Keys whose newest record read is a deletion are left out: the record decides, not the index's
+    /// deletion mark. Of two keys of one [KeyId], only the one written last is listed ([state](crate::state)).
+    pub fn keys_at(&self, i: usize, track: TrackNum, prefix: &[u8], offset: u64) -> R<KeysAt, S> {
+        let ix = self.state_index(i)?;
+        // the index's deletion mark is not taken: the record read decides whether the key lives
+        let slots: Vec<Slot> = ix
+            .key_slots(track, prefix, offset)
+            .into_iter()
+            .map(|(_, (_, s), _)| s.slot)
+            .collect();
+        let wanted: BTreeSet<(Slot, ItemHash)> = slots
+            .iter()
+            .flat_map(|slot| ix.of_slot(*slot, offset).map(|(_, s)| (s.slot, s.hash)))
+            .collect();
+        let mut reads = Reads {
+            blocks: BTreeMap::new(),
+            wanted: &wanted,
+            left: self.state_read_max,
+        };
+        let mut out = KeysAt::default();
+        'slots: for slot in slots {
+            for (e, s) in ix.of_slot(slot, offset).rev() {
+                match self.take(i, &ix, e, s, &mut reads)? {
+                    Taken::Item(item) => {
+                        if let Some(k) = item.keyed()
+                            && k.value.is_some()
+                            && k.key.starts_with(prefix)
+                        {
+                            out.items.insert(k.key.to_vec(), item);
+                        }
+                        break;
+                    }
+                    Taken::Lost => out.lost.push(Lost {
+                        offset: e.offset,
+                        slot,
+                    }),
+                    Taken::Spent => {
+                        out.spent = true;
+                        break 'slots;
+                    }
+                }
+            }
+        }
+        out.uncovered = uncovered(self.piece(i)?, 0..offset);
+        out.not_carried = self.keys_not_carried(i, track)?;
+        Ok(out)
+    }
+
+    /// Whether the key lookup `found` in piece `i` may miss a newer record in the pieces before: the piece doesn't
+    /// carry the keys of `track` in force at its start, and it found no record or only one the piece's carry holds,
+    /// which may be stale.
+    fn key_not_carried(&self, i: usize, track: TrackNum, found: &Lookup) -> R<bool, S> {
+        if !self.keys_not_carried(i, track)? {
+            return Ok(false);
+        }
+        match &found.item {
+            None => Ok(true),
+            Some(item) => self.in_carry(i, item.offset),
+        }
+    }
+
+    /// Whether the block at `offset` in piece `i` lies in the blocks after the piece head that all belong with the
+    /// next ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)), the carry a cut puts before the first call's own block. A block
+    /// on the way that doesn't read counts the record as carried. The walk reads the blocks before `offset` alone.
+    fn in_carry(&self, i: usize, offset: u64) -> R<bool, S> {
+        let p = self.piece(i)?;
+        let target = p.start.saturating_add(offset);
+        let mut at = p.start;
+        let mut head = true;
+        while at <= target {
+            let Ok((b, end)) = self.good_block(at, p.end)? else {
+                return Ok(true);
+            };
+            let b = b.block();
+            if head {
+                if b.kind != crate::BlockKind::PieceHead {
+                    return Ok(false);
+                }
+                head = false;
+            } else if b.flags & crate::FLAG_WITH_NEXT == 0 {
+                return Ok(false);
+            }
+            at = end;
+        }
+        Ok(true)
+    }
+
+    /// Whether piece `i` may lack the keys of keyed state track `track` in force at its start: its head doesn't read,
+    /// or it follows another piece and its head's row of the track isn't marked [TrackStart::keys_carried]. A track
+    /// without a row has no records before the piece, unless the head says the pieces before met bytes their writer
+    /// couldn't read ([PieceHead::unlisted_keys_unknown](crate::piece::PieceHead::unlisted_keys_unknown)).
+    fn keys_not_carried(&self, i: usize, track: TrackNum) -> R<bool, S> {
+        let piece = self.piece(i)?;
+        if piece.head_error.is_some() {
+            return Ok(true);
+        }
+        let Some((head, rows)) = &piece.head else {
+            return Ok(false);
+        };
+        if head.prev.is_none() {
+            return Ok(false);
+        }
+        Ok(rows
+            .iter()
+            .find(|r| r.track_number == track)
+            .map_or(head.unlisted_keys_unknown, |r| !r.keys_carried))
+    }
+
     /// The first of `candidates` (newest first) whose record reads and is the one its entry names.
     fn first_good(
         &self,
@@ -588,7 +961,8 @@ impl<S: ByteSource> TapeReader<S> {
     ///
     /// The group is the block, the blocks of the group before it back to its first one
     /// ([FLAG_GROUP_START](crate::FLAG_GROUP_START)), and when the block is marked
-    /// [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the blocks after it up to the first unmarked one. A block of puts
+    /// [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the blocks after it up to the first unmarked one, each linked to the
+    /// one before by the rule a resume keeps too ([crate::group_marks]). A block of puts
     /// that doesn't read hides its marks, so before a block of a group without a start it may be of the group: Bad,
     /// as a scan drops such blocks after damage. So is a group whose first block is missing. A group of more than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks
     /// is no group a writer makes: Bad.
@@ -599,30 +973,26 @@ impl<S: ByteSource> TapeReader<S> {
         e: &IndexEntry,
         reads: &mut Reads<'_>,
     ) -> R<Read, S> {
+        use crate::group_marks::{Link, Marks, link};
         let whole = Read::Kept {
             flags: 0,
             records: Vec::new(),
         };
-        // (of a group, marked FLAG_WITH_NEXT, the group's first)
         let marks = |r: &Read| match r {
-            Read::Kept { flags, .. } => Some((
-                flags & crate::FLAG_GROUP != 0,
-                flags & crate::FLAG_WITH_NEXT != 0,
-                flags & crate::FLAG_GROUP_START != 0,
-            )),
+            Read::Kept { flags, .. } => Some(Marks::of(*flags)),
             Read::Bad | Read::Spent => None,
         };
-        let (group, mut marked, mut start) = match self.read_once(i, e, reads)? {
+        let mine = match self.read_once(i, e, reads)? {
             Read::Spent => return Ok(Read::Spent),
-            r => marks(r).unwrap_or((false, false, false)),
+            r => marks(r),
         };
-        if !group {
+        let Some(mine) = mine.filter(|m| m.group) else {
             return Ok(whole);
-        }
+        };
         let mut steps = 0usize;
-        // backwards: the marked blocks of the group the block goes on, back to its first
-        let mut at = e.offset;
-        while !start {
+        // backwards: the blocks of the group the block goes on, back to its first
+        let (mut at, mut cur) = (e.offset, mine);
+        while !cur.start {
             let Some(prev) = ix.puts_before(at) else {
                 return Ok(Read::Bad);
             };
@@ -630,34 +1000,37 @@ impl<S: ByteSource> TapeReader<S> {
             if steps > crate::RUN_BLOCKS_MAX {
                 return Ok(Read::Bad);
             }
-            match self.read_once(i, prev, reads)? {
+            let p = match self.read_once(i, prev, reads)? {
                 Read::Spent => return Ok(Read::Spent),
-                r => match marks(r) {
-                    Some((true, true, first)) => {
-                        at = prev.offset;
-                        start = first;
-                    }
-                    _ => return Ok(Read::Bad),
-                },
+                r => marks(r),
+            };
+            match p {
+                Some(p) if link(Some(p), Some(cur)) == Link::Within => {
+                    at = prev.offset;
+                    cur = p;
+                }
+                _ => return Ok(Read::Bad),
             }
         }
-        // forwards: the blocks after a marked one up to the first unmarked one
+        // forwards: the blocks after it up to the group's end
         let mut end = e.offset.saturating_add(u64::from(e.len));
-        while marked {
+        let mut cur = mine;
+        while cur.with_next {
             let Some(next) = ix.puts_at(end) else {
+                // no block of puts goes on: the run ends with a block of another kind
                 return Ok(whole);
             };
             steps = steps.saturating_add(1);
             if steps > crate::RUN_BLOCKS_MAX {
                 return Ok(Read::Bad);
             }
-            match self.read_once(i, next, reads)? {
+            let n = match self.read_once(i, next, reads)? {
                 Read::Spent => return Ok(Read::Spent),
-                Read::Bad => return Ok(Read::Bad),
-                r @ Read::Kept { .. } => match marks(r) {
-                    Some((true, m, false)) => marked = m,
-                    _ => return Ok(Read::Bad),
-                },
+                r => marks(r),
+            };
+            match n {
+                Some(n) if link(Some(cur), Some(n)) == Link::Within => cur = n,
+                _ => return Ok(Read::Bad),
             }
             end = next.offset.saturating_add(u64::from(next.len));
         }
@@ -695,12 +1068,13 @@ fn kept(block: &Block<'_>, e: &IndexEntry, reads: &mut Reads<'_>) -> Read {
     let Ok(b) = block.decode(&mut buf) else {
         return Read::Bad;
     };
+    let keyed = b.is_keyed();
     let mut out = Vec::new();
     for r in b.records() {
         let Ok(r) = r else {
             return Read::Bad;
         };
-        let Some(slot) = Slot::of(r.track, r.item) else {
+        let Some(slot) = Slot::of(r.track, r.item, keyed) else {
             continue;
         };
         let hash = ItemHash::of(r.item);
@@ -715,6 +1089,11 @@ fn kept(block: &Block<'_>, e: &IndexEntry, reads: &mut Reads<'_>) -> Read {
         flags: block.flags,
         records: out,
     }
+}
+
+/// Whether `item` is a record of key `key`.
+fn is_key(item: &StateItem, key: &[u8]) -> bool {
+    item.keyed().is_some_and(|k| k.key == key)
 }
 
 /// The stretches of `stretch` (offsets in piece `p`) that `p`'s index doesn't cover: the gaps a scan read past,
@@ -901,6 +1280,8 @@ mod tests {
             unhashed: false,
             range: None,
             tile: None,
+            key: None,
+            deleted: false,
         };
         (
             e,
@@ -908,6 +1289,7 @@ mod tests {
                 slot,
                 hash: ItemHash::of(item),
                 ticks: 0,
+                deleted: false,
             },
         )
     }

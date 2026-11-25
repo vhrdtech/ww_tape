@@ -1938,6 +1938,7 @@ fn a_piece_head_carries_at_most_its_track_limit() {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: crate::piece::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let carried = |n: u32| TrackStart {
         track_id: ids[&n],
@@ -1948,6 +1949,7 @@ fn a_piece_head_carries_at_most_its_track_limit() {
         hash: TrackHash::START,
         incomplete: false,
         not_carried: false,
+        keys_carried: false,
     };
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.head_rows_max = 3;

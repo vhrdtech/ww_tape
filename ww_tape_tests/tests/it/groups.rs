@@ -41,7 +41,7 @@ fn put_group(w: &mut Rig, items: &[Vec<u8>]) -> Result<Vec<bool>, WriteError<ww_
         .map(|(t, item)| GroupPut {
             track: TrackNum::new(*t),
             ticks: 7,
-            item,
+            item: ww_tape::GroupItem::State(item),
         })
         .collect();
     w.w.put_group(&w.defs, &puts)
@@ -216,7 +216,7 @@ fn a_group_the_writer_refuses_writes_nothing() {
     let twice = [10, 11, 10].map(|t| GroupPut {
         track: TrackNum::new(t),
         ticks: 1,
-        item: b"x",
+        item: ww_tape::GroupItem::State(b"x"),
     });
     assert!(matches!(
         w.w.put_group(&w.defs, &twice),
@@ -226,7 +226,7 @@ fn a_group_the_writer_refuses_writes_nothing() {
     let long = [10, 11].map(|t| GroupPut {
         track: TrackNum::new(t),
         ticks: 1,
-        item: &big,
+        item: ww_tape::GroupItem::State(&big),
     });
     assert!(matches!(
         w.w.put_group(&w.defs, &long),
@@ -236,7 +236,7 @@ fn a_group_the_writer_refuses_writes_nothing() {
     let events = [GroupPut {
         track: TrackNum::new(1),
         ticks: 1,
-        item: b"x",
+        item: ww_tape::GroupItem::State(b"x"),
     }];
     assert!(matches!(
         w.w.put_group(&w.defs, &events),
@@ -275,7 +275,7 @@ fn a_chain_cuts_before_a_group_never_inside() {
             .map(|(t, item)| GroupPut {
                 track: TrackNum::new(*t),
                 ticks: i64::from(round),
-                item,
+                item: ww_tape::GroupItem::State(item),
             })
             .collect();
         let seq = chain.seq();
@@ -497,6 +497,7 @@ fn a_piece_closed_without_data_keeps_its_head_puts_in_both_readers() {
             prev: None,
             prev_session: ww_tape::SessionTag::NONE,
             integrity: ww_tape::Integrity::Full,
+            unlisted_keys_unknown: false,
         },
         &[],
     )
@@ -1250,4 +1251,50 @@ fn a_refused_block_that_tears_a_group_names_the_torn_group() {
         matches!(again, Err(WriteError::Describe(_))),
         "its own refusal: {again:?}"
     );
+}
+
+/// An unclosed piece with the large group inside it, a block of it damaged, resumed: a reader drops the group, so
+/// the resume takes none of its items as lying near or in force, and the same group put again is written whole and
+/// in force on every track.
+#[test]
+fn a_resume_takes_nothing_of_a_damaged_group() {
+    let defs = rig().defs;
+    for k in 0..3 {
+        let mut w = rig();
+        let tape = w.sink().tape();
+        put_group(&mut w, &items(1, 8)).unwrap();
+        let start = tape.to_vec().unwrap().len();
+        let new = items(100, LARGE);
+        put_group(&mut w, &new).unwrap();
+        let end = tape.to_vec().unwrap().len();
+        // past a checkpoint, which lists the group's blocks
+        crate::definitions::write_records(&mut w, 50, 40);
+        drop(w);
+        let bytes = tape.to_vec().unwrap();
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        let mut blocks: Vec<(usize, usize)> = r
+            .entries(0)
+            .unwrap()
+            .iter()
+            .map(|e| (e.offset as usize, e.len as usize))
+            .filter(|(o, _)| *o >= start && *o < end)
+            .collect();
+        blocks.dedup();
+        assert_eq!(blocks.len(), 3, "the large group takes three blocks");
+        let mut sink = MemSink::new();
+        sink.write_all(&flipped(&bytes, blocks[k])).unwrap();
+        let tape = sink.tape();
+        let (resumed, _) = TapeWriter::resume_on(sink, options(u64::MAX)).unwrap();
+        let mut again = Rig {
+            w: resumed,
+            defs: defs.clone(),
+        };
+        assert_eq!(
+            put_group(&mut again, &new).unwrap(),
+            vec![true; 3],
+            "block {k} damaged"
+        );
+        let want: Vec<_> = new.iter().cloned().map(Some).collect();
+        assert_eq!(in_force(&tape.to_vec().unwrap()), want, "block {k} damaged");
+    }
 }

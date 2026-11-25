@@ -542,6 +542,29 @@ impl<T: PieceStore> PieceChain<T> {
         self.with_room(defs, |w| w.put(defs, track, ticks, item))
     }
 
+    /// Put a key's value on a keyed state track ([TapeWriter::put_key]).
+    pub fn put_key(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<bool, WriteError<T::Error>> {
+        self.with_room(defs, |w| w.put_key(defs, track, ticks, key, value))
+    }
+
+    /// Put a key's deletion on a keyed state track ([TapeWriter::delete_key]).
+    pub fn delete_key(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        key: &[u8],
+    ) -> Result<bool, WriteError<T::Error>> {
+        self.with_room(defs, |w| w.delete_key(defs, track, ticks, key))
+    }
+
     /// Put a group of state tracks' items, taken whole or not at all ([TapeWriter::put_group]). When the piece has no
     /// room for the group's state entries, the chain cuts before it and puts it whole in the new piece: never a cut
     /// inside it.
@@ -881,15 +904,28 @@ fn first_head(owner: OwnerId, chain: u64, integrity: crate::Integrity) -> PieceH
         prev: None,
         prev_session: SessionTag::NONE,
         integrity,
+        unlisted_keys_unknown: false,
     }
 }
 
 /// The piece after the closed piece `done`, continued, as its cut would have started it.
 fn next_piece<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteError<E>> {
+    // a keyed track whose keys the piece before holds whole is carried whole, as the cut would have
+    let tracks = last
+        .next_tracks
+        .iter()
+        .map(|t| TrackStart {
+            keys_carried: last
+                .kept
+                .keys(t.track_number, (t.track_id, t.owner))
+                .is_some_and(|k| k.complete),
+            ..*t
+        })
+        .collect();
     let mut next = NextPiece::after(
         &last.head,
         done,
-        last.next_tracks.clone(),
+        (tracks, last.unlisted),
         last.session,
         last.next_seq,
     )?;
@@ -1116,6 +1152,9 @@ struct LastPiece {
     kept: Kept,
     /// The pieces of the chain its close in force names as removed on purpose
     removed: Vec<RemovedPiece>,
+    /// Its close in force says keyed tracks without a row in the next head may have keys before it
+    /// ([crate::piece::Close::unlisted_keys_unknown])
+    unlisted: bool,
 }
 
 /// A piece the chain goes on from, read by [cut_piece].
@@ -1198,6 +1237,7 @@ fn read_closed_at<B: ByteSource>(
             start: p.start,
             tracks: next_tracks.clone(),
             states_unknown: 0,
+            keys_unknown: 0,
         },
         LastPiece {
             continued: close.next.is_some(),
@@ -1209,6 +1249,7 @@ fn read_closed_at<B: ByteSource>(
             last_chunks,
             kept,
             removed: p.removed.clone(),
+            unlisted: close.unlisted_keys_unknown || head.unlisted_keys_unknown,
         },
     ))
 }
@@ -1279,7 +1320,8 @@ impl ChainNumbers {
 }
 
 /// The newest item of each state track of rows `rows` in piece `i` of `reader` that reads, oldest first: what the
-/// writer of the piece kept for its cut ([crate::writer]). A state that only older pieces hold isn't read.
+/// writer of the piece kept for its cut ([crate::writer]), and every live key of each keyed state track. A state
+/// that only older pieces hold isn't read; the keys are complete when the piece carried those in force at its start.
 fn kept_of<B: ByteSource>(
     reader: &TapeReader<B>,
     i: usize,
@@ -1299,6 +1341,13 @@ fn kept_of<B: ByteSource>(
             kept.placed(track, *key, s.at, &s.item, usize::MAX);
         }
     }
+    // every live key of each keyed track as of the close: the piece's own and those its head carried
+    let p = reader.pieces().get(i);
+    let head_rows = p.and_then(|p| p.head.as_ref()).map_or(&[][..], |(_, r)| r);
+    let before = p.and_then(|p| p.close_offset).unwrap_or(u64::MAX);
+    // uncapped like the plain items: the writer's keep_after counts both under its kept_bytes_max
+    crate::writer::resume::read_keys(reader, i, head_rows, &keys, before, usize::MAX, &mut kept)
+        .map_err(WriteError::Read)?;
     Ok(kept)
 }
 
