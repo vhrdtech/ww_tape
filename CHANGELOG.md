@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-25
+
 ### Breaking
 
 - `PieceChain` cuts before puts too, and `CutPolicy::bytes` counts the final index: the same input cuts elsewhere (WRITE-1).
