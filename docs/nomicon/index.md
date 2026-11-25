@@ -15,7 +15,7 @@ The part assumes the Basic and Advanced parts. Every page in this part has the N
 
 | Chapter | What it explains |
 |---|---|
-| [The definitions a new piece carries](../carried_definitions.md) | Why a piece repeats the definitions of earlier pieces, and what that costs. |
+| [The definitions a new piece carries](../carried_definitions.md) | Why a piece repeats the definitions of earlier pieces, what that costs, and what a cut leaves out when they do not fit. |
 | [Track owners and hashes](../track_hashes.md) | Tracks of several sources in one tape, and a track's hash over a range. |
 | [Lessons from tape and flash](../lessons.md) | What tape drives and flash stores taught the format. |
 

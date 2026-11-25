@@ -1,0 +1,42 @@
+<svg class="ww-svg" viewBox="0 0 680 270" width="680" height="270" role="img" aria-label="The start of the oldest piece left after a cut: the piece head with a row per track, the layout and the producer, then the carried definitions in blocks of at most 4 KiB: the bundles once, then one block per group of clocks, each holding its clocks and maps again and then its tracks, a state track with its newest item. Below, the same start with one group block damaged: only that block's tracks are lost, since the other block holds its own clock." xmlns="http://www.w3.org/2000/svg">
+  <!-- the start of a new piece -->
+  <text x="20" y="28" class="strong small">the start of the oldest piece left</text>
+  <rect x="20.5" y="38" width="90" height="44" rx="2" class="tint-teal"/>
+  <text x="65" y="57" text-anchor="middle" class="small">piece head</text>
+  <text x="65" y="73" text-anchor="middle" class="soft small">a row per track</text>
+  <rect x="110.5" y="38" width="80" height="44" rx="2" class="tint-ink"/>
+  <text x="150" y="57" text-anchor="middle" class="small">layout,</text>
+  <text x="150" y="73" text-anchor="middle" class="small">producer</text>
+  <rect x="190.5" y="38" width="80" height="44" rx="2" class="tint-purple"/>
+  <text x="230" y="57" text-anchor="middle" class="small">bundles</text>
+  <text x="230" y="73" text-anchor="middle" class="soft small">each once</text>
+  <rect x="270.5" y="38" width="160" height="44" rx="2" class="tint-amber"/>
+  <text x="350" y="57" text-anchor="middle" class="small">clock A, its maps</text>
+  <text x="350" y="73" text-anchor="middle" class="soft small">tracks; a state + its item</text>
+  <rect x="430.5" y="38" width="140" height="44" rx="2" class="tint-amber"/>
+  <text x="500" y="57" text-anchor="middle" class="small">clock B, its maps</text>
+  <text x="500" y="73" text-anchor="middle" class="soft small">its tracks</text>
+  <rect x="570.5" y="38" width="90" height="44" rx="2" class="tint-blue"/>
+  <text x="615" y="57" text-anchor="middle" class="small">data</text>
+  <text x="615" y="73" text-anchor="middle" class="soft small">of the piece</text>
+  <!-- the carried blocks -->
+  <path d="M190.5 92 V100 H570.5 V92" class="thin"/>
+  <text x="380" y="116" text-anchor="middle" class="small">carried definitions: blocks of at most 4 KiB, one group of clocks each</text>
+  <!-- one block damaged -->
+  <text x="20" y="160" class="strong small">the same start, one block damaged</text>
+  <rect x="20.5" y="170" width="90" height="44" rx="2" class="tint-teal"/>
+  <text x="65" y="197" text-anchor="middle" class="small">piece head</text>
+  <rect x="110.5" y="170" width="80" height="44" rx="2" class="tint-ink"/>
+  <text x="150" y="197" text-anchor="middle" class="small">layout, …</text>
+  <rect x="190.5" y="170" width="80" height="44" rx="2" class="tint-purple"/>
+  <text x="230" y="197" text-anchor="middle" class="small">bundles</text>
+  <rect x="270.5" y="170" width="160" height="44" rx="2" class="tint-accent"/>
+  <text x="350" y="189" text-anchor="middle" class="accent small">damaged</text>
+  <text x="350" y="205" text-anchor="middle" class="soft small">its tracks lose their definitions</text>
+  <rect x="430.5" y="170" width="140" height="44" rx="2" class="tint-amber"/>
+  <text x="500" y="189" text-anchor="middle" class="small">clock B, its maps</text>
+  <text x="500" y="205" text-anchor="middle" class="soft small">reads whole</text>
+  <rect x="570.5" y="170" width="90" height="44" rx="2" class="tint-blue"/>
+  <text x="615" y="197" text-anchor="middle" class="small">data</text>
+  <text x="20" y="244" class="soft small">each block holds the clocks and maps its tracks count through, so damage costs that block's tracks only</text>
+</svg>

@@ -1,0 +1,35 @@
+<svg class="ww-svg" viewBox="0 0 680 230" width="680" height="230" role="img" aria-label="A piece's state entries as a bar. The layout, the producer and the records of the call the cut is made for come first and are not part of the room. The room is filled in order: the keyed state tracks with every live key, the tracks of that call, the clocks and maps the other tracks count through, then the tracks with data, newest first, and the quiet tracks. The tracks that do not fit, those with the oldest data, are left out: the next head flags their rows." xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="28" class="strong small">a piece's state entries, <tspan class="mono">IndexPolicy::state_entries_max</tspan></text>
+  <rect x="20.5" y="40" width="70" height="44" rx="2" class="tint-ink"/>
+  <text x="55" y="59" text-anchor="middle" class="small">layout,</text>
+  <text x="55" y="75" text-anchor="middle" class="small">producer</text>
+  <rect x="90.5" y="40" width="70" height="44" rx="2" class="tint-teal"/>
+  <text x="125" y="59" text-anchor="middle" class="small">the call's</text>
+  <text x="125" y="75" text-anchor="middle" class="small">records</text>
+  <rect x="160.5" y="40" width="80" height="44" rx="2" class="tint-purple"/>
+  <text x="200" y="59" text-anchor="middle" class="small">1 keyed</text>
+  <text x="200" y="75" text-anchor="middle" class="soft small">+ live keys</text>
+  <rect x="240.5" y="40" width="80" height="44" rx="2" class="tint-blue"/>
+  <text x="280" y="59" text-anchor="middle" class="small">2 the call's</text>
+  <text x="280" y="75" text-anchor="middle" class="soft small">tracks</text>
+  <rect x="320.5" y="40" width="80" height="44" rx="2" class="tint-amber"/>
+  <text x="360" y="59" text-anchor="middle" class="small">3 clocks,</text>
+  <text x="360" y="75" text-anchor="middle" class="soft small">maps</text>
+  <rect x="400.5" y="40" width="160" height="44" rx="2" class="tint-green"/>
+  <text x="480" y="59" text-anchor="middle" class="small">4 tracks with data,</text>
+  <text x="480" y="75" text-anchor="middle" class="soft small">newest first; then quiet</text>
+  <rect x="560.5" y="40" width="100" height="44" rx="2" class="hollow dash"/>
+  <text x="610" y="59" text-anchor="middle" class="accent small">left out</text>
+  <text x="610" y="75" text-anchor="middle" class="soft small">oldest data</text>
+  <!-- the end of the room -->
+  <path d="M560.5 30 V96" class="accent-line"/>
+  <!-- braces -->
+  <path d="M20.5 104 V112 H160.5 V104" class="thin"/>
+  <text x="90" y="128" text-anchor="middle" class="small">kept first, outside the room</text>
+  <path d="M160.5 104 V112 H560.5 V104" class="thin"/>
+  <text x="360" y="128" text-anchor="middle" class="small">the room, filled in this order while it lasts</text>
+  <path d="M560.5 104 V112 H660.5 V104" class="accent-line"/>
+  <text x="610" y="128" text-anchor="middle" class="accent small">past the room</text>
+  <text x="20" y="168" class="soft small">a track left out takes its state item with it; the next head flags its row as not carried,</text>
+  <text x="20" y="186" class="soft small"><tspan class="mono">Closed::not_carried</tspan> counts it, and a reader names it in <tspan class="mono">DefinitionsAt::not_carried</tspan></text>
+</svg>

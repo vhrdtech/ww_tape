@@ -93,6 +93,7 @@ nav = [
     { "Nomicon" = [
             "nomicon/index.md",
             "carried_definitions.md",
+            "carried_room.md",
             "track_hashes.md",
             "lessons.md"
         ]

@@ -112,7 +112,7 @@ still place themselves by track id, item number and tick. Without clock rates an
 into seconds or bytes into values.
 
 The layout and the producer have the same limit, and one more. Their copy takes two state entries of the piece's
-[index policy](carried_definitions.md#when-they-dont-fit). In a piece whose state entries are full, the writer skips the
+[index policy](carried_room.md). In a piece whose state entries are full, the writer skips the
 copy rather than refuse a call. Such a piece names the layout and the producer once, after its head.
 
 ### Lookups after a stopped scan
