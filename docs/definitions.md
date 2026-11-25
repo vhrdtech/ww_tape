@@ -163,7 +163,7 @@ copy 2 KiB on, and the item again each time the newest record lies more than <co
 spacing to 2 KiB.</figcaption>
 </figure>
 
-A record that a put or a copy writes goes into a block with the flag [`FLAG_REPEAT`] in its header. A reader that
+A record that a put or a copy writes goes into a block marked [`FLAG_REPEAT`] in its header. A reader that
 already holds the same item in that slot takes the record as nothing new. The writer never writes a state item ahead of
 a use, so a [[track]] whose data has stopped costs nothing until its data continues.
 

@@ -86,7 +86,7 @@ impl<S: ByteSource> TapeReader<S> {
             let kind = match of {
                 Of::Chunks => e.kind == BlockKind::Series && e.level == layout.level(),
                 Of::Summaries(level) => {
-                    e.kind == BlockKind::Summary && e.tree == series_tree && e.level == level
+                    e.kind.is_summary() && e.tree == series_tree && e.level == level
                 }
             };
             kind && e.first_tick < time.end && time.start <= e.last_tick

@@ -704,7 +704,7 @@ impl Named {
     /// and clock definitions.
     fn take<S: TapeSink>(&mut self, src: &S, step: &Step) -> Result<(), WriteError<S::Error>> {
         let What::Block {
-            kind: BlockKind::Records,
+            kind: BlockKind::Records | BlockKind::CodedRecords,
             ..
         } = step.what
         else {
@@ -1232,7 +1232,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.bytes = end;
         self.blocks = self.blocks.saturating_add(1);
         let data = match kind {
-            BlockKind::Records => e.track_id != STATE_TRACK_ID,
+            BlockKind::Records | BlockKind::CodedRecords => e.track_id != STATE_TRACK_ID,
             BlockKind::Events | BlockKind::Series => true,
             _ => false,
         };
@@ -1256,7 +1256,10 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         // the records of a damaged block of data: its entry names no track, so each track that may hold records
         // leaves them out of its hash
-        if kind == BlockKind::Records && !e.repeat && e.track_id != STATE_TRACK_ID {
+        if matches!(kind, BlockKind::Records | BlockKind::CodedRecords)
+            && !e.repeat
+            && e.track_id != STATE_TRACK_ID
+        {
             self.indexer.begin_block();
             let relations = &self.relations;
             self.indexer

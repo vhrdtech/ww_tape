@@ -696,7 +696,7 @@ impl ChunkExtras {
     /// these.
     pub(crate) fn summary_entries(self, offset: u64, block: &Block<'_>) -> Vec<IndexEntry> {
         let mut entries = IndexEntry::all_of_block(offset, block);
-        if block.kind == BlockKind::Summary {
+        if block.kind == BlockKind::TileSummary {
             for e in &mut entries {
                 e.tile = self.tile;
             }

@@ -67,8 +67,8 @@ fn check(blocks: &[Vec<u8>], first: u64, end: u64) {
         let h = s.head();
         assert!(
             h.tile.is_empty()
-                || Block::read(b).expect("written good").flags & ww_tape::FLAG_TILE != 0,
-            "a tile's block carries FLAG_TILE"
+                == (Block::read(b).expect("written good").kind == ww_tape::BlockKind::Summary),
+            "a tile's block is of kind 17, a block of no tile of kind 6"
         );
         assert!(h.first_item.get() >= first, "a child starts in its parent");
         assert!(

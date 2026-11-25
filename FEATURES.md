@@ -101,6 +101,12 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   Read more: [Grid starts](docs/format.md#grid-starts). Tests `grid_starts.rs`; fuzz target `tape-series-hostile`.
 
+- ✅ **FMT-17 Header flags only mark**
+
+  A flag only marks: a reader that doesn't know it reads every byte of the block right. A body read another way is a block kind of its own, which such a reader skips as good. Coded records are kind 15, keyed puts kind 16 and tile summaries kind 17; header bits 0, 5 and 6 are retired. Header bits 1 and 3 belong to the block contract: a bit-1 block holds state outside the seq order, whatever its kind. A reader skips an unknown kind with bit 3 unchecked, and never resumes at one after damage.
+
+  Read more: [Header flags](docs/format.md#header-flags). Tests `keyed.rs`, `grid_summaries.rs`, `reserved.rs`; fuzz targets `tape-keyed-hostile`, `tape-summary-hostile`, `tape-records-hostile`.
+
 - 🚧 **FMT-15 Grids: series tracks with fixed axes**
 
   A `GridDef` takes up to 31 fixed axes beside time, each cut into tiles, with regular or listed coordinates and a downsample flag. A series is the grid of none and keeps its bytes. A chunk holds one tile, and its head carries the tile's coordinates. Its index entry packs them into a tile number: bit fields of ⌈log2(tiles)⌉ bits per axis in a u128. `TapeReader::grid_tiles` finds the chunks of a time range and a box of cells from the index alone.

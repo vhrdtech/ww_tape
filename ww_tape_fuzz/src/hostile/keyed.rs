@@ -255,12 +255,18 @@ fn hit_entry(d: &mut Draw<'_>, b: &mut [u8]) {
     reseal_index(b);
 }
 
-/// Hostile bytes in a keyed block `b`'s body (a key head, a length, a key byte), or its flags; its CRC computed
-/// again.
+/// Hostile bytes in a block of keyed puts `b`: its body (a key head, a length, a key byte), its kind or its flags;
+/// its CRC computed again.
 fn hit_keyed(d: &mut Draw<'_>, b: &mut [u8]) {
     if d.below(4) == 0 {
-        // the flags: keyed without repeat, repeat without keyed
-        b[6] ^= [0x02, 0x40, 0x42][d.below(3)];
+        match d.below(3) {
+            // keyed puts without repeat
+            0 => b[6] ^= 0x02,
+            // its records as a records block's, keyed items read as plain state
+            1 => b[5] = BlockKind::Records.to_u8(),
+            // the retired bit that marked keyed puts, which a reader ignores
+            _ => b[6] ^= 0x40,
+        }
     } else if b.len() > 36 {
         let at = 32 + d.below(b.len() - 36);
         b[at] = match d.below(3) {

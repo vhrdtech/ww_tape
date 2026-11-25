@@ -302,7 +302,7 @@ fn a_mux_grid_crashed_anywhere_resumes_to_the_bytes_of_the_whole_run() {
         .unwrap();
     let mid: Vec<_> = entries
         .iter()
-        .filter(|e| e.kind == BlockKind::Summary && e.offset < last_chunk)
+        .filter(|e| e.kind.is_summary() && e.offset < last_chunk)
         .collect();
     assert!(
         mid.iter().filter(|e| e.tile.is_some()).count() >= 4,

@@ -342,7 +342,7 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
     assert_ne!(held.ok(), Some(true), "a flipped bit doesn't verify");
 }
 
-/// A tile's series head: [FLAG_TILE] set, the axis count and the coordinates after the scale, the body after them;
+/// A tile's series head: kind 17 ([BlockKind::TileSummary]), the axis count and the coordinates after the scale, the body after them;
 /// read back as written. The same head without its tile writes a series block of none of these bytes.
 #[test]
 fn a_tile_head_round_trips_after_the_scale() {
@@ -374,7 +374,12 @@ fn a_tile_head_round_trips_after_the_scale() {
     let mut w = SummaryWriter::new(&mut b, id(3), &h).unwrap();
     w.body_mut().fill(0x5a);
     w.finish();
-    assert_eq!(u16::from_le_bytes([b[6], b[7]]), FLAG_TILE);
+    assert_eq!(b[5], BlockKind::TileSummary.to_u8());
+    assert_eq!(
+        u16::from_le_bytes([b[6], b[7]]),
+        0,
+        "a tile's block carries no flag"
+    );
     let scale_len = usize::from(u16::from_le_bytes([b[52], b[53]]));
     let at = SCALE_AT + scale_len;
     assert_eq!(b[at], 4);
@@ -443,23 +448,28 @@ fn a_tile_head_that_lies_is_refused() {
     assert!(matches!(read(&|x| x[at] = 32), Err(SummaryError::Bound(_))));
     assert!(read(&|x| x[at] = 31).is_err(), "coordinates past the end");
     assert!(read(&|x| x[at] = 1).is_err(), "body one coordinate long");
-    assert!(read(&|x| x[6] = 0).is_err(), "the tile read as body");
-    // a series block marked as a tile reads its body's first bytes as a tile and is short by them
+    assert!(
+        read(&|x| x[5] = BlockKind::Summary.to_u8()).is_err(),
+        "the tile read as body"
+    );
+    // a series block of a tile's kind reads its body's first bytes as a tile and is short by them
     let series = SummaryHead {
         tile: crate::TileCoords::NONE,
         ..h
     };
     let mut s = vec![0u8; summary_len(&series).unwrap()];
     SummaryWriter::new(&mut s, id(3), &series).unwrap().finish();
-    s[6] = 1 << 5;
+    s[5] = BlockKind::TileSummary.to_u8();
     s[at] = 1;
     resealed(&mut s);
     assert!(SummaryHead::read(&s).is_err());
-    // other unknown flag bits are ignored, as on every block
-    let mut x = b.clone();
-    x[7] = 0x80;
-    resealed(&mut x);
-    assert_eq!(SummaryHead::read(&x).map(|r| r.0), Ok(h));
+    // unknown flag bits are ignored, as on every block, and so is the retired bit 5 that marked a tile's block
+    for (byte, bit) in [(7, 0x80), (6, 1 << 5)] {
+        let mut x = b.clone();
+        x[byte] |= bit;
+        resealed(&mut x);
+        assert_eq!(SummaryHead::read(&x).map(|r| r.0), Ok(h));
+    }
     let events = SummaryHead {
         tree: Tree::Events,
         node_shift: 11,

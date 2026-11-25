@@ -39,10 +39,11 @@ pub fn part(b: &Block<'_>) -> Result<&'static str, Error> {
     Ok(match b.kind {
         BlockKind::PieceHead => "piece head",
         BlockKind::Records if b.flags & FLAG_REPEAT != 0 => "records blocks of puts and copies",
+        BlockKind::KeyedPuts => "keyed puts",
         BlockKind::Records => "records blocks",
         BlockKind::Events => "events chunks",
         BlockKind::Series => "series chunks",
-        BlockKind::Summary => "summary blocks",
+        BlockKind::Summary | BlockKind::TileSummary => "summary blocks",
         BlockKind::Index => match IndexBlock::read(b)?.kind() {
             IndexKind::Checkpoint => "checkpoints",
             IndexKind::Final => "final index",
@@ -984,7 +985,7 @@ fn put_blocks(bytes: &[u8]) -> Result<(u64, u64), Error> {
     let mut walk = FileBlocks::with_recovery(bytes, Recovery::Prefix);
     while let Some(b) = walk.next_block() {
         let b = b?;
-        if b.kind == BlockKind::Records && b.flags & FLAG_REPEAT != 0 {
+        if b.kind.holds_records() && b.flags & FLAG_REPEAT != 0 {
             out.0 += 1;
             out.1 += b.len() as u64;
         }

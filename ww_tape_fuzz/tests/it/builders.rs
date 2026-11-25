@@ -95,16 +95,14 @@ fn blocks_stay_small() {
     }
 }
 
-/// Of 1000 hostile summary blocks, some name a grid tile and read whole, and some carry FLAG_TILE and fail: the tile
+/// Of 1000 hostile summary blocks, some name a grid tile and read whole, and some of kind 17 fail: the tile
 /// head's reader runs on good and on hostile bytes.
 #[test]
 fn summaries_reach_the_tile_head() {
     let (mut tiles, mut refused) = (0, 0);
     for input in inputs(1000) {
         let bytes = hostile::summary(&input);
-        let flagged = bytes
-            .get(6..8)
-            .is_some_and(|f| u16::from_le_bytes([f[0], f[1]]) & ww_tape::FLAG_TILE != 0);
+        let flagged = bytes.get(5) == Some(&ww_tape::BlockKind::TileSummary.to_u8());
         match Block::read(&bytes).ok().and_then(|b| b.summary_head()) {
             Some(h) if !h.tile.is_empty() => tiles += 1,
             None if flagged => refused += 1,

@@ -9,7 +9,7 @@ use super::SeriesNode;
 use super::{
     ChannelStats, Layout, Stat, SummaryError, SummaryHead, SummaryWriter, Value, components,
 };
-use ww_tape::{Block, BlockKind, ElementDesc};
+use ww_tape::{Block, ElementDesc};
 use ww_tape_codecs::bytes::{self, le_u32, le_u64};
 
 /// The summary of a summary block, read in place.
@@ -24,7 +24,7 @@ impl<'b> Summary<'b> {
     /// The summary of a summary block whose body this reader knows ([Block::body_known]); None for another block,
     /// or one whose head or body length breaks the format.
     pub fn of_block(block: &Block<'b>) -> Option<Self> {
-        if !block.body_known() || block.kind != BlockKind::Summary {
+        if !block.body_known() || !block.kind.is_summary() {
             return None;
         }
         Self::read(block.bytes()).ok()

@@ -59,9 +59,9 @@ use ww_tape::OwnerId;
 use ww_tape::payloads::{PayloadCodec, Payloads};
 use ww_tape::times::{EventTimes, RelationColumn, StoredRelations};
 use ww_tape::{
-    BlockKind, ClockNum, ClockOrigin, ClockSpec, Ends, EventsDef, Items, Magnitude, MemPieces,
-    PieceStore, RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, TapeReader,
-    TrackId, TrackKey, TrackKind, TrackNum, TrackRepeat, TrackSpec, clock_key, track_key,
+    ClockNum, ClockOrigin, ClockSpec, Ends, EventsDef, Items, Magnitude, MemPieces, PieceStore,
+    RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, TapeReader, TrackId,
+    TrackKey, TrackKind, TrackNum, TrackRepeat, TrackSpec, clock_key, track_key,
 };
 use ww_tape_mux::{Event, EventsOptions, MuxError, MuxOptions, TapeMux};
 
@@ -1211,7 +1211,7 @@ pub fn read(
                         .bytes
                         .get_mut(t)
                         .ok_or(EthError::Settings("three tracks"))?;
-                    if entry.kind == BlockKind::Summary {
+                    if entry.kind.is_summary() {
                         bytes.summary_bytes += u64::from(entry.len);
                         continue;
                     }

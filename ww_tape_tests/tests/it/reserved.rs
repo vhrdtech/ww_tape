@@ -127,6 +127,112 @@ fn reserved_block_kinds_read_as_blocks_and_change_no_hash() {
     }
 }
 
+/// A block of a kind this reader doesn't know marked with bit 3 (`FLAG_PAYLOAD_UNCHECKED`): its CRC covers what its
+/// kind says, so a reader takes it unchecked, whatever its last 4 bytes hold, skips it by its length and reads on.
+/// Without bit 3 the same block with a bad CRC is damage. A known kind with bit 3 is checked whole.
+#[test]
+fn bit_3_on_an_unknown_kind_is_skipped_unchecked() {
+    let base = unclosed();
+    let id = next_id(&base);
+    let mut unknown = raw_block(99, id, 40);
+    unknown[6] |= ww_tape::FLAG_PAYLOAD_UNCHECKED as u8;
+    // a CRC over the head only, as such a writer might compute it: not the CRC over the whole block
+    let n = unknown.len();
+    let head_crc = crc32c(&unknown[..40]);
+    unknown[n - 4..].copy_from_slice(&head_crc.to_le_bytes());
+    let b = ww_tape::Block::read(&unknown).unwrap();
+    assert_eq!(
+        (b.kind, b.checked(), b.body_known()),
+        (BlockKind::from_u8(99), ww_tape::Checked::Unchecked, false)
+    );
+    let mut bytes = base.clone();
+    bytes.extend(&unknown);
+    bytes.extend(records(id.next(), 99));
+    let mut rd = FileBlocks::new(&bytes[..]);
+    let mut kinds = vec![];
+    while let Some(b) = rd.next_block() {
+        kinds.push(b.unwrap().kind);
+    }
+    assert_eq!(
+        kinds[kinds.len() - 2..],
+        [BlockKind::from_u8(99), BlockKind::Records]
+    );
+    // without bit 3 its CRC is checked
+    let mut plain = unknown.clone();
+    plain[6] &= !(ww_tape::FLAG_PAYLOAD_UNCHECKED as u8);
+    assert_eq!(
+        ww_tape::Block::read(&plain).err(),
+        Some(ww_tape::BlockError::BadCrc)
+    );
+    // a records block marked with bit 3 is a kind this reader knows: its CRC is checked whole
+    let mut known = records(id, 5);
+    known[6] |= ww_tape::FLAG_PAYLOAD_UNCHECKED as u8;
+    let n = known.len();
+    let head_crc = crc32c(&known[..40]);
+    known[n - 4..].copy_from_slice(&head_crc.to_le_bytes());
+    assert_eq!(
+        ww_tape::Block::read(&known).err(),
+        Some(ww_tape::BlockError::BadCrc)
+    );
+    // so is a known kind whose body this reader doesn't read: parity, and coded records of an unknown codec
+    for (kind, codec) in [(5, None), (15, Some(200))] {
+        let mut b = raw_block(kind, id, 40);
+        if let Some(codec) = codec {
+            b[32] = codec;
+        }
+        b[6] |= ww_tape::FLAG_PAYLOAD_UNCHECKED as u8;
+        let n = b.len();
+        let head_crc = crc32c(&b[..40]);
+        b[n - 4..].copy_from_slice(&head_crc.to_le_bytes());
+        assert_eq!(
+            ww_tape::Block::read(&b).err(),
+            Some(ww_tape::BlockError::BadCrc),
+            "kind {kind}"
+        );
+    }
+}
+
+/// Right after damage a salvage walk never goes on at a block whose CRC it can't check (bit 3 on an unknown kind):
+/// it reports it as bad and goes on at the next block it can check.
+#[test]
+fn a_salvage_walk_never_goes_on_at_an_unchecked_block() {
+    let base = unclosed();
+    let id = next_id(&base);
+    let mut unknown = raw_block(99, id, 40);
+    unknown[6] |= ww_tape::FLAG_PAYLOAD_UNCHECKED as u8;
+    let mut bytes = base.clone();
+    // damage: bytes of no block, then the unchecked block, then a good one
+    bytes.extend([0x5a; 37]);
+    let unchecked_at = bytes.len() as u64;
+    bytes.extend(&unknown);
+    bytes.extend(records(id.next(), 99));
+    let mut rd = FileBlocks::with_recovery(&bytes[..], ww_tape::Recovery::Resync);
+    let (mut kinds, mut unverified) = (vec![], vec![]);
+    while let Some(b) = rd.next_block() {
+        match b {
+            Ok(b) => kinds.push(b.kind),
+            Err(ww_tape::FileError::Bad {
+                offset,
+                error: ww_tape::BlockError::Unverified,
+                ..
+            }) => unverified.push(offset),
+            Err(_) => {}
+        }
+    }
+    assert_eq!(unverified, [unchecked_at]);
+    assert!(!kinds.contains(&BlockKind::from_u8(99)));
+    assert_eq!(kinds.last(), Some(&BlockKind::Records));
+    // in sync, the same walk takes it
+    let mut clean = base.clone();
+    clean.extend(&unknown);
+    let mut rd = FileBlocks::with_recovery(&clean[..], ww_tape::Recovery::Resync);
+    let mut last = None;
+    while let Some(b) = rd.next_block() {
+        last = Some(b.unwrap().kind);
+    }
+    assert_eq!(last, Some(BlockKind::from_u8(99)));
+}
+
 /// Header flag bits a reader doesn't know, and bit 3 (`FLAG_PAYLOAD_UNCHECKED`, a chunk's only), on a records block
 /// and a checkpoint index block, CRCs good: the blocks read as without them.
 #[test]

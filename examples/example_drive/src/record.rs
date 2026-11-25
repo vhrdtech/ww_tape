@@ -884,7 +884,7 @@ fn settle(made: &mut [Made], pieces: &[Vec<u8>]) -> Result<(), Error> {
                 let block = block?;
                 (block.kind, u64::try_from(block.bytes().len()).unwrap_or(0))
             };
-            if matches!(kind, BlockKind::Index | BlockKind::Summary) {
+            if kind == BlockKind::Index || kind.is_summary() {
                 let start = walk.offset();
                 checkpoints.insert(start.saturating_add(len), start);
             }

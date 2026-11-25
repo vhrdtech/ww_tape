@@ -162,10 +162,11 @@ impl SessionState {
     /// last, or a block that takes no part in the order), the last block again (a rewrite after a failed program,
     /// same bytes or not), or a session that may start there.
     pub(crate) fn resumes(&self, b: &Block<'_>) -> bool {
-        matches!(
-            self.verdict(b, true),
-            Verdict::Take | Verdict::Duplicate { .. }
-        )
+        b.checked() != crate::Checked::Unchecked
+            && matches!(
+                self.verdict(b, true),
+                Verdict::Take | Verdict::Duplicate { .. }
+            )
     }
 
     /// Whether the block whose header is `h` may go on with the data past a gap: a superset of [Self::resumes], read
@@ -176,7 +177,7 @@ impl SessionState {
         };
         if h.session != session {
             return match self.medium {
-                Medium::File => matches!(h.kind, BlockKind::Records | BlockKind::PieceHead),
+                Medium::File => h.kind.holds_records() || h.kind == BlockKind::PieceHead,
                 Medium::Raw => h.kind == BlockKind::PieceHead,
             };
         }
@@ -212,7 +213,7 @@ pub(crate) fn is_free(b: &Block<'_>) -> bool {
 
 /// Whether `b` is a record block whose first record is on track 0: definitions, made or put.
 pub(crate) fn starts_with_definitions(b: &Block<'_>) -> bool {
-    if b.kind != BlockKind::Records {
+    if !matches!(b.kind, BlockKind::Records | BlockKind::CodedRecords) {
         return false;
     }
     let mut buf = alloc::vec::Vec::new();
@@ -221,7 +222,7 @@ pub(crate) fn starts_with_definitions(b: &Block<'_>) -> bool {
 
 /// The [Layout] the track-0 records of record block `b` say, the last one in it; None for any other block.
 pub(crate) fn layout_in(b: &Block<'_>) -> Option<Layout> {
-    if b.kind != BlockKind::Records {
+    if !matches!(b.kind, BlockKind::Records | BlockKind::CodedRecords) {
         return None;
     }
     let mut buf = alloc::vec::Vec::new();

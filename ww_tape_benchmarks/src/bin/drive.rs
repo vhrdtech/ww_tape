@@ -51,8 +51,9 @@ fn part(kind: BlockKind, flags: u16) -> usize {
     match kind {
         BlockKind::Series => 0,
         BlockKind::Events => 1,
-        BlockKind::Summary => 2,
+        BlockKind::Summary | BlockKind::TileSummary => 2,
         BlockKind::Records if flags & FLAG_REPEAT != 0 => 4,
+        BlockKind::KeyedPuts => 4,
         BlockKind::Records => 3,
         BlockKind::Index => 5,
         BlockKind::PieceHead | BlockKind::Close | BlockKind::Tail => 6,

@@ -399,7 +399,7 @@ impl<L: Listed> Replay<L> {
             self.take_listed(at, 0);
             return;
         };
-        let repeat = b.kind == BlockKind::Records && b.flags & FLAG_REPEAT != 0;
+        let repeat = b.kind.holds_records() && b.flags & FLAG_REPEAT != 0;
         let counted = !repeat && !is_structural(b.kind);
         let unit = match chunk {
             Some((c, Some(payload))) if !self.unhashed => TrackHash::chunk_unit(c, payload),
@@ -483,7 +483,7 @@ impl<L: Listed> Replay<L> {
     /// What the records of block `b` say, as the writer took them: each definition of a track names it from here
     /// on; with `tally`, each record of data goes into its track's hash.
     fn learn(&mut self, b: &Block<'_>, tally: bool) {
-        if b.kind != BlockKind::Records || b.chunk().is_some() {
+        if !b.kind.holds_records() || b.chunk().is_some() {
             return;
         }
         let mut buf = Vec::new();
@@ -554,7 +554,7 @@ impl<L: Listed> Replay<L> {
                     }
                 }
                 // the records of a damaged block of data: each track that may hold records leaves them out
-                BlockKind::Records if e.track_id != STATE_TRACK_ID => {
+                BlockKind::Records | BlockKind::CodedRecords if e.track_id != STATE_TRACK_ID => {
                     let takes = |n: &TrackNum| {
                         self.facts
                             .get(n)
