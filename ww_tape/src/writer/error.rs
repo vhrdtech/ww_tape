@@ -119,6 +119,9 @@ pub enum GroupRefusal {
         len: usize,
         max: usize,
     },
+    /// A unit is open ([TapeWriter::unit_open](super::TapeWriter::unit_open)): a group ends in a block of its own
+    /// and would split it. Nothing is written; put the group after the unit's last chunk.
+    UnitOpen,
 }
 
 /// Why [TapeWriter::record_removed](super::TapeWriter::record_removed) refuses removed pieces ([InputError::Removed]).
@@ -326,6 +329,9 @@ impl core::fmt::Display for InputError {
                 f,
                 "the group of puts of producer {session:?} would bring the groups held to {len} bytes, more than {max}: dropped"
             ),
+            Self::Group(GroupRefusal::UnitOpen) => {
+                write!(f, "a group of puts while a unit is open: refused")
+            }
             Self::SummaryTooLong { len, max } => write!(
                 f,
                 "a close's summary of {len} bytes: it holds at most {max}"

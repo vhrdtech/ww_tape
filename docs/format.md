@@ -847,7 +847,8 @@ A block belongs with the next one in four cases:
 - it serves the block of data after it;
 - the next block holds the rest of a put too long for one block;
 - it is a block of a group of puts but the last ([Groups of puts](#groups-of-puts));
-- it is a chunk of a unit but the last.
+- it is a chunk of a unit but the last;
+- it is a block of puts written while a unit is open: the unit's next chunk ends the run.
 
 A **run** is such blocks in a row and the block they belong to, all from one writer call. It has at most
 `RUN_BLOCKS_MAX` (4096) blocks, and a writer refuses a call that would make a longer one (`InputError::RunTooLong`).
@@ -908,7 +909,8 @@ A group of `GROUP_BYTES_MAX` of items of `MAX_RECORD_HEAD` (25) bytes or more al
 items may take more blocks than its bytes say, and the writer refuses it whole.
 
 `PieceChain::put_group` cuts before a group that the piece has no room for and puts it whole into the next piece.
-No cut falls inside a group, nor a checkpoint or a deferred block.
+No cut falls inside a group, nor a checkpoint or a deferred block. A group's last block is its own, so the writer
+refuses a group while a unit is open (`GroupRefusal::UnitOpen`).
 
 A group on a track defined twice ([above](#definitions-written-twice-at-once)) opens with its block marked
 `FLAG_TWICE`. That block is one of the group: it carries `FLAG_GROUP` and `FLAG_GROUP_START` and counts toward

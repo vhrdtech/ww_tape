@@ -38,7 +38,7 @@ fn track_def(p: &[u8], n: TrackNum) -> Option<ItemHash> {
 }
 
 /// How many records of piece `p` hold track `n`'s definition: 0 when it defines none.
-fn def_records(p: &[u8], n: TrackNum) -> usize {
+pub(crate) fn def_records(p: &[u8], n: TrackNum) -> usize {
     track_def(p, n).map_or(0, |h| copies(p, h))
 }
 

@@ -199,6 +199,9 @@ pub struct TapeWriter<S: TapeSink> {
     /// The last block written belongs with the block after it ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): the writer
     /// places none of its own blocks until the unit ends
     unit_open: bool,
+    /// The open run is a caller's: its last block, data the caller gave, is marked
+    /// [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT). A put now goes inside it, marked, never ending it
+    caller_run: bool,
     /// The chunks of the open unit so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
     unit_chunks: usize,
     /// The blocks of the open run so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
@@ -473,6 +476,7 @@ impl<S: TapeSink> TapeWriter<S> {
             indexer: Indexer::new(IndexPolicy::default()),
             index_due: false,
             unit_open: false,
+            caller_run: false,
             unit_chunks: 0,
             run_blocks: 0,
             relay_groups: relay::RelayGroups::default(),
@@ -750,6 +754,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if puts.is_empty() {
             return Ok(Vec::new());
         }
+        self.refuse_group_in_unit()?;
         self.want(&tracks);
         self.track_room(defs, &tracks)?;
         let mut cands = self.needed(defs, &tracks);
@@ -868,6 +873,12 @@ impl<S: TapeSink> TapeWriter<S> {
         cands: &[Candidate<'_>],
         end: PutsEnd,
     ) -> Result<Vec<bool>, WriteError<S::Error>> {
+        // inside a caller's open run the puts belong with its next block, so they never end it
+        let end = if self.caller_run && end == PutsEnd::Last {
+            PutsEnd::WithNext
+        } else {
+            end
+        };
         // a call that needs a definition or puts an item uses the layout and the producer: a copy is due as for a
         // definition, where the piece has room for it
         let copies = if cands.is_empty() {
@@ -1605,6 +1616,7 @@ impl<S: TapeSink> TapeWriter<S> {
             0
         };
         self.unit_open = with_next;
+        self.caller_run &= with_next;
         let unit = self.account_hashed(block, header, *crc, payload)?;
         self.unsynced = self.unsynced.saturating_add(1);
         let due = match self.policy {
@@ -2335,6 +2347,7 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         self.chunk_buf = buf;
         let placed = r?;
+        self.caller_run = self.unit_open;
         self.after_block()?;
         Ok(placed)
     }
@@ -2404,6 +2417,7 @@ impl<S: TapeSink> TapeWriter<S> {
         } else {
             self.write_own(block)?
         };
+        self.caller_run = self.unit_open;
         self.after_block()?;
         Ok(Some(placed))
     }
@@ -2455,6 +2469,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut own = block.to_vec();
         crate::set_id_trusted(&mut own, self.next_id()).map_err(WriteError::Block)?;
         let placed = self.write_own(&own)?;
+        self.caller_run = self.unit_open;
         self.after_block()?;
         Ok(Some(placed))
     }
@@ -2637,11 +2652,21 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         cands: &[Candidate<'_>],
     ) -> Result<(), WriteError<S::Error>> {
+        self.refuse_group_in_unit()?;
         self.admit(cands.len())?;
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
         self.put_chosen(cands, PutsEnd::Group).map(|_| ())
+    }
+
+    /// Refuse a group while a unit is open ([GroupRefusal::UnitOpen]): its last block, a block of puts, would end
+    /// the unit.
+    fn refuse_group_in_unit(&self) -> Result<(), WriteError<S::Error>> {
+        if self.caller_run {
+            return Err(group_refused(GroupRefusal::UnitOpen));
+        }
+        Ok(())
     }
 
     /// Push the records of block `b` of puts to put onto `out`, each after what it needs ([Self::put_block]); `seen`

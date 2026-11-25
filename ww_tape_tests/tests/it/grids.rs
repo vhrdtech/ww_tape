@@ -18,20 +18,20 @@ use crate::definitions::{CLOCK, clock};
 
 const TRACK: TrackNum = TrackNum::new(1);
 /// Time steps per chunk.
-const STEPS: u32 = 4;
+pub(crate) const STEPS: u32 = 4;
 /// Runs of [STEPS] time steps each tile is written in.
 const RUNS: u64 = 3;
 /// First tick of the grid.
 const START: i64 = 1_000;
 
 /// Fixed axes of (extent, tile extent): 3, 1 and 4 tiles, edge tiles short on the first and the last.
-const EXTENTS: [(u32, u32); 3] = [(5, 2), (4, 4), (10, 3)];
+pub(crate) const EXTENTS: [(u32, u32); 3] = [(5, 2), (4, 4), (10, 3)];
 
 fn period() -> Ratio64 {
     Ratio64::new(1_000, 1).unwrap()
 }
 
-fn axes(extents: &[(u32, u32)]) -> Vec<FixedAxis<'static>> {
+pub(crate) fn axes(extents: &[(u32, u32)]) -> Vec<FixedAxis<'static>> {
     extents
         .iter()
         .map(|&(extent, tile)| FixedAxis {
@@ -46,7 +46,7 @@ fn axes(extents: &[(u32, u32)]) -> Vec<FixedAxis<'static>> {
         .collect()
 }
 
-fn grid_track<'a>(axes: &'a [FixedAxis<'a>]) -> TrackDef<'a> {
+pub(crate) fn grid_track<'a>(axes: &'a [FixedAxis<'a>]) -> TrackDef<'a> {
     TrackDef {
         number: TRACK,
         key: track_key(0x9d, &[Segment::Name("field")]),
@@ -92,7 +92,7 @@ fn all_tiles(layout: &TileLayout) -> Vec<TileCoords> {
 }
 
 /// The head of the chunk of run `run` at tile `tile` of the track `id`.
-fn head(id: TrackId, run: u64, tile: TileCoords) -> ChunkHead {
+pub(crate) fn head(id: TrackId, run: u64, tile: TileCoords) -> ChunkHead {
     let grid = GridDef::of::<i32>(1, period()).first_grid(START);
     let first = ItemNum::new(run * u64::from(STEPS));
     let (first_tick, last_tick) = grid.chunk_ticks(period(), first, STEPS).unwrap();
@@ -655,7 +655,7 @@ fn a_unit_is_written_whole_and_dropped_whole() {
 }
 
 /// A grid writer's definitions, a writer of a piece begun, and the samples of a chunk of [STEPS] time steps.
-fn unit_writer() -> (
+pub(crate) fn unit_writer() -> (
     ww_tape::Definitions,
     TapeWriter<MemSink>,
     TrackId,
@@ -671,7 +671,7 @@ fn unit_writer() -> (
 }
 
 /// Raw samples of one chunk, `len` bytes long in its column spec.
-fn samples_column(samples: &[u8], len: usize) -> [(ColumnSpec, &[u8]); 1] {
+pub(crate) fn samples_column(samples: &[u8], len: usize) -> [(ColumnSpec, &[u8]); 1] {
     let spec = ColumnSpec {
         kind: ColumnKind::Samples,
         codec: Codec::RAW,
@@ -682,7 +682,7 @@ fn samples_column(samples: &[u8], len: usize) -> [(ColumnSpec, &[u8]); 1] {
 }
 
 /// A unit of a chunk of `columns` per head.
-fn unit_of<'a>(
+pub(crate) fn unit_of<'a>(
     heads: &'a [ChunkHead],
     columns: &'a [(ColumnSpec, &'a [u8])],
 ) -> Vec<ww_tape::UnitChunk<'a>> {

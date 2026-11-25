@@ -72,6 +72,7 @@ mod series;
 mod series_flags;
 mod tails;
 mod track_hash;
+mod unit_puts;
 
 use ww_tape::{BlockId, SessionTag};
 
