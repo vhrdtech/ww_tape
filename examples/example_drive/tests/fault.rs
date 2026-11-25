@@ -222,22 +222,22 @@ fn rounded_on_the_pages(f: &Fault) {
         (
             "copies.md",
             &copies,
-            format!("{} headers in all", grouped(v.blocks)),
+            format!("{} headers of 32 bytes", grouped(v.blocks)),
         ),
         (
             "copies.md",
             &copies,
-            format!("whole, about {} in all", about(v.index)),
+            format!("final index]] whole | about {} |", about(v.index)),
         ),
         (
             "copies.md",
             &copies,
-            format!("the blocks: about {} more", about(v.entries)),
+            format!("as it replays the blocks | about {} |", about(v.entries)),
         ),
         (
             "copies.md",
             &copies,
-            format!("closes and tails, about {} in all", about(v.unread)),
+            format!("closes and tails | none of their {} |", about(v.unread)),
         ),
         (
             "copies.md",

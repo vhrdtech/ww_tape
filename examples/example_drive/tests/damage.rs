@@ -95,7 +95,8 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
     Ok(())
 }
 
-/// The rounded numbers "When bytes go bad" gives for the flipped bit: the byte, the chunk's size, where Prefix stops.
+/// The rounded numbers "When bytes go bad" and "Reading past damage" give for the flipped bit: the byte, the chunk's
+/// size, where Prefix stops.
 fn flip_on_the_page(byte: u64, chunk: u64, stop: u64) {
     says(
         "damage.md",
@@ -106,11 +107,8 @@ fn flip_on_the_page(byte: u64, chunk: u64, stop: u64) {
         &format!("in about {}. That is less than one segment", about(chunk)),
     );
     says(
-        "damage.md",
-        &format!(
-            "stops where the damaged chunk starts, about {} in",
-            about(stop)
-        ),
+        "reading_past_damage.md",
+        &format!("then stops about {} in", about(stop)),
     );
 }
 
@@ -136,7 +134,7 @@ fn check_first(drive: &Drive, first: &Damaged) -> Result<(), Error> {
     let (from, to) = (r.mode_unknown[0], *r.mode_unknown.last().expect("chunks"));
     assert_eq!((from / US_PER_S, to / US_PER_S), (45 * 60, 45 * 60));
     says(
-        "damage.md",
+        "damaged_pieces.md",
         "no mode in force over the piece's first second, 45:00",
     );
     Ok(())
@@ -153,7 +151,7 @@ fn check_last(drive: &Drive, last: &Damaged) -> Result<(), Error> {
     assert_eq!(r.definitions, r.definitions_written);
     assert!(r.mode_unknown.is_empty(), "the mode reads at every chunk");
     says(
-        "damage.md",
+        "damaged_pieces.md",
         "its final index, with no byte to scan after it",
     );
     Ok(())
@@ -190,7 +188,7 @@ fn a_raw_card_never_reads_the_earlier_run() -> Result<(), Error> {
     says(
         "raw_media.md",
         &format!(
-            "other {} or so stay behind as stale data",
+            "The earlier run's other {} or so",
             about(len - read.raw_end)
         ),
     );

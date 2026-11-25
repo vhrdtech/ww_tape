@@ -150,7 +150,7 @@ fn rounded_on_the_pages(
         (
             "state.md",
             format!(
-                "idle at the start, its copies at {} and {} seconds, run at minute {} and its copies at {} and {} seconds",
+                "| the start | idle | | {} and {} seconds | idle's copies | | minute {} | run | | {} and {} seconds | run's copies |",
                 s(wrote[1]),
                 s(wrote[2]),
                 s(wrote[3]) / 60,
