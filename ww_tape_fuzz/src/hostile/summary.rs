@@ -1,5 +1,5 @@
 //! Summary blocks: the head (tree, level, node shift, element, fields, channels, scale length, item range, ticks),
-//! the scale bytes, a grid tile's axis count and coordinates after the scale ([ww_tape::FLAG_TILE], set or cleared)
+//! the scale bytes, a grid tile's axis count and coordinates after the scale (kind 17, or kind 6 and 17 swapped)
 //! and the node values.
 
 use ww_tape::ItemNum;
@@ -180,9 +180,15 @@ pub fn summary(data: &[u8]) -> Vec<u8> {
     match d.u8() % 12 {
         9 => hit(&mut d, &mut b, LEN_FIELD),
         10 => {
-            // FLAG_TILE set on a series block, cleared on a tile's: the scale's bytes or the coordinates misread
-            let flags = get(&b, 6, 2) ^ u64::from(ww_tape::FLAG_TILE);
-            put(&mut b, 6, 2, flags);
+            // kind 17 on a series block, kind 6 on a tile's: the scale's bytes or the coordinates misread; or the
+            // retired bit that marked a tile's block, which a reader ignores
+            if d.bool() {
+                let kind = get(&b, 5, 1) ^ u64::from(6 ^ ww_tape::BlockKind::TileSummary.to_u8());
+                put(&mut b, 5, 1, kind);
+            } else {
+                let flags = get(&b, 6, 2) ^ (1 << 5);
+                put(&mut b, 6, 2, flags);
+            }
         }
         11 => hit_tile(&mut d, &mut b),
         1 | 2 => {

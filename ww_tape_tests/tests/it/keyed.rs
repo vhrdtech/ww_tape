@@ -4,9 +4,9 @@
 use ww_tape::TrackNum;
 use ww_tape::index::STATE_TRACK_ID;
 use ww_tape::{
-    Block, BlockError, BlockKind, Definitions, Describe, DescribeError, FLAG_KEYED, FLAG_REPEAT,
-    KeyId, KeyedItem, MemPieces, OwnerId, PieceChain, STATE_KEY_LEN_MAX, Slot, SyncPolicy,
-    TapeReader, TrackDef, TrackRepeat, WriteError,
+    Block, BlockError, BlockKind, Definitions, Describe, DescribeError, FLAG_REPEAT, KeyId,
+    KeyedItem, MemPieces, OwnerId, PieceChain, STATE_KEY_LEN_MAX, Slot, SyncPolicy, TapeReader,
+    TrackDef, TrackRepeat, WriteError,
 };
 
 use crate::definitions::{CLOCK, base_defs, hold, record_blocks, state, track};
@@ -346,8 +346,8 @@ fn puts_that_dont_fit_their_track_are_refused() {
     assert!(chain.put_key(&defs, KEYED, 0, &long[1..], b"x").unwrap());
 }
 
-/// A keyed block a reader refuses: the flag without FLAG_REPEAT, a record of track 0, an item that isn't a key and a
-/// value.
+/// A block of keyed puts a reader refuses: without FLAG_REPEAT, with a record of track 0, an item that isn't a key
+/// and a value.
 #[test]
 fn a_bad_keyed_block_is_refused() {
     let bytes = store();
@@ -360,17 +360,46 @@ fn a_bad_keyed_block_is_refused() {
     b[6..8].copy_from_slice(&flags.to_le_bytes());
     reseal(&mut b);
     assert_eq!(Block::read(&b).err(), Some(BlockError::BadRecords));
-    // a block of definitions marked keyed
+    // a block of definitions given the kind of keyed puts
     let defs = record_blocks(&bytes)
         .into_iter()
         .find(|b| b.first_track == Some(0))
         .unwrap();
     let mut b = defs.bytes.clone();
-    let flags = u16::from_le_bytes([b[6], b[7]]) | FLAG_KEYED | FLAG_REPEAT;
+    b[5] = BlockKind::KeyedPuts.to_u8();
+    let flags = u16::from_le_bytes([b[6], b[7]]) | FLAG_REPEAT;
     b[6..8].copy_from_slice(&flags.to_le_bytes());
     reseal(&mut b);
     assert_eq!(Block::read(&b).err(), Some(BlockError::BadRecords));
-    assert_eq!(Block::read(&keyed.bytes).unwrap().kind, BlockKind::Records);
+    assert_eq!(
+        Block::read(&keyed.bytes).unwrap().kind,
+        BlockKind::KeyedPuts
+    );
+    assert_eq!(keyed.bytes[5], 16, "keyed puts are block kind 16");
+}
+
+/// Header bit 6, which marked keyed puts before they had a kind of their own, is retired: a reader ignores it on a
+/// block of puts and on a block of keyed puts alike.
+#[test]
+fn retired_keyed_bit_is_ignored() {
+    let bytes = store();
+    for b in record_blocks(&bytes) {
+        let read = Block::read(&b.bytes).unwrap();
+        if !read.is_repeat() {
+            continue;
+        }
+        let mut marked = b.bytes.clone();
+        marked[6] |= 1 << 6;
+        reseal(&mut marked);
+        let again = Block::read(&marked).unwrap();
+        assert_eq!((again.kind, again.is_keyed()), (read.kind, read.is_keyed()));
+        let records = |x: &Block<'_>| {
+            x.records()
+                .map(|r| r.unwrap().item.to_vec())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(records(&again), records(&read));
+    }
 }
 
 /// The CRC of block `b` made good again.

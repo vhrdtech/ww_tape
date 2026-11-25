@@ -401,6 +401,9 @@ pub struct FileBlocks<R> {
     gap_walk: SessionState,
     /// [Recovery::Resync] past the place a [Recovery::Prefix] walk ends: no more gaps are looked for
     prefix_over: bool,
+    /// [Recovery::Resync] right after bad bytes: a block whose CRC this reader can't check
+    /// ([crate::Checked::Unchecked]) is no place to go on
+    after_bad: bool,
     /// Probe headers read looking past stretches
     #[cfg(test)]
     probes: usize,
@@ -469,6 +472,7 @@ impl<R: Read> FileBlocks<R> {
             gap_end: None,
             gap_walk: SessionState::new(Medium::File),
             prefix_over: false,
+            after_bad: false,
             #[cfg(test)]
             probes: 0,
             #[cfg(test)]
@@ -726,11 +730,20 @@ impl<R: Read> FileBlocks<R> {
                     error: BlockError::UnhandledIntegrity { level },
                 }
             }
-            Ok(b) => Here::Good(Checked::of(&b)),
+            Ok(b) if self.after_bad && b.checked() == crate::Checked::Unchecked => {
+                Here::Bad(BlockError::Unverified)
+            }
+            Ok(b) => {
+                self.after_bad = false;
+                Here::Good(Checked::of(&b))
+            }
             // a chunk block with a good head: its length holds, the payload is handed out with its bad segments
             // marked, and the walk goes on after it without looking for a magic in the payload
             Err(e) if self.recovery == Recovery::Resync => match Block::salvage(&self.buf) {
-                Ok(b) => Here::Good(Checked::of(&b)),
+                Ok(b) => {
+                    self.after_bad = false;
+                    Here::Good(Checked::of(&b))
+                }
                 Err(_) => Here::Bad(e),
             },
             Err(e) => Here::Bad(e),
@@ -1011,6 +1024,7 @@ impl<R: Read> FileBlocks<R> {
 
     /// Skip to the next block magic after the start of the current bytes.
     fn resync(&mut self, error: BlockError) -> FileError {
+        self.after_bad = true;
         let offset = self.offset;
         match self.skip_to_magic() {
             Ok(()) => FileError::Bad {

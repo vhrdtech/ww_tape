@@ -279,7 +279,7 @@ fn each_tile_summary_entry_carries_its_tile_number() {
         .track_entries(0, id)
         .unwrap()
         .into_iter()
-        .filter(|e| e.kind == BlockKind::Summary)
+        .filter(|e| e.kind == BlockKind::TileSummary)
         .collect();
     assert!(entries.len() >= 12 * 3, "every tile, several blocks");
     assert!(entries.iter().any(|e| e.level > 0));
@@ -319,7 +319,7 @@ fn a_region_timeline_merges_the_tiles_of_its_box() {
             .track_entries(0, id)
             .unwrap()
             .iter()
-            .any(|e| e.kind == BlockKind::Summary && e.tile.is_none());
+            .any(|e| e.kind == BlockKind::TileSummary && e.tile.is_none());
         assert_eq!(scanned, !close, "a scan lists blocks without tile numbers");
         let steps = RUNS * u64::from(STEPS);
         for cells in [

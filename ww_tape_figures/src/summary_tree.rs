@@ -5,7 +5,7 @@
 
 use anyhow::{Context, ensure};
 use example_drive::{Drive, key};
-use ww_tape::{BlockKind, Element, ElementDesc, FileBlocks, Recovery};
+use ww_tape::{Element, ElementDesc, FileBlocks, Recovery};
 use ww_tape_summary::{ChannelStats, Summary};
 
 use crate::OrDebug;
@@ -36,7 +36,7 @@ pub fn summary_tree() -> anyhow::Result<String> {
         let mut walk = FileBlocks::with_recovery(&piece[..], Recovery::Prefix);
         while let Some(b) = walk.next_block() {
             let b = b.or_debug()?;
-            if b.kind != BlockKind::Summary {
+            if !b.kind.is_summary() {
                 continue;
             }
             let summary = Summary::of_block(&b).context("a summary block")?;

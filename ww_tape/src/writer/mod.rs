@@ -48,7 +48,7 @@ use core::time::Duration;
 
 use crate::clock::ClockRef;
 use crate::index::{IndexPolicy, Indexer, RECORDS_TRACK_ID, STATE_TRACK_ID, TrackIdent};
-use crate::open::{RecordRef, write_records};
+use crate::open::{RecordRef, write_blocks_of};
 use crate::piece::{
     Close, CloseReason, ContentHash, Integrity, OwnerId, PIECE_ALIGN, PieceHead, PieceId,
     PieceIdent, TAIL_LEN, Tail, TrackHash, TrackStart, UnitHash, close_len, close_padding,
@@ -104,16 +104,14 @@ impl Default for SyncPolicy {
     }
 }
 
-/// The header flags a caller's block of `kind` may carry when written as it is, not as puts: a coded body
-/// ([FLAG_BODY_CODED](crate::FLAG_BODY_CODED)) on a records block; on a chunk the marks of a unit, a relation break
-/// or a grid start, each checked where due. The other bits are reserved or the writer's own.
+/// The header flags a caller's block of `kind` may carry when written as it is, not as puts: on a chunk the marks of
+/// a unit, a relation break or a grid start, each checked where due. The other bits are reserved, retired or the
+/// writer's own.
 fn caller_flags(kind: BlockKind) -> u16 {
     match kind {
-        BlockKind::Records => crate::FLAG_BODY_CODED,
         // a chunk of a unit as another writer made it ([TapeWriter::write_chunk_unit])
         BlockKind::Events => crate::FLAG_RELATION_BREAK | crate::FLAG_WITH_NEXT,
         BlockKind::Series => crate::FLAG_GRID_START | crate::FLAG_WITH_NEXT,
-        BlockKind::Summary => crate::FLAG_TILE,
         _ => 0,
     }
 }
@@ -2353,7 +2351,12 @@ impl<S: TapeSink> TapeWriter<S> {
     fn check_data(defs: &Definitions, b: &crate::Block<'_>) -> Result<(), WriteError<S::Error>> {
         let ours = matches!(
             b.kind,
-            BlockKind::Records | BlockKind::Events | BlockKind::Series | BlockKind::Summary
+            BlockKind::Records
+                | BlockKind::CodedRecords
+                | BlockKind::Events
+                | BlockKind::Series
+                | BlockKind::Summary
+                | BlockKind::TileSummary
         );
         if !ours || !b.body_known() {
             return Err(WriteError::Input(InputError::Unknown {
@@ -2424,11 +2427,11 @@ impl<S: TapeSink> TapeWriter<S> {
         // blocks the file structure adds are not counted: seq stays the producer's count of its own blocks
         let kind = BlockKind::from_u8(header[5]);
         let flags = u16::from_le_bytes([header[6], header[7]]);
-        let repeat = kind == BlockKind::Records && flags & crate::FLAG_REPEAT != 0;
+        let repeat = kind.holds_records() && flags & crate::FLAG_REPEAT != 0;
         let counted = !repeat && !crate::index::is_structural(kind);
         let tile = match &chunk {
             Some(c) => self.relations.tile(c),
-            None if kind == BlockKind::Summary => crate::Block::read_trusted(block)
+            None if kind.is_summary() => crate::Block::read_trusted(block)
                 .ok()
                 .and_then(|b| b.summary_head())
                 .and_then(|h| self.relations.summary_tile(&h)),
@@ -2466,7 +2469,7 @@ impl<S: TapeSink> TapeWriter<S> {
         // counts against thresholds: past u64::MAX they stay due
         self.blocks = self.blocks.saturating_add(1);
         let data = match kind {
-            BlockKind::Records => !tracks.is_empty(),
+            BlockKind::Records | BlockKind::CodedRecords => !tracks.is_empty(),
             BlockKind::Events | BlockKind::Series => true,
             _ => false,
         };
@@ -2492,7 +2495,7 @@ impl<S: TapeSink> TapeWriter<S> {
     fn learn(&mut self, block: &[u8], at: u64, tally: bool) -> Vec<TrackNum> {
         let marks = crate::Block::read_trusted(block)
             .ok()
-            .filter(|b| b.kind == BlockKind::Records)
+            .filter(|b| b.kind.holds_records())
             .and_then(|b| crate::group_marks::Marks::of_puts(b.flags));
         let begin = self.group_records.begin(marks);
         self.void_records(begin.voided);
@@ -2525,7 +2528,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if let Some(c) = b.chunk() {
             return vec![c.head().track_number];
         }
-        if b.kind != BlockKind::Records {
+        if !b.kind.holds_records() {
             return Vec::new();
         }
         let mut buf = Vec::new();
@@ -3483,7 +3486,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         let mut buf = Vec::new();
         let b = b.decode(&mut buf).map_err(WriteError::Block)?;
-        if b.kind != BlockKind::Records {
+        if !b.kind.holds_records() {
             return Err(WriteError::Input(InputError::Unknown {
                 version: b.version,
                 kind: b.kind,
@@ -4791,8 +4794,8 @@ fn put_ref<'c>(c: &'c Candidate<'_>) -> PutRef<'c> {
 }
 
 /// Make the blocks of puts holding `records`, each of id `id`, into `out`, in order: blocks marked
-/// [FLAG_REPEAT](crate::FLAG_REPEAT) and `flags`, a run of keyed state records in blocks of their own marked
-/// [FLAG_KEYED](crate::FLAG_KEYED) too.
+/// [FLAG_REPEAT](crate::FLAG_REPEAT) and `flags`, a run of keyed state records in blocks of their own of kind
+/// [KeyedPuts](BlockKind::KeyedPuts).
 fn put_blocks<E: From<DescribeError>>(
     records: &[PutRef<'_>],
     id: BlockId,
@@ -4801,9 +4804,14 @@ fn put_blocks<E: From<DescribeError>>(
 ) -> Result<(), E> {
     for run in records.chunk_by(|a, b| a.1 == b.1) {
         let keyed = run.first().is_some_and(|(_, k)| *k);
-        let flags = crate::FLAG_REPEAT | flags | if keyed { crate::FLAG_KEYED } else { 0 };
+        let kind = if keyed {
+            BlockKind::KeyedPuts
+        } else {
+            BlockKind::Records
+        };
         let refs: Vec<RecordRef<'_>> = run.iter().map(|(r, _)| *r).collect();
-        write_records(&refs, DEFINITION_BLOCK_LEN, flags, || id, &mut out)?;
+        let flags = crate::FLAG_REPEAT | flags;
+        write_blocks_of(kind, &refs, DEFINITION_BLOCK_LEN, flags, || id, &mut out)?;
     }
     Ok(())
 }

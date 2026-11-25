@@ -31,7 +31,7 @@
 //! common scale first; two scales with no common scale (a ratio that isn't a fraction of integers) are refused, never
 //! mixed.
 //!
-//! A summary block ([BlockKind::Summary]) holds a batch of consecutive nodes of one level of one track. The block
+//! A summary block ([BlockKind::Summary], kind 6, or [BlockKind::TileSummary], kind 17, for a tile's tree) holds a batch of consecutive nodes of one level of one track. The block
 //! header's count (bytes 12..16) is the number of nodes; bytes 28..32 describe a series' element when byte 47 is
 //! 13, else they are zero:
 //!
@@ -60,7 +60,7 @@
 //!  88 i64  latest end: the largest end of a covered item, at least the last tick
 //!  96 ...  scale of a series: what a stored minimum, maximum or sum is worth in the sample type's unit, as the
 //!          shrink_wrap bytes of an exact_units Magnitude (10⁻³ is fa 00); squares and powers are at its square
-//! 96+s ... a tile's block only (header flag FLAG_TILE): u8 fixed axes a, 1 to GRID_FIXED_AXES_MAX, then a × u32 tile
+//! 96+s ... a tile's block only (kind 17, TileSummary): u8 fixed axes a, 1 to GRID_FIXED_AXES_MAX, then a × u32 tile
 //!          coordinates, as a grid chunk's head carries them (TileCoords)
 //!  ...  ... body: columns of n values each, n the node count, little-endian, back to back
 //! len-4 u32 CRC over bytes 0..len-4, as in every block
@@ -80,9 +80,10 @@
 //!
 //! A grid's chunks each hold one tile ([grid](crate::grid#tiles)), and each tile has a series tree of its own: an item
 //! is a time step of the tile, a node summarises the tile's cells over its time run, every cell a sample of the
-//! statistics. Its blocks carry the header flag [FLAG_TILE] and the tile's coordinates after the
+//! statistics. Its blocks are of kind [BlockKind::TileSummary] and carry the tile's coordinates after the
 //! scale ([SummaryHead::tile]); their index entries carry the tile number, as the tile's chunks' do. A series, of no
-//! fixed axes, has one tree and blocks without the flag, as before grids.
+//! fixed axes, has one tree of kind [BlockKind::Summary] blocks, as before grids. A reader that doesn't know kind 17
+//! skips a tile's block by its length, as a block it doesn't know.
 //!
 //! Summary blocks are small (a few KiB) and rebuilt from the data when lost. In an aligned file the writer places them
 //! in the gap before the next aligned chunk payload ([TapeWriter::defer_block](crate::TapeWriter::defer_block)).
@@ -97,7 +98,7 @@ use crate::bytes::{
 use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, TrackNum, VERSION};
 
 use crate::grid::GRID_FIXED_AXES_MAX;
-use crate::{Element, ElementDesc, FLAG_TILE, TileCoords};
+use crate::{Element, ElementDesc, TileCoords};
 mod spec;
 pub use spec::{ClipRange, SeriesStats, SeriesSummarySpec, Stat, components, is_complex};
 
@@ -302,7 +303,7 @@ impl SummaryHead {
     /// reader that decodes no node still checks a block this way.
     ///
     /// `block` is exactly the block's bytes. The header is checked here ([MAGIC], this
-    /// [VERSION], kind [BlockKind::Summary], a length field equal to the bytes handed over: else
+    /// [VERSION], kind [BlockKind::Summary] or [BlockKind::TileSummary], a length field equal to the bytes handed over: else
     /// [SummaryError::NotSummary]), the CRC is not: the caller checks it, as [Block::read](crate::Block::read) does.
     pub fn read(block: &[u8]) -> Result<(Self, &[u8], usize), SummaryError> {
         let short = SummaryError::Invalid("shorter than the head");
@@ -315,7 +316,7 @@ impl SummaryHead {
             return Err(SummaryError::NotSummary(NotSummary::Version(version)));
         }
         let kind = BlockKind::from_u8(le_u8(header, 5).ok_or(short)?);
-        if kind != BlockKind::Summary {
+        if !kind.is_summary() {
             return Err(SummaryError::NotSummary(NotSummary::Kind(kind)));
         }
         let stated = le_u32(header, 8).ok_or(short)?;
@@ -325,7 +326,6 @@ impl SummaryHead {
                 bytes: block.len(),
             }));
         }
-        let flags = le_u16(header, 6).ok_or(short)?;
         let (head_scale_body, _crc) = block
             .split_last_chunk::<CRC_LEN>()
             .filter(|(b, _)| b.len() >= SCALE_AT)
@@ -347,7 +347,7 @@ impl SummaryHead {
             .get(SCALE_AT..)
             .and_then(|rest| rest.split_at_checked(scale_len))
             .ok_or(SummaryError::Invalid("scale past the end"))?;
-        let (tile, body) = if flags & FLAG_TILE != 0 {
+        let (tile, body) = if kind == BlockKind::TileSummary {
             read_tile(rest)?
         } else {
             (TileCoords::NONE, rest)
@@ -584,7 +584,7 @@ fn tile_len(tile: &TileCoords) -> usize {
     tile.len().saturating_mul(4).saturating_add(1)
 }
 
-/// The tile of a block marked [FLAG_TILE] at the start of `rest` (the bytes after its scale) and the bytes after it.
+/// The tile of a block of kind [BlockKind::TileSummary] at the start of `rest` (the bytes after its scale) and the bytes after it.
 fn read_tile(rest: &[u8]) -> Result<(TileCoords, &[u8]), SummaryError> {
     let axes = file_u8(rest, 0)
         .ok_or(SummaryError::Invalid("tile past the end"))?
@@ -640,11 +640,12 @@ impl<'b> SummaryWriter<'b> {
             .get_mut(..len)
             .ok_or(SummaryError::Full { needed: len })?;
         buf.fill(0);
-        crate::put_header(buf, BlockKind::Summary, len, count, id)
-            .ok_or(SummaryError::TooLong { len })?;
-        if !head.tile.is_empty() && bytes::put_u16(buf, 6, FLAG_TILE).is_none() {
-            return Err(OWN_LAYOUT);
-        }
+        let kind = if head.tile.is_empty() {
+            BlockKind::Summary
+        } else {
+            BlockKind::TileSummary
+        };
+        crate::put_header(buf, kind, len, count, id).ok_or(SummaryError::TooLong { len })?;
         let (element, described, fields, channels) = match head.layout {
             Layout::Events(f) => (0, [0; 4], f.bits(), 0),
             Layout::Series {

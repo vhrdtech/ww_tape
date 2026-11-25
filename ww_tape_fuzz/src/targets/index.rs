@@ -15,7 +15,7 @@ use ww_tape::{
     PieceInfo, Ratio64, ReadError, STATE_KEY_LEN_MAX, Tail, TapeReader, TrackHash,
 };
 
-/// Entry `e` made a keyed state record's from chunk `c`, valid or not by its bits: a key of `c[1] % 12` bytes, or one
+/// Entry `e` made a keyed state record's (kind 16) from chunk `c`, valid or not by its bits: a key of `c[1] % 12` bytes, or one
 /// past the cap; its head from `c[1..9]`, zero past its end unless bit 3; its length field `second` the key's unless
 /// `c[2]` bit 0; a deletion by bit 2. Repeat, range and tile stay as drawn.
 fn keyed(e: IndexEntry, c: &[u8; 9]) -> IndexEntry {
@@ -30,7 +30,7 @@ fn keyed(e: IndexEntry, c: &[u8; 9]) -> IndexEntry {
         head.iter_mut().skip(len as usize).for_each(|b| *b = 0);
     }
     IndexEntry {
-        kind: BlockKind::Records,
+        kind: BlockKind::KeyedPuts,
         track_id: STATE_TRACK_ID,
         level: 0,
         second: if c[2] & 1 == 0 { len } else { u32::from(c[2]) },
@@ -44,15 +44,15 @@ fn keyed(e: IndexEntry, c: &[u8; 9]) -> IndexEntry {
     }
 }
 
-/// Whether `e`'s key and deletion are where a reader takes them: a key on a state record's entry, marked repeated,
-/// of level 0 without a range or a tile, its length field the key's, within the cap, its head zero past it; a
-/// deletion only with a key.
+/// Whether `e`'s key and deletion are where a reader takes them: a key on a state record's entry of a block of keyed
+/// puts (kind 16) and on no other, marked repeated, of level 0 without a range or a tile, its length field the key's,
+/// within the cap, its head zero past it; a deletion only with a key; an entry of kind 16 only with a key.
 fn keyed_valid(e: &IndexEntry) -> bool {
     let Some(k) = e.key else {
-        return !e.deleted;
+        return !e.deleted && e.kind != BlockKind::KeyedPuts;
     };
     e.track_id == STATE_TRACK_ID
-        && e.kind == BlockKind::Records
+        && e.kind == BlockKind::KeyedPuts
         && e.repeat
         && e.level == 0
         && e.range.is_none()

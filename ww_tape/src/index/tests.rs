@@ -626,11 +626,12 @@ fn an_entry_is_checked_the_same_on_every_read() {
     );
 }
 
-/// A tile number on a series summary block's entry reads back; on an event tree's summary block it is refused.
+/// A tile number on the entry of a tile's series summary block (kind 17) reads back; on an event tree's summary block
+/// or on a summary block of no tile (kind 6) it is refused.
 #[test]
 fn summary_entries_carry_tile_numbers() {
     let tree = |t: crate::summary::Tree| IndexEntry {
-        kind: BlockKind::Summary,
+        kind: BlockKind::TileSummary,
         tree: t.to_u8(),
         range: None,
         tile: Some(7 << 12 | 3 << 6 | 2 << 3 | 5),
@@ -650,8 +651,16 @@ fn summary_entries_carry_tile_numbers() {
     refused_both_ways(
         |e| {
             e[15] = ENTRY_TILE;
-            e[12] = BlockKind::Summary.to_u8();
+            e[12] = BlockKind::TileSummary.to_u8();
             e[14] = crate::summary::Tree::Events.to_u8();
+        },
+        IndexError::BadEntries,
+    );
+    refused_both_ways(
+        |e| {
+            e[15] = ENTRY_TILE;
+            e[12] = BlockKind::Summary.to_u8();
+            e[14] = crate::summary::Tree::Series.to_u8();
         },
         IndexError::BadEntries,
     );
@@ -839,7 +848,7 @@ fn overview_levels_of_entries_are_checked() {
 fn a_keyed_entry_without_its_repeat_mark_is_refused() {
     let key = KeyId::of(b"/a/b").expect("a short key");
     let mut e = IndexEntry {
-        kind: BlockKind::Records,
+        kind: BlockKind::KeyedPuts,
         track_id: STATE_TRACK_ID,
         second: key.len,
         repeat: true,
@@ -850,4 +859,34 @@ fn a_keyed_entry_without_its_repeat_mark_is_refused() {
     assert!(e.is_valid(), "a keyed state entry");
     e.repeat = false;
     assert!(!e.is_valid(), "a keyed entry not marked repeated");
+}
+
+/// An entry's key bit and its kind agree: a key only on an entry of keyed puts, and every entry of keyed puts keyed.
+#[test]
+fn a_key_and_the_kind_of_keyed_puts_go_together() {
+    let key = KeyId::of(b"/a/b").expect("a short key");
+    let keyed = IndexEntry {
+        kind: BlockKind::KeyedPuts,
+        track_id: STATE_TRACK_ID,
+        second: key.len,
+        repeat: true,
+        range: None,
+        key: Some(key),
+        ..entry(1, 4)
+    };
+    assert!(keyed.is_valid(), "a keyed state entry");
+    let plain_kind = IndexEntry {
+        kind: BlockKind::Records,
+        ..keyed
+    };
+    assert!(
+        !plain_kind.is_valid(),
+        "a key on an entry of a records block"
+    );
+    let no_key = IndexEntry {
+        key: None,
+        second: 0,
+        ..keyed
+    };
+    assert!(!no_key.is_valid(), "an entry of keyed puts without a key");
 }

@@ -5,8 +5,8 @@ use super::{Draw, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, SESSION, definition, hit
 use ww_tape::body::DECODED_BODY_MAX;
 use ww_tape::lz4::{lz4_encode, lz4_max_len};
 use ww_tape::{
-    BlockKind, Describe, FLAG_BODY_CODED, GAP_MAX_MAX, GAP_PROBES_MAX, Layout, MAX_BLOCK_CLOCKS,
-    MAX_BLOCK_LEN, Producer, SD_GAP_MAX,
+    BlockKind, Describe, GAP_MAX_MAX, GAP_PROBES_MAX, Layout, MAX_BLOCK_CLOCKS, MAX_BLOCK_LEN,
+    Producer, SD_GAP_MAX,
 };
 
 /// One varint of the body, as written or with a hostile value.
@@ -121,10 +121,10 @@ pub fn records(data: &[u8]) -> Vec<u8> {
             body.extend_from_slice(item);
         }
     }
-    // a coded body: codec byte, decoded length, the coded bytes
-    let mut flags = 0u16;
+    // a coded records block (kind 15): codec byte, decoded length, the coded bytes
+    let mut kind = BlockKind::Records;
     if d.u8() % 3 == 2 {
-        flags |= FLAG_BODY_CODED;
+        kind = BlockKind::CodedRecords;
         let codec = [0u8, 1, 2, 0xff][d.below(4)];
         let mut coded = vec![codec];
         let len = d.value(64, &[DECODED_BODY_MAX as u64], &[body.len() as u64]);
@@ -138,10 +138,23 @@ pub fn records(data: &[u8]) -> Vec<u8> {
         }
         body = coded;
     }
+    // now and then the other kind: a coded body read as records, records read as a coded body; or the retired bit
+    // that marked a coded body, which a reader ignores
+    let mut flags = 0u16;
+    match d.u8() % 16 {
+        14 => {
+            kind = match kind {
+                BlockKind::Records => BlockKind::CodedRecords,
+                _ => BlockKind::Records,
+            }
+        }
+        15 => flags |= 1,
+        _ => {}
+    }
     let mut b = vec![0u8; HEADER_LEN];
     b[..4].copy_from_slice(&ww_tape::MAGIC);
     b[4] = ww_tape::VERSION;
-    b[5] = BlockKind::Records.to_u8();
+    b[5] = kind.to_u8();
     b[6..8].copy_from_slice(&flags.to_le_bytes());
     b[12..16].copy_from_slice(&(n as u32).to_le_bytes());
     b[24..28].copy_from_slice(&SESSION.get().to_le_bytes());

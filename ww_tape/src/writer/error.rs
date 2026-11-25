@@ -70,8 +70,9 @@ pub enum InputError {
     /// for it. Nothing is written. A cut is never refused for the definitions it carries: it leaves out what doesn't
     /// fit ([TrackStart::not_carried](crate::piece::TrackStart::not_carried)).
     CarriedEntries { needed: usize, max: usize },
-    /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved bits, or a flag only the
-    /// writer sets. A records block may carry [FLAG_BODY_CODED](crate::FLAG_BODY_CODED), other kinds none.
+    /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved or retired bits, or a flag only
+    /// the writer sets. Only a chunk carries flags of a caller's: the marks of a unit, a relation break or a grid
+    /// start.
     Flags { kind: BlockKind, flags: u16 },
     /// A close's summary body of `len` bytes, more than [CLOSE_SUMMARY_MAX](crate::piece::CLOSE_SUMMARY_MAX) (`max`).
     SummaryTooLong { len: usize, max: usize },

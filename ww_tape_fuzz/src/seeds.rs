@@ -46,6 +46,11 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ("tape-index", "empty-index-reads-back", "0a"),
     (
         "tape-index",
+        "key-on-a-records-entry",
+        "229f762a2a2a2a2a2a2a",
+    ),
+    (
+        "tape-index",
         "final-index-overlapping-blocks",
         "ff050100000000000007050500000000000000000a02020202002e00000000000000000000020200000000070505000007050500000000000000000a020202020000000000000000000000020000000000b7000000022f02020202",
     ),
@@ -189,6 +194,7 @@ const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-summa
 const GOLDEN_GRID_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-grid-summary.hex");
 const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
 const GOLDEN_KEYED: &str = include_str!("../../ww_tape/golden/v1-keyed.hex");
+const GOLDEN_CODED: &str = include_str!("../../ww_tape/golden/v1-coded.hex");
 const GOLDEN_BYTES: &str = include_str!("../../ww_tape/golden/v1-bytes.hex");
 const GOLDEN_CRC_ONLY: &str = include_str!("../../ww_tape/golden/v1-level-crc-only.hex");
 const GOLDEN_NONE: &str = include_str!("../../ww_tape/golden/v1-level-none.hex");
@@ -993,6 +999,7 @@ pub fn all() -> Vec<Seed> {
     let mut out = vec![];
     let concat = |text: &str| golden(text).concat();
     out.push(seed("tape-reader", "golden-v1-file", concat(GOLDEN_V1)));
+    out.push(seed("tape-reader", "golden-v1-coded", concat(GOLDEN_CODED)));
     out.push(seed(
         "tape-reader",
         "golden-v1-level-crc-only",

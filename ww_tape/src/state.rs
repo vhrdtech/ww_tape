@@ -21,7 +21,7 @@
 //! place, or an item by its hash, without a scan.
 //!
 //! **Keyed state.** A keyed state track holds many slots, one per key: bytes of at most [STATE_KEY_LEN_MAX]. Its
-//! records sit in blocks of their own, marked [FLAG_KEYED](crate::FLAG_KEYED), and each item is a [KeyedItem]: the
+//! records sit in blocks of keyed puts ([BlockKind::KeyedPuts](crate::BlockKind::KeyedPuts)), and each item is a [KeyedItem]: the
 //! key, then the value, or no value for a deletion, which ends the key:
 //!
 //! ```text
@@ -114,8 +114,8 @@ impl KeyId {
     }
 }
 
-/// Whether a record of `track` holding `item` may sit in a block marked [FLAG_KEYED](crate::FLAG_KEYED): a data
-/// track's, its item a [KeyedItem].
+/// Whether a record of `track` holding `item` may sit in a block of keyed puts
+/// ([BlockKind::KeyedPuts](crate::BlockKind::KeyedPuts)): a data track's, its item a [KeyedItem].
 pub(crate) fn keyed_record(track: RecordTrack, item: &[u8]) -> bool {
     matches!(track, RecordTrack::Data(_)) && KeyedItem::read(item).is_ok()
 }
@@ -352,7 +352,7 @@ pub enum Slot {
 }
 
 impl Slot {
-    /// The slot of record `item` on `track`, in a block marked [FLAG_KEYED](crate::FLAG_KEYED) with `keyed`: on
+    /// The slot of record `item` on `track`, in a block of keyed puts with `keyed`: on
     /// track 0 by the definition it decodes to, on a keyed track by its key; None when it doesn't decode, and for a
     /// record of track 0 in a keyed block.
     pub fn of(track: RecordTrack, item: &[u8], keyed: bool) -> Option<Self> {

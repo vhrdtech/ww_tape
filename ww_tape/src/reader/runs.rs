@@ -73,7 +73,9 @@ impl Runs {
         in_piece: Option<u64>,
         block: &Block<'_>,
     ) {
-        let marks = (block.kind == crate::BlockKind::Records)
+        let marks = block
+            .kind
+            .holds_records()
             .then(|| Marks::of_puts(block.flags))
             .flatten();
         // marks that break a group drop it as damage does ([crate::group_marks])

@@ -17,6 +17,17 @@ benchmarks, golden files and book pages.
 
 - Losing a piece's first 4 KiB loses no definition, layout or producer, so raw-media walks read past gaps (TRACK-12).
 
+## [0.15.0] - 2026-11-25
+
+### Breaking
+
+- Format: keyed puts are block kind 16, `BlockKind::KeyedPuts`; header bit 6 and `FLAG_KEYED` are retired (FMT-17).
+- Format: coded records blocks are kind 15, `BlockKind::CodedRecords`; header bit 0 and `FLAG_BODY_CODED` are retired (FMT-17).
+- Format: a tile's summary blocks are kind 17, `BlockKind::TileSummary`; header bit 5 and `FLAG_TILE` are retired (FMT-17).
+- Format: header bits 1 and 3 join the block contract; an unknown kind with bit 3 reads `Checked::Unchecked` (FMT-17).
+- Files of 0.14 holding coded records, keyed puts or tile summaries no longer read: write them again (FMT-17).
+- `BlockError` gains `Unverified`, `Checked` gains `Unchecked`: a salvage walk never goes on at such a block (FMT-17).
+
 ## [0.14.0] - 2026-11-25
 
 ### Breaking

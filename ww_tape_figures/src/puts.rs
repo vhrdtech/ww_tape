@@ -89,7 +89,7 @@ fn run() -> anyhow::Result<(u64, Vec<Placed>, usize)> {
     let mut end = 0;
     while let Some(b) = walk.next_block() {
         let b: Block<'_> = b.or_debug()?;
-        if b.kind != BlockKind::Records {
+        if !b.kind.holds_records() {
             continue;
         }
         let (flags, len) = (b.flags, u64::try_from(b.len())?);

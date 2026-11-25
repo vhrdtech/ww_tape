@@ -17,16 +17,17 @@
 //!   0   4  magic "WWTP"
 //!   4  u8  version, 1
 //!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
-//!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
-//!          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
-//!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
-//!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
-//!          the start of a grid or scale (FLAG_GRID_START, the same bit), bit 5 on a summary block
-//!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-//!          without it refuses the block), bit 6 on a records block marked FLAG_REPEAT its records keyed state
-//!          (FLAG_KEYED: each item a key and a value, so a reader without it misreads them as plain state), bit 7 on a
-//!          block of puts definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group
-//!          (FLAG_GROUP), bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
+//!   6 u16  flags. Bits 1 and 3 are part of the block contract, as len and the CRC are. Bit 1 (FLAG_REPEAT): the
+//!          block holds state records a writer put or copied, not data, and carries the seq of the block before it.
+//!          Bit 3 (FLAG_PAYLOAD_UNCHECKED): the CRC at the end covers what the block's kind says, a chunk's header and
+//!          head without its payload; a reader that doesn't know the kind or version skips such a block by its length,
+//!          unchecked, and never goes on at one right after damage. Every other bit is a flag, and a flag only marks:
+//!          bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 4 on an events chunk a break in
+//!          its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0 the start of a grid or
+//!          scale (FLAG_GRID_START, the same bit), bit 7 on a block of puts definitions written twice at once
+//!          (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9 on a group's first block
+//!          (FLAG_GROUP_START); bits 0, 5 and 6 retired (coded records, tile summaries and keyed puts are kinds 15, 17
+//!          and 16); others 0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -35,7 +36,7 @@
 //!  24 u32  session tag (SessionTag): the same in every block of one writer's unbroken append, never 0 nor FFFFFFFFh
 //!  28 u32  head CRC in chunk and index blocks (their own docs), else 0
 //!  32 ...  body
-//! len-4 u32 crc over bytes 0..len-4
+//! len-4 u32 crc over bytes 0..len-4, or with bit 3 over what the block's kind says
 //! ```
 //!
 //! The body of a records block is a clock table, then records back to back:
@@ -53,7 +54,8 @@
 //! (uvar, spans only), the flags (uvar, only with flags), then the payload; the record's time is the start. A track
 //! of plain instants carries the payload alone. A state record of an events track carries the same item.
 //!
-//! With [FLAG_BODY_CODED] that body is coded: a codec byte, its decoded length and the coded bytes ([body]).
+//! A coded records block (kind 15, [BlockKind::CodedRecords]) holds that body coded: a codec byte, its decoded length
+//! and the coded bytes ([body]).
 //!
 //! So time deltas are coded per clock, a block reads alone (its first time per clock is absolute) and one clock costs
 //! no bit in the head. No wall clock is in a block: wall time is a clock of its own, mapped to the others.
@@ -62,10 +64,14 @@
 //! without the definitions; a writer keeps the two in agreement, and a reader may take a record whose slot names
 //! another clock than its track's for damage.
 //!
-//! The header and the CRC at the end are the same in every version, so any reader can check a block and skip it by its
-//! length. A later version bumps the version byte and changes only the body; new block kinds and flag bits are added
-//! the same way. A block of another version that goes on with the data ends the piece the reader is in and starts a
-//! piece of that version, which the reader lists with its version and refuses to read ([reader::ReadError::Version]).
+//! The **block contract** is the same in every version: the magic, version, kind and length, header bits 1 and 3 and
+//! the CRC at the end. So any reader can check a block and skip it by its length; a block marked
+//! [FLAG_PAYLOAD_UNCHECKED] of a kind or version it doesn't know it can only skip ([Checked::Unchecked]). A block
+//! marked [FLAG_REPEAT] holds state, not data, and takes no part in the seq order, whatever its kind. A later version
+//! bumps the version byte and changes only the body. New block kinds and flag bits are added the same way, and every
+//! other flag only marks: a reader that doesn't know it reads every byte of the block right. A body read another way
+//! is a kind of its own. A block of another version that goes on with the data ends the piece the reader is in and
+//! starts a piece of that version, which the reader lists with its version and refuses to read ([reader::ReadError::Version]).
 //! A block of an unknown kind reads as it is ([Block::body_known] false, no records), not as damage. [Describe] is an
 //! evolvable enum, so a describe record of a variant a reader doesn't know reads as [Describe::Unknown] and is
 //! skipped.
@@ -336,8 +342,11 @@ const _: () = assert!(
     lz4::LZ4_DECODED_MAX == MAX_BLOCK_LEN,
     "an lz4 column decodes to at most a whole block"
 );
-/// Header flag: the block holds state records a writer put or copied ([state]), not new items of the producer's: it
-/// carries the seq of the block before it and takes no part in the seq order.
+/// Header bit 1, part of the block contract rather than a flag: the block holds state records a writer put or copied.
+///
+/// They are [state], not new items of the producer's. The block carries the seq of the block before it and takes no
+/// part in the seq order. A reader that didn't know the bit would take a block of puts for data, and for a rewrite of
+/// the block before it. Blocks of keyed puts ([BlockKind::KeyedPuts]) always carry it.
 ///
 /// A reader holding an item of the same hash in the same slot takes such a record as nothing new.
 pub const FLAG_REPEAT: u16 = 1 << 1;
@@ -374,11 +383,13 @@ pub const FLAG_GROUP: u16 = 1 << 8;
 /// It only marks. After damage a reader that knows it takes a group that starts with it whole: the damage hit no block
 /// of it. A block of a group without it may be the rest of a group the damage hit, and goes with it.
 pub const FLAG_GROUP_START: u16 = 1 << 9;
-/// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk a writer of
-/// [Integrity::None] encodes.
+/// Header bit 3, part of the block contract rather than a flag: the CRC at the end covers what the block's kind says,
+/// not the whole block. A writer of [Integrity::None] sets it on each chunk it encodes.
 ///
-/// The segment CRC slots hold zero and the block CRC covers the head alone; the head CRC covers the header, this flag
-/// with it. A reader checks the head and takes the payload as it is ([Checked::Unprotected]).
+/// On a chunk the segment CRC slots hold zero and the block CRC covers the head alone; the head CRC covers the header,
+/// this bit with it. A reader checks the head and takes the payload as it is ([Checked::Unprotected]). A reader that
+/// doesn't know the block's kind or version can't check it: it skips the block ([Checked::Unchecked]), and a walk never
+/// goes on at one right after damage ([BlockError::Unverified]).
 pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
 /// Header flag on events chunk blocks: the order of its track's monotone relations starts again at this chunk.
 ///
@@ -403,18 +414,6 @@ const _: () = assert!(
     FLAG_GRID_START == FLAG_RELATION_BREAK,
     "the grid start of a series chunk takes the bit an events chunk's relation break takes"
 );
-/// Header flag on summary blocks: the block belongs to the tree of one tile of a grid, whose coordinates follow its
-/// scale ([summary](crate::summary#tiles)).
-///
-/// Its index entry carries the tile number, as the tile's chunks' entries do.
-pub const FLAG_TILE: u16 = 1 << 5;
-/// Header flag on records blocks marked [FLAG_REPEAT]: every record is a keyed state record, its item a
-/// [KeyedItem] ([state]).
-///
-/// A keyed state track's records sit in blocks of their own, so the index lists each record by its key without the
-/// definitions. A records block with the flag and without [FLAG_REPEAT], or with a record of track 0 or an item that
-/// doesn't read as a [KeyedItem], is refused ([BlockError::BadRecords]).
-pub const FLAG_KEYED: u16 = 1 << 6;
 /// Header flag on blocks of puts ([FLAG_REPEAT]): definitions written twice at once.
 ///
 /// Such definitions are those of [TrackDef::defined_twice](crate::TrackDef::defined_twice). A block linked into a run
@@ -424,9 +423,6 @@ pub const FLAG_TWICE: u16 = 1 << 7;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.
 pub const RESERVED_KIND: u8 = 2;
-/// Header flag: the body of a records block is coded ([body]); on another kind the body is one this
-/// reader doesn't know. Off unless a writer codes the block with [code_body].
-pub const FLAG_BODY_CODED: u16 = 1 << 0;
 /// Bytes of the CRC at the end of a block.
 pub const CRC_LEN: usize = 4;
 /// Most clocks in one block's clock table; a producer writing on more starts another block.
@@ -464,6 +460,15 @@ pub enum BlockKind {
     /// A block of the caller's own a close names, placed right before its final index: its body is the caller's,
     /// opaque to the format ([piece::write_close_summary]).
     CloseSummary,
+    /// A records block whose body is coded ([body]): a codec byte, the decoded length and the coded bytes, which
+    /// decode to a [Records](Self::Records) block's body.
+    CodedRecords,
+    /// A block of puts of keyed state records ([state]): a records body whose every record is a [KeyedItem], marked
+    /// [FLAG_REPEAT].
+    KeyedPuts,
+    /// One batch of nodes of one level of the summary tree of one tile of a grid: a summary block whose tile
+    /// coordinates follow its scale ([summary](crate::summary#tiles)).
+    TileSummary,
     /// A kind this reader doesn't know: its body isn't read.
     Other(u8),
 }
@@ -489,8 +494,21 @@ impl BlockKind {
             10 => Self::PieceHead,
             13 => Self::AppendHead,
             14 => Self::CloseSummary,
+            15 => Self::CodedRecords,
+            16 => Self::KeyedPuts,
+            17 => Self::TileSummary,
             other => Self::Other(other),
         }
+    }
+
+    /// Whether a block of this kind holds records ([Block::records]): records blocks, coded or not, and keyed puts.
+    pub fn holds_records(self) -> bool {
+        matches!(self, Self::Records | Self::CodedRecords | Self::KeyedPuts)
+    }
+
+    /// Whether a block of this kind is a summary block ([summary]): of a series or events tree, or of a tile's.
+    pub fn is_summary(self) -> bool {
+        matches!(self, Self::Summary | Self::TileSummary)
     }
 
     pub fn to_u8(self) -> u8 {
@@ -506,6 +524,9 @@ impl BlockKind {
             Self::PieceHead => 10,
             Self::AppendHead => 13,
             Self::CloseSummary => 14,
+            Self::CodedRecords => 15,
+            Self::KeyedPuts => 16,
+            Self::TileSummary => 17,
             Self::Other(v) => v,
         }
     }
@@ -1002,6 +1023,9 @@ pub enum BlockError {
     UnhandledIntegrity {
         level: u8,
     },
+    /// A block marked [FLAG_PAYLOAD_UNCHECKED] of a kind or version this reader doesn't know ([Checked::Unchecked])
+    /// met right after damage: its CRC can't be checked, so a walk never goes on there.
+    Unverified,
 }
 
 impl core::fmt::Display for BlockError {
@@ -1016,6 +1040,10 @@ impl core::fmt::Display for BlockError {
             Self::BadRecords => write!(f, "the records don't parse as the header says"),
             Self::Coded => write!(f, "a coded body: its records are read by decoding it"),
             Self::NotChunk => write!(f, "not a chunk block this reader reads"),
+            Self::Unverified => write!(
+                f,
+                "a block whose CRC this reader can't check, right after damage"
+            ),
             Self::UnhandledIntegrity { level } => {
                 write!(
                     f,
@@ -1066,6 +1094,10 @@ pub enum Checked {
     /// A chunk block whose writer computed no CRCs over its payload ([FLAG_PAYLOAD_UNCHECKED], [Integrity::None]):
     /// its header and head checked, its payload taken as it is, whatever the reader asked for.
     Unprotected,
+    /// A block marked [FLAG_PAYLOAD_UNCHECKED] of a kind or version this reader doesn't know: its CRC covers what its
+    /// kind says, which this reader can't tell, so only its header was read. It is skipped by its length, and a walk
+    /// never goes on at it past damage ([BlockError::Unverified]).
+    Unchecked,
 }
 
 impl Checked {
@@ -1296,6 +1328,10 @@ impl<'b> Block<'b> {
                 Ok(block)
             }
             Some(_) => Err(BlockError::BadCrc),
+            None if block.is_unchecked() => {
+                block.checked = Checked::Unchecked;
+                Ok(block)
+            }
             None => {
                 if CRC.checksum(block.covered) != block.crc {
                     return Err(BlockError::BadCrc);
@@ -1336,6 +1372,8 @@ impl<'b> Block<'b> {
         let (mut block, chunk) = Self::read_unchecked(bytes)?;
         block.checked = if let Some(c) = &chunk {
             Checked::of_chunk(c, Checked::Unverified)
+        } else if block.is_unchecked() {
+            Checked::Unchecked
         } else {
             block.check_records()?;
             if block.is_summary() {
@@ -1421,10 +1459,17 @@ impl<'b> Block<'b> {
         Ok((block, None))
     }
 
+    /// Whether the block's CRC is one this reader can't check: marked [FLAG_PAYLOAD_UNCHECKED], its kind or version
+    /// unknown to it, so it can't tell what the CRC covers. A known kind whose body it doesn't read (parity, coded
+    /// records of an unknown codec) has its CRC checked whole.
+    fn is_unchecked(&self) -> bool {
+        self.flags & FLAG_PAYLOAD_UNCHECKED != 0
+            && (self.version != VERSION || matches!(self.kind, BlockKind::Other(_)))
+    }
+
     /// The records parse to the end and are as many as the header says.
     fn check_records(&self) -> Result<(), BlockError> {
-        let records = self.kind == BlockKind::Records;
-        if self.version == VERSION && records && self.is_coded() && self.coded().is_none() {
+        if self.version == VERSION && self.is_coded() && self.coded().is_none() {
             return Err(BlockError::BadRecords);
         }
         if self.is_keyed() && !self.is_repeat() {
@@ -1457,9 +1502,13 @@ impl<'b> Block<'b> {
         self.flags & FLAG_REPEAT != 0
     }
 
-    /// Whether the block is a records block of keyed state records ([FLAG_KEYED]).
+    /// Whether the block is a block of keyed puts ([BlockKind::KeyedPuts]).
+    ///
+    /// A keyed state track's records sit in blocks of their own, so the index lists each record by its key without
+    /// the definitions. Such a block without [FLAG_REPEAT], or with a record of track 0 or an item that doesn't read
+    /// as a [KeyedItem], is refused ([BlockError::BadRecords]).
     pub fn is_keyed(&self) -> bool {
-        self.kind == BlockKind::Records && self.flags & FLAG_KEYED != 0
+        self.kind == BlockKind::KeyedPuts
     }
 
     /// Whether the block is an events chunk whose track's monotone relations start again ([FLAG_RELATION_BREAK]).
@@ -1499,7 +1548,7 @@ impl<'b> Block<'b> {
     }
 
     fn is_summary(&self) -> bool {
-        self.body_known() && self.kind == BlockKind::Summary
+        self.body_known() && self.kind.is_summary()
     }
 
     /// The head of a summary block whose body this reader knows: what an index lists, without the nodes.
@@ -1511,7 +1560,7 @@ impl<'b> Block<'b> {
     }
 
     fn has_records(&self) -> bool {
-        self.body_known() && self.kind == BlockKind::Records
+        self.body_known() && self.kind.holds_records()
     }
 
     /// The chunk of an events or series block whose body this reader knows.
@@ -1567,13 +1616,12 @@ impl<'b> Block<'b> {
     }
 
     fn is_coded(&self) -> bool {
-        self.flags & FLAG_BODY_CODED != 0
+        self.kind == BlockKind::CodedRecords
     }
 
     /// The parts of a coded record body; None for any other block, or one that doesn't parse.
     fn coded(&self) -> Option<body::Coded<'b>> {
-        let records = self.kind == BlockKind::Records;
-        if !(self.is_coded() && records) {
+        if !self.is_coded() {
             return None;
         }
         body::coded(self.body)
@@ -1588,7 +1636,7 @@ impl<'b> Block<'b> {
             .map(|c| c.decoded_len.saturating_add(HEADER_LEN + CRC_LEN))
     }
 
-    /// The codec of a coded record body ([FLAG_BODY_CODED]); None for a plain body.
+    /// The codec of a coded record body ([BlockKind::CodedRecords]); None for a plain body.
     pub fn body_codec(&self) -> Option<BodyCodec> {
         self.coded().map(|c| c.codec)
     }

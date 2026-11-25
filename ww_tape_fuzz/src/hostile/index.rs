@@ -199,6 +199,7 @@ fn keyed_entry(d: &mut Draw<'_>, e: IndexEntry) -> IndexEntry {
     let key: Vec<u8> = (0..d.below(13)).map(|_| d.u8()).collect();
     let key = KeyId::of(&key).expect("a key of at most 12 bytes");
     IndexEntry {
+        kind: BlockKind::KeyedPuts,
         track_id: STATE_TRACK_ID,
         level: 0,
         second: key.len,

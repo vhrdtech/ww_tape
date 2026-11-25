@@ -192,6 +192,7 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
         let part = match kind {
             BlockKind::PieceHead => Part::Head,
             BlockKind::Records if flags & FLAG_REPEAT != 0 => Part::Puts,
+            BlockKind::KeyedPuts => Part::Puts,
             BlockKind::Records => Part::Records,
             BlockKind::Events => Part::Chunk,
             BlockKind::Index if i < last_data => Part::Checkpoint,

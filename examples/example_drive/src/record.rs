@@ -893,8 +893,8 @@ fn settle(made: &mut [Made], pieces: &[Vec<u8>]) -> Result<(), Error> {
                 )
             };
             let start = walk.offset();
-            if matches!(kind, BlockKind::Index | BlockKind::Summary) {
-                let from = if kind == BlockKind::Summary {
+            if kind == BlockKind::Index || kind.is_summary() {
+                let from = if kind.is_summary() {
                     puts.unwrap_or(start)
                 } else {
                     start

@@ -402,18 +402,19 @@ fn checkpoint(d: &mut Draw<'_>, f: &mut Vec<u8>, layout: Option<&TileLayout>) {
         for mut e in IndexEntry::all_of_block(at as u64, &b) {
             let tile = match e.kind {
                 BlockKind::Series => ChunkHead::read_head(b.bytes()).ok().map(|h| h.tile),
-                BlockKind::Summary => b.summary_head().map(|h| h.tile),
+                BlockKind::TileSummary => b.summary_head().map(|h| h.tile),
                 _ => None,
             };
-            if matches!(e.kind, BlockKind::Series | BlockKind::Summary) {
+            if matches!(e.kind, BlockKind::Series | BlockKind::TileSummary) {
                 let packed = tile.zip(layout).and_then(|(t, l)| l.pack(&t));
                 let outside = layout.map_or(0, |l| !l.field_bits());
                 let mut bits = d.bits();
+                // past the input's end the draw is 0: the number the writer gives
                 e.tile = match d.u8() % 4 {
-                    0 => None,
+                    0 => packed,
                     1 => Some(packed.unwrap_or(0) | (outside & u128::from(bits.u64()) << 64)),
                     2 => Some(u128::from(bits.u64()) << 64 | u128::from(bits.u64())),
-                    _ => packed,
+                    _ => None,
                 };
             }
             if e.kind == BlockKind::Series && d.u8().is_multiple_of(8) {

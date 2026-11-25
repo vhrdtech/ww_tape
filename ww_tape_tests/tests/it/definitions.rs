@@ -304,7 +304,7 @@ pub(crate) fn record_blocks(bytes: &[u8]) -> Vec<RecordsAt> {
         let Some(Ok(b)) = rd.next_block() else {
             return out;
         };
-        if b.kind != BlockKind::Records {
+        if !b.kind.holds_records() {
             continue;
         }
         let (repeat, first_track, bytes) = (b.is_repeat(), b.first_track(), b.bytes().to_vec());

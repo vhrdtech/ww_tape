@@ -108,7 +108,7 @@ fn a_tile_of_four_cells_is_a_series_of_a_base_four_times_larger() {
             assert_eq!(b.3, TileCoords::NONE);
         }
         for b in &tiles {
-            assert_eq!(u16::from_le_bytes([b[6], b[7]]), ww_tape::FLAG_TILE);
+            assert_eq!(b[5], ww_tape::BlockKind::TileSummary.to_u8());
         }
     }
 }

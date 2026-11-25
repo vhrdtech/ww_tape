@@ -440,7 +440,7 @@ impl<T: PieceStore> RecordsHandle<T> {
 
     fn unit(&self, block: Vec<u8>) -> Result<(Work<T>, u64), MuxError<T::Error>> {
         let kind = Block::read(&block).map_err(CallError::Block)?.kind;
-        if kind != BlockKind::Records {
+        if !matches!(kind, BlockKind::Records | BlockKind::CodedRecords) {
             return Err(CallError::BlockKind(kind).into());
         }
         let bytes = block_bytes(&block);

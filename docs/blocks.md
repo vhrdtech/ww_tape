@@ -35,12 +35,16 @@ count of the [[records]] or [[items]] it holds. Two more fields tell a [[reader]
 
 The header and the CRC-32C are the same in every version of the format. A reader therefore checks any block and finds
 its end by its length, whatever its kind or version. A changed byte anywhere in the block fails the CRC, and the reader
-knows the block is damaged.
+knows the block is damaged. One header bit narrows the CRC to a chunk's head, for writers that must keep up with a fast
+source ([Fewer checks, sealed later](integrity.md)).
 
 A block of a kind the reader does not know reads as a good block whose body it skips, and the reading goes on. A newer
-kind of block thus never looks like damage to an old reader. A block of a later version is different: it ends the
-[[piece]] the reader is in. The reader lists the rest as a piece of that version, which it refuses to read
-([`ReadError::Version`]).
+kind of block thus never looks like damage to an old reader. Besides the bit that narrows the CRC, one header bit
+marks a block of state a writer put or copied, which every reader knows. The other flags only mark: a body that reads
+another way, such as a coded body, is a kind of its own.
+
+A block of a later version is different: it ends the [[piece]] the reader is in. The reader lists the rest as a piece
+of that version, which it refuses to read ([`ReadError::Version`]).
 
 ## Kinds of block
 
@@ -49,8 +53,8 @@ Each kind of [[block]] has one job. They fall into four groups:
 | Group | Kinds | Holds |
 |---|---|---|
 | Description | records on track 0 | what the tape is: the producer, the clocks and maps, the tracks, the API bundles |
-| Data | records block, events chunk, series chunk | the items |
-| Overview | summary | coarse views of long tracks, rebuilt from the data when lost |
+| Data | records block, coded records, keyed puts, events chunk, series chunk | the items; keyed puts the keys and values of a keyed state track |
+| Overview | summary, tile summary | coarse views of long tracks and of each tile of a grid, rebuilt from the data when lost |
 | Structure | piece head, index, close, tail | where things are, how the file ends, how files chain |
 
 [Definitions and state](definitions.md) covers the description, [Anatomy of a piece](anatomy.md) the structure and
@@ -63,8 +67,8 @@ table of the [[clocks]] its records count. Each [[record]] follows as its track 
 length and the item's bytes. The three numbers before the item take one byte each when they are small.
 
 The time delta counts from the previous record on the same clock in the same [[block]]. The first one counts from 0.
-Every block therefore reads alone, without the block before it. A [[writer]] may compress the whole body with lz4, and a
-flag in the header says so.
+Every block therefore reads alone, without the block before it. A [[writer]] may compress the whole body with lz4: the
+block is then a coded records block, a kind of its own.
 
 The drive writes its log lines and temperatures into one records block a second. This test writes such a block with
 [`BlockWriter`], reads it back with [`Block::read`], and changes one byte:

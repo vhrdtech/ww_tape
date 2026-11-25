@@ -1,4 +1,4 @@
-//! Coded bodies of record blocks ([crate::FLAG_BODY_CODED]).
+//! Coded bodies of record blocks: coded records blocks, kind 15 ([BlockKind::CodedRecords]).
 //!
 //! ```text
 //! u8    codec (BodyCodec): 0 stored, 1 lz4 block
@@ -8,13 +8,11 @@
 //!
 //! The block CRC covers the coded bytes, so damage is found before decoding; the header's record count stays the
 //! record count. A writer keeps the plain body when coding does not shrink it. A reader that doesn't know the codec
-//! takes the block as one whose body it doesn't know ([Block::body_known] false). Chunk blocks are never coded: their
+//! takes the block as one whose body it doesn't know ([Block::body_known] false), as does a reader that doesn't know
+//! kind 15. Decoded, the block is a records block (kind 1) of the same flags. Chunk blocks are never coded: their
 //! columns are read in place.
 
-use crate::{
-    Block, BlockError, BlockKind, CRC, CRC_LEN, FLAG_BODY_CODED, HEADER_LEN, MAX_BLOCK_LEN, bytes,
-    varint,
-};
+use crate::{Block, BlockError, BlockKind, CRC, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN, bytes, varint};
 
 /// The codec of a coded body, the byte after the header.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -171,8 +169,7 @@ pub fn code_body(block: &[u8], codec: BodyCodec, out: &mut [u8]) -> Result<usize
     let Ok(len32) = u32::try_from(len) else {
         return Err(CodeError::TooLong { len });
     };
-    let flags = b.flags | FLAG_BODY_CODED;
-    bytes::put_u16(out, 6, flags).ok_or(full)?;
+    bytes::put(out, 5, [BlockKind::CodedRecords.to_u8()]).ok_or(full)?;
     bytes::put_u32(out, 8, len32).ok_or(full)?;
     let (coded_block, crc) = out
         .get_mut(..len)
@@ -182,7 +179,8 @@ pub fn code_body(block: &[u8], codec: BodyCodec, out: &mut [u8]) -> Result<usize
     Ok(len)
 }
 
-/// The block `b` (coded with [BodyCodec::LZ4]) decoded into `buf`, in plain form: flag cleared, length and CRC new.
+/// The block `b` (coded with [BodyCodec::LZ4]) decoded into `buf`, in plain form: a records block of the same flags,
+/// length and CRC new.
 #[cfg(feature = "alloc")]
 pub(crate) fn decode_into<'d>(
     b: &Block<'_>,
@@ -205,8 +203,7 @@ pub(crate) fn decode_into<'d>(
     buf.clear();
     buf.resize(len, 0);
     bytes::put(buf, 0, *header).ok_or(BlockError::BadLength(len32))?;
-    let flags = b.flags & !FLAG_BODY_CODED;
-    bytes::put_u16(buf, 6, flags).ok_or(BlockError::BadLength(len32))?;
+    bytes::put(buf, 5, [BlockKind::Records.to_u8()]).ok_or(BlockError::BadLength(len32))?;
     bytes::put_u32(buf, 8, len32).ok_or(BlockError::BadLength(len32))?;
     let (plain, crc) = buf
         .split_last_chunk_mut::<CRC_LEN>()
@@ -282,19 +279,23 @@ mod tests {
                 b.record_count,
                 b.seq
             ),
-            (Some(BodyCodec::LZ4), true, FLAG_BODY_CODED, 40, 3)
+            (Some(BodyCodec::LZ4), true, 0, 40, 3)
         );
+        assert_eq!(b.kind, BlockKind::CodedRecords);
         // records aren't read in place from a coded body: the reader is told so, not handed none
         assert_eq!(b.records().collect::<Vec<_>>(), [Err(BlockError::Coded)]);
         let mut buf = Vec::new();
         let d = b.decode(&mut buf).unwrap();
-        assert_eq!((d.body_codec(), d.flags, d.len()), (None, 0, plain.len()));
+        assert_eq!(
+            (d.kind, d.body_codec(), d.flags, d.len()),
+            (BlockKind::Records, None, 0, plain.len())
+        );
         assert_eq!(records(&d), want);
         // a repeat mark set later keeps the body coded
         let mut copy = coded.clone();
         mark_repeat(&mut copy, id(9)).unwrap();
         let c = Block::read(&copy).unwrap();
-        assert_eq!(c.flags, FLAG_BODY_CODED | FLAG_REPEAT);
+        assert_eq!((c.kind, c.flags), (BlockKind::CodedRecords, FLAG_REPEAT));
         assert_eq!(records(&c.decode(&mut buf).unwrap()), want);
     }
 
@@ -413,10 +414,9 @@ mod tests {
         let b = Block::read(&x).unwrap();
         let mut buf = Vec::new();
         assert_eq!(b.decode(&mut buf).err(), Some(BlockError::BadRecords));
-        // a flagged body without even its codec byte
+        // a coded block without even its codec byte
         let mut empty = vec![0u8; 64];
-        crate::put_header(&mut empty, BlockKind::Records, 36, 0, id(0)).unwrap();
-        empty[6] = FLAG_BODY_CODED as u8;
+        crate::put_header(&mut empty, BlockKind::CodedRecords, 36, 0, id(0)).unwrap();
         empty.truncate(36);
         let crc = CRC.checksum(&empty[..32]);
         empty[32..].copy_from_slice(&crc.to_le_bytes());
@@ -441,5 +441,37 @@ mod tests {
             assert_eq!(b.body_codec(), Some(codec));
             assert_eq!(crate::walk::layout_in(&b), Some(layout));
         }
+    }
+
+    /// A records block, then its body coded stored and with lz4 (kind 15), pinned byte for byte: one block per line,
+    /// in hex (`WW_TAPE_GOLDEN=update` rewrites the file).
+    #[test]
+    fn coded_golden() {
+        let plain = records_block(40);
+        let blocks = [
+            plain.clone(),
+            code(&plain, BodyCodec::STORED),
+            code(&plain, BodyCodec::LZ4),
+        ];
+        assert_eq!(
+            blocks.iter().map(|b| b[5]).collect::<Vec<_>>(),
+            [1, 15, 15],
+            "a coded records block is kind 15"
+        );
+        let mut hex = std::string::String::new();
+        for b in &blocks {
+            hex.push_str(&crate::tests::hex(b));
+            hex.push('\n');
+        }
+        let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-coded.hex");
+        if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
+            std::fs::write(&golden, &hex).unwrap();
+        }
+        let want = std::fs::read_to_string(&golden)
+            .expect("golden/v1-coded.hex: run with WW_TAPE_GOLDEN=update");
+        assert_eq!(
+            hex, want,
+            "the format changed: bytes differ from golden/v1-coded.hex"
+        );
     }
 }
