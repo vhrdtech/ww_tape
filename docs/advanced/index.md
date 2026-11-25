@@ -18,7 +18,7 @@ on their own than the Basic ones, so you can read the one you need. Every page i
 | [Time](../clocks.md) | Clocks with exact rates, clock maps between them, and boots and epochs. |
 | [Writing in depth](../own_chunks.md) | A producer's own chunks, the codecs of event times and samples, and live feeds and relays. |
 | [Reading in depth](../growing_pieces.md) | A piece that grows while it is read, and fields and images on grid tracks. |
-| [Copies and media](../copies.md) | Checks and range hashes for copies, checking many pieces at once, and raw cards. |
+| [Copies and media](../copies.md) | Checks and range hashes for copies, checking many pieces at once, and raw cards with their gaps and duplicates. |
 
 When a chapter leaves a question about the bytes or the reasons behind them, the [Nomicon](../nomicon/index.md)
 answers it.

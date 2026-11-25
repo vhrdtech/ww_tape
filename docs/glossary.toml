@@ -177,7 +177,7 @@ chapter = "../tracks/"
 name = "duplicate"
 forms = ["duplicates"]
 short = "A block that a tape holds twice, with the same session and sequence number, such as after a writer retried a write."
-chapter = "../raw_media/"
+chapter = "../raw_gaps/"
 
 [[term]]
 name = "epoch"
@@ -225,7 +225,7 @@ chapter = "../growing_pieces/"
 name = "gap"
 forms = ["gaps"]
 short = "A blank or bad stretch of a raw medium after which the same session goes on; a reader reports its length and reads on."
-chapter = "../raw_media/"
+chapter = "../raw_gaps/"
 
 [[term]]
 name = "grid"

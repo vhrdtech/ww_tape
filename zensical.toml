@@ -84,7 +84,8 @@ nav = [
             { "Copies and media" = [
                     "copies.md",
                     "check_pieces.md",
-                    "raw_media.md"
+                    "raw_media.md",
+                    "raw_gaps.md"
                 ]
             }
         ]
