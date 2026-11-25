@@ -420,6 +420,16 @@ fuzz-tape-keyed:
 fuzz-tape-keyed-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-keyed-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
+# Fuzz ww_tape bytes tracks: values of the tracks a file of any bytes names, read whole or refused (TRACK-10)
+[working-directory('fuzz')]
+fuzz-tape-bytes:
+    cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-bytes -- -max_len=8192 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
+
+# Fuzz a chain of bytes track values whose parts, seals and index entries lie behind good CRCs (TRACK-10)
+[working-directory('fuzz')]
+fuzz-tape-bytes-hostile:
+    cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-bytes-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
+
 # Fuzz ww_tape series chunks' flag runs on any bytes, and runs built from pushes read back (FMT-13)
 [working-directory('fuzz')]
 fuzz-tape-flags:

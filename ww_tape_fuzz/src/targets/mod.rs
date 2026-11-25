@@ -1,6 +1,7 @@
 //! The bodies of the ww_tape fuzz targets, one function per target: `fuzz/src/tape_<name>.rs` calls it with
 //! libFuzzer's input.
 
+mod bytes;
 mod chunk;
 mod flags;
 mod grid;
@@ -19,6 +20,7 @@ mod stores;
 mod summary;
 mod times;
 
+pub use bytes::{bytes, bytes_hostile};
 pub use chunk::chunk;
 pub use flags::flags;
 pub use grid::{GridReach, grid, grid_reach};
@@ -51,7 +53,7 @@ pub use times::times;
 pub type Target = fn(&[u8]);
 
 /// Every ww_tape fuzz target by its name in `fuzz/Cargo.toml`.
-pub const ALL: [(&str, Target); 30] = [
+pub const ALL: [(&str, Target); 32] = [
     ("tape-chunk", chunk),
     ("tape-index", index),
     ("tape-payloads", payloads),
@@ -82,6 +84,8 @@ pub const ALL: [(&str, Target); 30] = [
     ("tape-keyed-hostile", keyed_hostile),
     ("tape-runs", runs),
     ("tape-runs-hostile", runs_hostile),
+    ("tape-bytes", bytes),
+    ("tape-bytes-hostile", bytes_hostile),
 ];
 
 /// The target named `name`.

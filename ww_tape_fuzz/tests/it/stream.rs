@@ -19,6 +19,9 @@ const STATE_PIECES: usize = 300;
 /// Inputs of the keyed target: a piece of about 40 blocks each, looked up key by key at four places by four readers,
 /// then resumed.
 const KEYED_PIECES: usize = 300;
+/// Inputs of the bytes target: a chain of 4 pieces and 5 values each, every value read from one reader and from a
+/// reader per piece.
+const BYTES_PIECES: usize = 2_000;
 /// Inputs of the grid target: a block of definitions and up to 4 grid chunks each, read as blocks and as a tape.
 const GRID_PIECES: usize = 100_000;
 /// Hostile run pieces a stream checks: each opens a piece, follows a file of it and resumes it.
@@ -137,4 +140,5 @@ streams! {
     grid_hostile_stream: "tape-grid-hostile" => targets::grid_hostile, 0x5be0_cd19_137e_2179, GRID_PIECES;
     keyed_hostile_stream: "tape-keyed-hostile" => targets::keyed_hostile, 0xcbbb_9d5d_c105_9ed8, KEYED_PIECES;
     runs_hostile_stream: "tape-runs-hostile" => targets::runs_hostile, 0x2f1e_8a3b_c4d5_6e7f, RUNS_PIECES;
+    bytes_hostile_stream: "tape-bytes-hostile" => targets::bytes_hostile, 0x7137_449e_d5a7_9f3c, BYTES_PIECES;
 }

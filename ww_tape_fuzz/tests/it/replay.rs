@@ -80,6 +80,8 @@ replays! {
     replay_tape_grid_hostile: "tape-grid-hostile";
     replay_tape_keyed: "tape-keyed";
     replay_tape_keyed_hostile: "tape-keyed-hostile";
+    replay_tape_bytes: "tape-bytes";
+    replay_tape_bytes_hostile: "tape-bytes-hostile";
     replay_tape_runs: "tape-runs";
     replay_tape_runs_hostile: "tape-runs-hostile";
 }

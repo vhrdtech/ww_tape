@@ -145,3 +145,64 @@ fn grid_files_reach_the_overview_columns() {
         .count();
     assert!(overviews > 15, "{overviews} of 20000 read overview chunks");
 }
+
+/// The bytes builder's template reads each value as written and its torn value as torn; of 2000 hostile chains, some
+/// values read whole, and some are absent, damaged or fail their hash behind good CRCs.
+#[test]
+fn bytes_chains_reach_every_outcome() {
+    use ww_tape::bytes_track::{Absence, ValueError, read_value};
+    let t = hostile::bytes_template();
+    let r = ww_tape::TapeReader::open(&t.bytes[..]).unwrap();
+    assert_eq!(
+        r.pieces().len(),
+        4,
+        "16 parts, a cut every 5: values cross cuts"
+    );
+    let read = |r: &ww_tape::TapeReader<&[u8]>, id| {
+        let mut out = Vec::new();
+        read_value::<_, core::convert::Infallible>(&[r], t.track, id, |b| {
+            out.extend_from_slice(b);
+            Ok(())
+        })
+        .map(|_| out)
+    };
+    for (id, want) in &t.values {
+        match (read(&r, *id), want) {
+            (Ok(got), Some(v)) => assert_eq!(&got, v),
+            (Err(ValueError::Absent { why, .. }), None) => {
+                assert!(matches!(why, Absence::Torn { parts: 2 }), "{why:?}");
+            }
+            (got, _) => panic!("value {id:?}: {got:?}"),
+        }
+    }
+    let mut seen = [0usize; 4];
+    let mut x = 0x6279_7465_7300_0002_u64;
+    for _ in 0..2000 {
+        let input: Vec<u8> = (0..64)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u8
+            })
+            .collect();
+        let f = hostile::bytes(&input);
+        let Ok(r) = ww_tape::TapeReader::open(&f[..]) else {
+            continue;
+        };
+        for (id, _) in &t.values {
+            let k = match read(&r, *id) {
+                Ok(_) => 0,
+                Err(ValueError::Absent { .. }) => 1,
+                Err(ValueError::Damaged { .. }) => 2,
+                Err(ValueError::Mismatch { .. }) => 3,
+                Err(_) => continue,
+            };
+            seen[k] += 1;
+        }
+    }
+    assert!(
+        seen.iter().all(|n| *n > 0),
+        "read, absent, damaged, mismatch: {seen:?}"
+    );
+}
