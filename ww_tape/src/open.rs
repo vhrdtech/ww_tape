@@ -1377,6 +1377,10 @@ impl BlockClocks {
         let Err(i) = self.as_slice().binary_search(&c) else {
             return;
         };
+        debug_assert!(
+            !self.is_full(),
+            "a block's clocks past MAX_BLOCK_CLOCKS: next_block starts another block first"
+        );
         let Some(tail) = self.at.get_mut(i..=self.len) else {
             return;
         };
