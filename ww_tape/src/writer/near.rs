@@ -366,7 +366,11 @@ mod tests {
         assert_eq!(out, [t]);
         assert_eq!(n.first_copy_due(&t, a, 100, rule), Some(false));
         n.first_copies(100, Bytes::new(4), &mut out);
-        assert!(out.is_empty());
+        assert_eq!(
+            out,
+            [] as [crate::state::Slot; 0],
+            "the copied slot is not due again"
+        );
     }
 
     #[test]

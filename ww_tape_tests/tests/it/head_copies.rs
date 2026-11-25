@@ -343,7 +343,7 @@ fn the_first_4_kib_lost_leave_every_definition_and_the_gap_rules() {
     assert!(bytes.len() < 64 << 10, "{} bytes", bytes.len());
     let copy = writes_of(&bytes, Slot::Layout)[1] as usize;
     assert!(
-        copy >= 4096 && copy < 8192,
+        (4096..8192).contains(&copy),
         "the layout's first copy at {copy}"
     );
     let mut lost = bytes.clone();

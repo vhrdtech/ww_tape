@@ -553,8 +553,9 @@ pub const DEFERRED_BYTES_MAX: usize = 1 << 20;
 /// would make a longer unit is refused ([InputError::UnitTooLong]).
 pub const UNIT_CHUNKS_MAX: usize = 17;
 
-/// Blocks of a run kept for a call's own puts and block when it adds first copies
-/// ([NearPolicy::copy_first](near::NearPolicy::copy_first)) to it: the copies take at most
+/// Blocks of a run kept for a call's own puts and block when it adds first copies.
+///
+/// First copies ([NearPolicy::copy_first](near::NearPolicy::copy_first)) take at most
 /// [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) less these and the run's blocks so far, and the rest wait for the next calls.
 /// A call whose run would pass the cap all the same writes no copy.
 pub const FIRST_COPY_RUN_RESERVE: usize = 64;
@@ -1880,7 +1881,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// `cands` with the first copies ([Self::sweep]) of slots none of them has.
-    fn with_first_copies<'c>(&self, cands: &mut Vec<Candidate<'c>>) {
+    fn with_first_copies(&self, cands: &mut Vec<Candidate<'_>>) {
         for c in &self.sweep {
             if !cands.iter().any(|o| o.slot == c.slot) {
                 cands.push(c.clone());
