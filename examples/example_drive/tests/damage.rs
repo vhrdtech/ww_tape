@@ -152,7 +152,10 @@ fn check_last(drive: &Drive, last: &Damaged) -> Result<(), Error> {
     assert!(r.unreadable.is_empty() && r.unlisted.is_empty());
     assert_eq!(r.definitions, r.definitions_written);
     assert!(r.mode_unknown.is_empty(), "the mode reads at every chunk");
-    says("damage.md", "its final index, with no byte to scan after it");
+    says(
+        "damage.md",
+        "its final index, with no byte to scan after it",
+    );
     Ok(())
 }
 

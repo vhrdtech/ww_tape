@@ -1210,7 +1210,9 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut chosen = self.choose(&all)?;
         // copies are skipped where the piece has no room for their state entries: they never refuse a call. Those of
         // the layout, the producer and the first copies go first, then any other
-        if self.room(self.entries(&all, &chosen), false).is_err() || !self.run_fits(&all, &chosen)? {
+        if self.room(self.entries(&all, &chosen), false).is_err()
+            || !self.run_fits(&all, &chosen)?
+        {
             all.drain(..copies);
             chosen = self.choose(&all)?;
         }
@@ -1452,16 +1454,26 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Whether the blocks of puts [Self::write_chosen] writes for `cands` that `chosen` marks, with one block after
     /// them, fit the open run's [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX).
-    fn run_fits(&self, cands: &[Candidate<'_>], chosen: &[bool]) -> Result<bool, WriteError<S::Error>> {
+    fn run_fits(
+        &self,
+        cands: &[Candidate<'_>],
+        chosen: &[bool],
+    ) -> Result<bool, WriteError<S::Error>> {
         // each record in blocks of its own, a definition written twice with its copy: when that fits, they do
-        let upper = cands
-            .iter()
-            .zip(chosen)
-            .filter(|(_, pick)| **pick)
-            .fold(0usize, |n, (c, _)| {
-                let one = c.item.bytes().len().div_ceil(DEFINITION_BLOCK_LEN / 2).max(1);
-                n.saturating_add(one.saturating_mul(if c.rule.twice { 2 } else { 1 }))
-            });
+        let upper =
+            cands
+                .iter()
+                .zip(chosen)
+                .filter(|(_, pick)| **pick)
+                .fold(0usize, |n, (c, _)| {
+                    let one = c
+                        .item
+                        .bytes()
+                        .len()
+                        .div_ceil(DEFINITION_BLOCK_LEN / 2)
+                        .max(1);
+                    n.saturating_add(one.saturating_mul(if c.rule.twice { 2 } else { 1 }))
+                });
         if self.run_blocks.saturating_add(upper).saturating_add(1) <= crate::RUN_BLOCKS_MAX {
             return Ok(true);
         }
