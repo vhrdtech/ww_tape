@@ -174,6 +174,22 @@ fn bit_3_on_an_unknown_kind_is_skipped_unchecked() {
         ww_tape::Block::read(&known).err(),
         Some(ww_tape::BlockError::BadCrc)
     );
+    // so is a known kind whose body this reader doesn't read: parity, and coded records of an unknown codec
+    for (kind, codec) in [(5, None), (15, Some(200))] {
+        let mut b = raw_block(kind, id, 40);
+        if let Some(codec) = codec {
+            b[32] = codec;
+        }
+        b[6] |= ww_tape::FLAG_PAYLOAD_UNCHECKED as u8;
+        let n = b.len();
+        let head_crc = crc32c(&b[..40]);
+        b[n - 4..].copy_from_slice(&head_crc.to_le_bytes());
+        assert_eq!(
+            ww_tape::Block::read(&b).err(),
+            Some(ww_tape::BlockError::BadCrc),
+            "kind {kind}"
+        );
+    }
 }
 
 /// Right after damage a salvage walk never goes on at a block whose CRC it can't check (bit 3 on an unknown kind):

@@ -1453,9 +1453,11 @@ impl<'b> Block<'b> {
     }
 
     /// Whether the block's CRC is one this reader can't check: marked [FLAG_PAYLOAD_UNCHECKED], its kind or version
-    /// unknown to it, so it can't tell what the CRC covers.
+    /// unknown to it, so it can't tell what the CRC covers. A known kind whose body it doesn't read (parity, coded
+    /// records of an unknown codec) has its CRC checked whole.
     fn is_unchecked(&self) -> bool {
-        self.flags & FLAG_PAYLOAD_UNCHECKED != 0 && !self.body_known()
+        self.flags & FLAG_PAYLOAD_UNCHECKED != 0
+            && (self.version != VERSION || matches!(self.kind, BlockKind::Other(_)))
     }
 
     /// The records parse to the end and are as many as the header says.
