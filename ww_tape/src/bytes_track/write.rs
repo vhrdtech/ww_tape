@@ -203,8 +203,8 @@ impl BytesWriter {
             .ok_or(BytesError::PartsSpent)?;
         let part_len = self.options.part_len;
         while !bytes.is_empty() {
-            if self.buf.is_empty() && bytes.len() > part_len {
-                // a whole part of the caller's bytes, with more after it: written without a copy
+            if self.buf.is_empty() && bytes.len() >= part_len {
+                // a whole part of the caller's bytes: written without a copy
                 let (part, rest) = bytes.split_at_checked(part_len).unwrap_or((bytes, &[]));
                 self.emit(DataOf::Given(part), 0, &mut out)?;
                 bytes = rest;
@@ -214,8 +214,7 @@ impl BytesWriter {
             let (now, rest) = bytes.split_at_checked(room).unwrap_or((bytes, &[]));
             self.buf.extend_from_slice(now);
             bytes = rest;
-            // a full part goes out once more bytes come: the last part of a value goes with its seal
-            if self.buf.len() == part_len && !bytes.is_empty() {
+            if self.buf.len() == part_len {
                 self.emit(DataOf::Buffered, 0, &mut out)?;
             }
         }
@@ -288,9 +287,45 @@ impl BytesWriter {
             (flags != 0).then_some(core::slice::from_ref(&flags)),
         )
         .map_err(BytesError::Times)?;
-        let spare = core::mem::take(&mut self.spare);
-        let payloads = EncodedPayloads::from_parts(codec, &[len], bytes, spare)
-            .map_err(BytesError::Payloads)?;
+        // a raw part's bytes go into the chunk as they are; a coded one's into the spare buffer
+        let coded = match codec {
+            PayloadCodec::Raw | PayloadCodec::Named(Codec::RAW) => None,
+            _ => {
+                let spare = core::mem::take(&mut self.spare);
+                Some(
+                    EncodedPayloads::from_parts(codec, &[len], bytes, spare)
+                        .map_err(BytesError::Payloads)?,
+                )
+            }
+        };
+        let raw_lengths;
+        let [lengths, payload] = match &coded {
+            Some(p) => p.columns(),
+            None => {
+                raw_lengths =
+                    ww_tape_codecs::lengths::encode_lengths(&[len]).ok_or(BytesError::PartLen {
+                        len: bytes.len(),
+                        max: BYTES_PART_LEN_MAX,
+                    })?;
+                let spec = |kind, codec, b: &[u8]| ColumnSpec {
+                    kind,
+                    codec,
+                    param: 0,
+                    len: b.len(),
+                };
+                [
+                    (
+                        spec(
+                            ColumnKind::PayloadLengths,
+                            crate::payloads::LENGTHS,
+                            &raw_lengths,
+                        ),
+                        &raw_lengths[..],
+                    ),
+                    (spec(ColumnKind::Payloads, Codec::RAW, bytes), bytes),
+                ]
+            }
+        };
         let head = times.head.chunk_head(self.track_id, self.track, item);
         let empty = ColumnSpec {
             kind: ColumnKind::Other(0),
@@ -299,7 +334,6 @@ impl BytesWriter {
             len: 0,
         };
         let mut columns = [(empty, &[][..]); 4];
-        let [lengths, payload] = payloads.columns();
         let mut n = 0usize;
         for (slot, c) in columns
             .iter_mut()
@@ -309,8 +343,10 @@ impl BytesWriter {
             n = n.saturating_add(1);
         }
         out(BytesPart { head, columns, n })?;
-        let [_, (_, spare)] = payloads.into_columns();
-        self.spare = spare;
+        if let Some(p) = coded {
+            let [_, (_, spare)] = p.into_columns();
+            self.spare = spare;
+        }
         open.unstarted = false;
         self.next_part = next;
         if matches!(data, DataOf::Buffered) {
