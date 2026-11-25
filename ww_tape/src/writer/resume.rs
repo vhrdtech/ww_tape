@@ -1019,6 +1019,8 @@ impl<S: TapeSink> TapeWriter<S> {
                 w.replay_junk(&Step::junk(done, s.end()), &mut buf)?;
             }
         }
+        // a group the replay leaves open is no group a reader takes whole
+        w.groups_replayed();
         if let Some(described) = named.layout
             && described != options.layout
         {

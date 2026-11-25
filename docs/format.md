@@ -951,6 +951,11 @@ holds a group's records until its last block. A damaged block voids the group, s
 keys or records as lying near. It doubts the keys of the group's keyed tracks, since the damaged block may have held
 more of them ([After damage inside a piece](#after-damage-inside-a-piece)).
 
+Marks a writer never makes break a group the same way. A block of puts right after a marked block of a group must go
+on the group: marked `FLAG_GROUP`, not `FLAG_GROUP_START`. A block marked `FLAG_GROUP` without a start must follow a
+marked block of its group. Bytes that break either rule are dropped as damage, by a reader and a resume alike. A
+group whose marked last block is followed by a block of another kind, such as a chunk, ends whole there.
+
 ### 5.4 Keyed state tracks {#keyed-state-tracks}
 
 A track whose `repeat` is `TrackRepeat::Keyed` holds many slots, one per **key**. A key is at most `STATE_KEY_LEN_MAX`

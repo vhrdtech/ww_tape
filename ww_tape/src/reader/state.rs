@@ -961,7 +961,8 @@ impl<S: ByteSource> TapeReader<S> {
     ///
     /// The group is the block, the blocks of the group before it back to its first one
     /// ([FLAG_GROUP_START](crate::FLAG_GROUP_START)), and when the block is marked
-    /// [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the blocks after it up to the first unmarked one. A block of puts
+    /// [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the blocks after it up to the first unmarked one, each linked to the
+    /// one before by the rule a resume keeps too ([crate::group_marks]). A block of puts
     /// that doesn't read hides its marks, so before a block of a group without a start it may be of the group: Bad,
     /// as a scan drops such blocks after damage. So is a group whose first block is missing. A group of more than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks
     /// is no group a writer makes: Bad.
@@ -972,30 +973,26 @@ impl<S: ByteSource> TapeReader<S> {
         e: &IndexEntry,
         reads: &mut Reads<'_>,
     ) -> R<Read, S> {
+        use crate::group_marks::{Link, Marks, link};
         let whole = Read::Kept {
             flags: 0,
             records: Vec::new(),
         };
-        // (of a group, marked FLAG_WITH_NEXT, the group's first)
         let marks = |r: &Read| match r {
-            Read::Kept { flags, .. } => Some((
-                flags & crate::FLAG_GROUP != 0,
-                flags & crate::FLAG_WITH_NEXT != 0,
-                flags & crate::FLAG_GROUP_START != 0,
-            )),
+            Read::Kept { flags, .. } => Some(Marks::of(*flags)),
             Read::Bad | Read::Spent => None,
         };
-        let (group, mut marked, mut start) = match self.read_once(i, e, reads)? {
+        let mine = match self.read_once(i, e, reads)? {
             Read::Spent => return Ok(Read::Spent),
-            r => marks(r).unwrap_or((false, false, false)),
+            r => marks(r),
         };
-        if !group {
+        let Some(mine) = mine.filter(|m| m.group) else {
             return Ok(whole);
-        }
+        };
         let mut steps = 0usize;
-        // backwards: the marked blocks of the group the block goes on, back to its first
-        let mut at = e.offset;
-        while !start {
+        // backwards: the blocks of the group the block goes on, back to its first
+        let (mut at, mut cur) = (e.offset, mine);
+        while !cur.start {
             let Some(prev) = ix.puts_before(at) else {
                 return Ok(Read::Bad);
             };
@@ -1003,34 +1000,37 @@ impl<S: ByteSource> TapeReader<S> {
             if steps > crate::RUN_BLOCKS_MAX {
                 return Ok(Read::Bad);
             }
-            match self.read_once(i, prev, reads)? {
+            let p = match self.read_once(i, prev, reads)? {
                 Read::Spent => return Ok(Read::Spent),
-                r => match marks(r) {
-                    Some((true, true, first)) => {
-                        at = prev.offset;
-                        start = first;
-                    }
-                    _ => return Ok(Read::Bad),
-                },
+                r => marks(r),
+            };
+            match p {
+                Some(p) if link(Some(p), Some(cur)) == Link::Within => {
+                    at = prev.offset;
+                    cur = p;
+                }
+                _ => return Ok(Read::Bad),
             }
         }
-        // forwards: the blocks after a marked one up to the first unmarked one
+        // forwards: the blocks after it up to the group's end
         let mut end = e.offset.saturating_add(u64::from(e.len));
-        while marked {
+        let mut cur = mine;
+        while cur.with_next {
             let Some(next) = ix.puts_at(end) else {
+                // no block of puts goes on: the run ends with a block of another kind
                 return Ok(whole);
             };
             steps = steps.saturating_add(1);
             if steps > crate::RUN_BLOCKS_MAX {
                 return Ok(Read::Bad);
             }
-            match self.read_once(i, next, reads)? {
+            let n = match self.read_once(i, next, reads)? {
                 Read::Spent => return Ok(Read::Spent),
-                Read::Bad => return Ok(Read::Bad),
-                r @ Read::Kept { .. } => match marks(r) {
-                    Some((true, m, false)) => marked = m,
-                    _ => return Ok(Read::Bad),
-                },
+                r => marks(r),
+            };
+            match n {
+                Some(n) if link(Some(cur), Some(n)) == Link::Within => cur = n,
+                _ => return Ok(Read::Bad),
             }
             end = next.offset.saturating_add(u64::from(next.len));
         }

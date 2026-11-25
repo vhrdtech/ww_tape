@@ -492,3 +492,112 @@ fn a_damaged_group_inside_a_piece_leaves_its_keys_doubted() {
         assert_ne!(plain.as_deref(), Some(&b"after"[..]), "damage at {at}");
     }
 }
+
+/// A chain with keys `/a` and `/b`, a plain item and a block of data, a group of three blocks (a key, the plain
+/// item, a deletion), then blocks of data past a checkpoint, the first right after the group, dropped unclosed; the group's blocks as offsets and ends, then the
+/// group's block `k` given header flags `flags(old)` behind a good CRC.
+fn forged_group(k: usize, flags: impl Fn(u16) -> u16) -> MemPieces {
+    let defs = defs();
+    let (mem, mut chain) = chain_with(crate::keyed_carry::checkpointed());
+    chain.put_key(&defs, KEYED, 0, b"/a", b"1").unwrap();
+    chain.put_key(&defs, KEYED, 1, b"/b", b"1").unwrap();
+    chain.put(&defs, PLAIN, 2, b"before").unwrap();
+    // a block of data before the group, so the definitions of those after it lie close behind
+    let session = ww_tape::SessionTag::writable(0x6461_7461);
+    let block = crate::pieces::records(ww_tape::BlockId::new(session, 0), 5999);
+    chain.adopt_block(&defs, &block).unwrap();
+    let start = piece_bytes(&mem, 0).len();
+    let group = [
+        GroupPut::key(KEYED, 10, b"/a", b"2"),
+        GroupPut::state(PLAIN, 10, b"after"),
+        GroupPut::delete_key(KEYED, 10, b"/b"),
+    ];
+    chain.put_group(&defs, &group).unwrap();
+    let end = piece_bytes(&mem, 0).len();
+    for n in 1..60 {
+        let block = crate::pieces::records(ww_tape::BlockId::new(session, n), 6000 + n as i64);
+        chain.adopt_block(&defs, &block).unwrap();
+    }
+    drop(chain);
+    let mut bytes = piece_bytes(&mem, 0);
+    let ends: Vec<usize> = boundaries(&bytes)
+        .into_iter()
+        .filter(|b| (start..=end).contains(b))
+        .collect();
+    assert_eq!(ends.len(), 4, "the group takes three blocks: {ends:?}");
+    let (b0, b1) = (ends[k], ends[k + 1]);
+    let old = u16::from_le_bytes([bytes[b0 + 6], bytes[b0 + 7]]);
+    bytes[b0 + 6..b0 + 8].copy_from_slice(&flags(old).to_le_bytes());
+    let crc = crate::range_hash::crc32c(&[&bytes[b0..b1 - 4]]);
+    bytes[b1 - 4..b1].copy_from_slice(&crc.to_le_bytes());
+    let mut sink = mem.reopen(&0).unwrap().unwrap();
+    sink.truncate(0).unwrap();
+    sink.write_all(&bytes).unwrap();
+    drop(sink);
+    mem
+}
+
+/// The forged piece of [forged_group] read by a scan and through its index alike, then resumed and cut: a carry
+/// read whole holds what a reader of the piece holds.
+fn carry_agrees(mem: &MemPieces, what: &str) {
+    let defs = defs();
+    let bytes = piece_bytes(mem, 0);
+    let piece = seen(&bytes, 0);
+    // a scan of the piece, without its index, decides the group as a lookup through the index does
+    let raw = ww_tape::OpenOptions {
+        medium: ww_tape::Medium::Raw,
+        ..Default::default()
+    };
+    let scan = TapeReader::open_with(&bytes[..], raw).unwrap();
+    let scanned = scan.keys_at(0, KEYED, b"", u64::MAX).unwrap();
+    let scanned: Model = scanned
+        .items
+        .iter()
+        .map(|(k, s)| (k.clone(), s.keyed().unwrap().value.unwrap().to_vec()))
+        .collect();
+    assert_eq!(scanned, piece.0, "{what}: the scan and the index differ");
+    let (mut chain, _) =
+        PieceChain::resume_on(mem.clone(), OWNER, 0, crate::keyed_carry::checkpointed()).unwrap();
+    chain.cut_now(&defs).unwrap();
+    let pieces = chain.close().unwrap();
+    let next = seen(&piece_bytes(mem, pieces.last().unwrap().tape), 0);
+    if next.1 {
+        assert_eq!(
+            next.0, piece.0,
+            "{what}: the carry reads whole but differs from the piece"
+        );
+    }
+    assert!(
+        next.2.is_none() || next.2 == piece.2,
+        "{what}: the carried item differs from the piece's"
+    );
+}
+
+/// The middle block of a group forged without `FLAG_GROUP`, behind a good CRC: a reader drops the group's other
+/// blocks, and the resume takes none of them either, so a carry marked whole agrees with the reader.
+#[test]
+fn a_forged_block_inside_a_group_breaks_it_for_the_resume_too() {
+    let mem = forged_group(1, |f| f & !ww_tape::FLAG_GROUP);
+    let (keys, _, _) = seen(&piece_bytes(&mem, 0), 0);
+    assert_eq!(
+        keys,
+        model(&[(b"/a", b"1"), (b"/b", b"1")]),
+        "a reader drops the group's keys"
+    );
+    carry_agrees(&mem, "middle block outside the group");
+}
+
+/// The last block of a group forged with `FLAG_WITH_NEXT`, then a block of data: the run ends with the data, so a
+/// reader takes the group whole, and the resume does too, so the carry holds the group's keys.
+#[test]
+fn a_group_ended_by_a_block_of_data_is_taken_whole_by_the_resume() {
+    let mem = forged_group(2, |f| f | ww_tape::FLAG_WITH_NEXT);
+    let (keys, _, plain) = seen(&piece_bytes(&mem, 0), 0);
+    assert_eq!(
+        keys,
+        model(&[(b"/a", b"2")]),
+        "a reader takes the group whole"
+    );
+    assert_eq!(plain.as_deref(), Some(&b"after"[..]));
+    carry_agrees(&mem, "last block marked with next");
+}

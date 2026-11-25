@@ -268,7 +268,7 @@ pub struct TapeWriter<S: TapeSink> {
     /// ([PieceHead::unlisted_keys_unknown]): the keys of every other keyed track are doubted, and the next head and
     /// this piece's close say so. None while no such bytes were met.
     unlisted: Option<BTreeSet<TrackIdent>>,
-    /// The state records of the group of puts met last, held until its last block ([group_records])
+    /// The state records of the group of puts met last, held until it ends whole ([group_records])
     group_records: group_records::GroupRecords,
 }
 
@@ -2107,11 +2107,36 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok(unit)
     }
 
-    /// Take what the block `block` placed at `at` says: every state record (track 0's, and every record of a block
-    /// marked [FLAG_REPEAT](crate::FLAG_REPEAT)) noted as written there ([near]), the track each definition of a
-    /// track names, and, with `tally`, each record of data into its track's hash. Returns the data tracks it holds
-    /// records or a chunk of.
+    /// Take what the block `block` placed at `at` says ([Self::learn_records]), the state records of a group of puts
+    /// once the group is whole ([group_records]).
     fn learn(&mut self, block: &[u8], at: u64, tally: bool) -> Vec<TrackNum> {
+        let marks = crate::Block::read_trusted(block)
+            .ok()
+            .filter(|b| b.kind == BlockKind::Records)
+            .and_then(|b| crate::group_marks::Marks::of_puts(b.flags));
+        let begin = self.group_records.begin(marks);
+        self.void_records(begin.voided);
+        for h in begin.whole {
+            self.take_record(h.slot, h.at, &h.item, h.block_at);
+        }
+        let tracks = self.learn_records(block, at, tally, begin.take);
+        for h in self.group_records.end() {
+            self.take_record(h.slot, h.at, &h.item, h.block_at);
+        }
+        tracks
+    }
+
+    /// Take what the block `block` placed at `at` says: every state record (track 0's, and every record of a block
+    /// marked [FLAG_REPEAT](crate::FLAG_REPEAT)) noted as written there ([near]) as `take` says, the track each
+    /// definition of a track names, and, with `tally`, each record of data into its track's hash. Returns the data
+    /// tracks it holds records or a chunk of.
+    fn learn_records(
+        &mut self,
+        block: &[u8],
+        at: u64,
+        tally: bool,
+        take: group_records::Take,
+    ) -> Vec<TrackNum> {
         // every block placed was made or checked whole before: its CRCs are not checked again
         let Ok(b) = crate::Block::read_trusted(block) else {
             return Vec::new();
@@ -2128,8 +2153,6 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         let repeat = b.is_repeat();
         let keyed = b.is_keyed();
-        let (take, torn) = self.group_records.begin(b.flags);
-        self.void_records(torn);
         let mut tracks = Vec::new();
         for r in b.records().flatten() {
             if let RecordTrack::Data(track) = r.track
@@ -2168,9 +2191,6 @@ impl<S: TapeSink> TapeWriter<S> {
                     }
                 }
             }
-        }
-        for h in self.group_records.end(b.flags) {
-            self.take_record(h.slot, h.at, &h.item, h.block_at);
         }
         tracks.sort_unstable();
         tracks.dedup();
@@ -2224,6 +2244,12 @@ impl<S: TapeSink> TapeWriter<S> {
     /// falls in ([group_records]).
     pub(crate) fn group_damaged(&mut self) {
         let held = self.group_records.damage();
+        self.void_records(held);
+    }
+
+    /// The end of a resume's replay: a group of puts still open, which no block ended, is voided ([group_records]).
+    pub(crate) fn groups_replayed(&mut self) {
+        let held = self.group_records.finish();
         self.void_records(held);
     }
 

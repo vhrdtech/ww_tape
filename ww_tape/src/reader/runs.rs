@@ -15,11 +15,13 @@
 //! its blocks are marked [FLAG_GROUP], its first one [FLAG_GROUP_START]. A block that doesn't read hides its own
 //! marks, so after damage a scan drops the blocks of a group without a start, up to the first one not marked
 //! [FLAG_WITH_NEXT]: they may be the rest of a group the damage hit. A group that starts after the damage is whole.
-//! Damage costs no other block: a run of other puts, or of chunks, loses only what doesn't read.
+//! Damage costs no other block: a run of other puts, or of chunks, loses only what doesn't read. Marks that break a
+//! group ([crate::group_marks]) drop it as damage does: a writer makes no such blocks.
 
 use alloc::vec::Vec;
 
 use super::PieceInfo;
+use crate::group_marks::{Link, Marks, link};
 use crate::index::IndexEntry;
 use crate::{Block, FLAG_GROUP, FLAG_GROUP_START, FLAG_WITH_NEXT, RUN_BLOCKS_MAX};
 
@@ -49,6 +51,8 @@ enum Mode {
 pub(super) struct Runs {
     held: Vec<Held>,
     mode: Mode,
+    /// The marks of the block taken last, None after a block of no puts or the run's end
+    prev: Option<Marks>,
 }
 
 impl Runs {
@@ -56,6 +60,7 @@ impl Runs {
         Self {
             held: Vec::new(),
             mode: Mode::Hold,
+            prev: None,
         }
     }
 
@@ -68,6 +73,14 @@ impl Runs {
         in_piece: Option<u64>,
         block: &Block<'_>,
     ) {
+        let marks = (block.kind == crate::BlockKind::Records)
+            .then(|| Marks::of_puts(block.flags))
+            .flatten();
+        // marks that break a group drop it as damage does ([crate::group_marks])
+        if link(self.prev, marks) == Link::Breaks {
+            self.damaged(piece);
+        }
+        self.prev = marks;
         let marked = block.flags & FLAG_WITH_NEXT != 0;
         let group = block.flags & FLAG_GROUP != 0;
         let dropped = match self.mode {
@@ -109,12 +122,14 @@ impl Runs {
     /// The run ends whole without a block of data: before a close, a close summary or an index.
     pub(super) fn end_whole(&mut self, piece: &mut PieceInfo) {
         self.mode = Mode::Hold;
+        self.prev = None;
         self.list(piece);
     }
 
     /// The run ends torn: at the end of the scan, a tail or a piece head. Its blocks are dropped.
     pub(super) fn drop_torn(&mut self, piece: &mut PieceInfo) {
         self.mode = Mode::Hold;
+        self.prev = None;
         for h in self.held.drain(..) {
             push_dropped(piece, h.at, h.end);
         }
@@ -123,6 +138,7 @@ impl Runs {
     /// Damage at the scan's place: the held blocks of a group are dropped, the other held blocks listed, and the
     /// blocks of a group without a start after it are dropped up to the first unmarked one.
     pub(super) fn damaged(&mut self, piece: &mut PieceInfo) {
+        self.prev = None;
         for h in self.held.drain(..) {
             if h.group {
                 push_dropped(piece, h.at, h.end);
