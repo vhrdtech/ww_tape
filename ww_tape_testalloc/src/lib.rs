@@ -1,9 +1,10 @@
 //! Tests and tools only: [Counting], a global allocator over the system's that counts the heap.
 //!
-//! It counts the heap a call adds on the calling thread ([thread_heap_of]), as a heap test measures it; the bytes live
-//! and their peak over the whole process ([live_bytes], [baseline], [peak_bytes]), as a tool measuring alone does;
-//! and the largest single allocation of each thread ([take_largest]). [Counting::refusing_over] also refuses an allocation past a size, which
-//! aborts the process. A `realloc` is an allocation of the new size, a copy and a free, so its peak holds both.
+//! It counts the heap a call adds on the calling thread and the allocations it makes ([thread_heap_of]), as a heap
+//! test measures them; the bytes live and their peak over the whole process ([live_bytes], [baseline],
+//! [peak_bytes]), as a tool measuring alone does; and the largest single allocation of each thread ([take_largest]).
+//! [Counting::refusing_over] also refuses an allocation past a size, which aborts the process. A `realloc` is an
+//! allocation of the new size, a copy and a free, so its peak holds both.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -22,6 +23,8 @@ std::thread_local! {
     static NET: Cell<isize> = const { Cell::new(0) };
     /// The highest [NET] since [thread_heap_of] last set it.
     static NET_PEAK: Cell<isize> = const { Cell::new(0) };
+    /// Allocations this thread made since it started, a `realloc` counted as one.
+    static ALLOCATIONS: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The system allocator, counting the heap. Install it as a binary's `#[global_allocator]`.
@@ -70,6 +73,7 @@ fn add_live(size: usize) {
         n.set(net);
         _ = NET_PEAK.try_with(|p| p.set(p.get().max(net)));
     });
+    _ = ALLOCATIONS.try_with(|a| a.set(a.get().wrapping_add(1)));
 }
 
 /// Takes `size` freed bytes off the live count, over the process and on this thread.
@@ -141,6 +145,8 @@ pub struct ThreadHeap {
     pub peak_bytes: usize,
     /// Bytes the call left live: those it allocated less those it freed, 0 where it freed more.
     pub held_bytes: usize,
+    /// Allocations the call made, a `realloc` counted as one.
+    pub allocations: u64,
 }
 
 /// The heap `f` adds on this thread: its peak and what it leaves live.
@@ -150,12 +156,14 @@ pub struct ThreadHeap {
 /// would land inside the measurement. So `f` must make its allocations on this thread, not hand them to another.
 pub fn thread_heap_of<T>(f: impl FnOnce() -> T) -> (T, ThreadHeap) {
     let start = NET.with(Cell::get);
+    let allocations = ALLOCATIONS.with(Cell::get);
     NET_PEAK.with(|p| p.set(start));
     let out = f();
     let above = |net: isize| net.wrapping_sub(start).max(0).cast_unsigned();
     let heap = ThreadHeap {
         peak_bytes: above(NET_PEAK.with(Cell::get)),
         held_bytes: above(NET.with(Cell::get)),
+        allocations: ALLOCATIONS.with(Cell::get).wrapping_sub(allocations),
     };
     (out, heap)
 }
