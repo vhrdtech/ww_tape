@@ -426,3 +426,83 @@ fn deferred_blocks_write_no_first_copies() {
         );
     }
 }
+
+/// Copies take state entries, and a full piece skips them, never a call: a chain with room for 16 entries puts state
+/// tracks 20 to 23, then writes past `copy_first` on track 9, so every record is due its first copy. The copies that
+/// find the piece full are left out and no call is refused. A later definition, track 24, finds no room: the chain
+/// cuts, and the next piece holds every definition and item in force.
+#[test]
+fn copies_take_state_entries_and_never_refuse_a_call() {
+    use ww_tape::{ChainOptions, CutPolicy, PieceChain, PieceTapes};
+    let room = 16_u64;
+    let mem = ww_tape::MemPieces::new();
+    let o = ChainOptions {
+        cut: CutPolicy::default(),
+        writer: ww_tape::WriterOptions {
+            index: IndexPolicy {
+                state_entries_max: exact_units::Count::new(room),
+                ..IndexPolicy::NONE
+            },
+            near: NearPolicy::default(),
+            ..crate::definitions::options(1024)
+        },
+        tapes: PieceTapes::Each,
+    };
+    let mut batch = crate::definitions::base(Layout::UNALIGNED)[2..].to_vec();
+    batch.extend((20..=24).map(crate::definitions::state));
+    let defs = crate::definitions::held(&batch);
+    let mut chain = PieceChain::create_on(mem.clone(), OwnerId([0x5e; 32]), 0, &[], o).unwrap();
+    for t in 20..=23 {
+        chain.put(&defs, TrackNum::new(t), 0, &[t as u8]).unwrap();
+    }
+    for k in 0..200 {
+        let id = chain.writer().unwrap().next_id();
+        chain
+            .write_block(&defs, &on_tracks(id, &[(9, k, &[k as u8; 40])]))
+            .unwrap();
+    }
+    assert_eq!(chain.seq(), 0, "the copies cut no piece");
+    chain.put(&defs, TrackNum::new(24), 1, &[24]).unwrap();
+    assert_eq!(chain.seq(), 1, "the new definition cut");
+    chain.close().unwrap();
+    let keys = mem.keys().unwrap();
+    let first = mem.get(&keys[0]).unwrap().unwrap().to_vec().unwrap();
+    let r = TapeReader::open(&first[..]).unwrap();
+    let entries = r.state_entries(0).unwrap().len();
+    let slots: Vec<Slot> = [Slot::Layout, Slot::Producer]
+        .into_iter()
+        .chain((20..=23).map(|t| Slot::Track {
+            number: TrackNum::new(t),
+        }))
+        .chain((20..=23).map(|t| Slot::State {
+            track: TrackNum::new(t),
+        }))
+        .chain([Slot::Track {
+            number: TrackNum::new(9),
+        }])
+        .collect();
+    let writes: Vec<usize> = slots.iter().map(|s| writes_of(&first, *s).len()).collect();
+    assert_eq!(
+        entries, room as usize,
+        "the copies fill the piece's state entries"
+    );
+    // the layout's, the producer's and track 9's copies came first; those of the state tracks found the piece full
+    assert_eq!(writes, [2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 2]);
+    assert!(r.verify(0).unwrap().holds);
+    let second = mem.get(&keys[1]).unwrap().unwrap().to_vec().unwrap();
+    let r = TapeReader::open(&second[..]).unwrap();
+    assert!(r.state_entries(0).unwrap().len() <= room as usize);
+    let at = r.definitions_at(0, second.len() as u64).unwrap();
+    assert_eq!(
+        crate::definitions::tracks(&at),
+        [9, 20, 21, 22, 23, 24],
+        "the carry and the new definition"
+    );
+    for t in 20..=24 {
+        let slot = Slot::State {
+            track: TrackNum::new(t),
+        };
+        let state = r.state_at(0, slot, second.len() as u64).unwrap();
+        assert_eq!(state.item.map(|s| s.item), Some(vec![t as u8]), "track {t}");
+    }
+}
