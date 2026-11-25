@@ -582,10 +582,13 @@ fn bytes_golden() {
     c.close().unwrap();
     let file = pieces(&mem).remove(0);
     assert_eq!(
-        read_from(&[file.clone()], three.id).unwrap().0,
+        read_from(std::slice::from_ref(&file), three.id).unwrap().0,
         b"twenty-five bytes of data"
     );
-    assert_eq!(read_from(&[file.clone()], empty.id).unwrap().0, b"");
+    assert_eq!(
+        read_from(std::slice::from_ref(&file), empty.id).unwrap().0,
+        b""
+    );
     crate::quiet::golden(&file, "v1-bytes.hex");
 }
 
