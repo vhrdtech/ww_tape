@@ -587,11 +587,11 @@ Recovery looks for a block at every byte, aligned or not, and takes one only whe
 
 ### 3.10 Bytes tracks {#bytes-tracks}
 
-A track of `TrackKind::Bytes` holds values made elsewhere and read whole: a document, a firmware image, a design
-file. A value is written streamed as **parts**, each an events chunk of one item, and ends in a **seal**, a last part
-holding its length and BLAKE3 hash ([`bytes_track` module
-docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/bytes_track/mod.rs)). No reader reads a value at a
-byte offset: data that needs seeking is a track, and its index does the seeking.
+A track of `TrackKind::Bytes` holds values made elsewhere and read whole: a document, a firmware image, a design file. A
+value is written streamed as **parts**, each an events chunk of one item. It ends in a **seal**, a last part holding its
+length and BLAKE3 hash ([`bytes_track` module
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/bytes_track/mod.rs)). No reader reads a value at a byte
+offset: data that needs seeking is a track, and its index does the seeking.
 
 A part's chunk is an events chunk of instants with one item:
 
@@ -621,21 +621,22 @@ A seal's Payloads column is `Codec::RAW` and `SEAL_LEN` (48) bytes:
 16 [32] BLAKE3 of the value's bytes
 ```
 
-A value of no bytes is its seal alone, marked `PART_FIRST` too. A value is whole when its parts are items numbered
-one after the other from a part marked `PART_FIRST` to a seal naming that part, with no other part marked
-`PART_FIRST` between them. Another part marked `PART_FIRST`, or the end of the track, before the seal is a torn
-value: a crash, or a write given up. A bytes track takes the plain policy and no relations, and holds no records.
+A value of no bytes is its seal alone, marked `PART_FIRST` too. A value is whole when its parts are items numbered one
+after the other. They run from a part marked `PART_FIRST` to a seal naming that part, and no other part between them is
+marked `PART_FIRST`. Another part marked `PART_FIRST`, or the end of the track, before the seal is a torn value: a
+crash, or a write given up. A bytes track takes the plain policy and no relations, and holds no records.
 
-The parts of a value are ordinary chunks, not a run of blocks belonging together. A value so has no length limit,
-the writer places its checkpoints between parts, and a cut may fall between two parts: a value spans pieces.
+The parts of a value are ordinary chunks, not a run of blocks belonging together. A value so has no length limit, and
+the writer places its checkpoints between parts. A cut may fall between two parts, so a value spans pieces.
 
 A reader of a value (`read_value`) finds its parts by their numbers in each piece's index, in two passes. The first
-reads only each part's head, its flags and the seal. A value that is torn, whose first part is missing, or whose
-parts have a gap (a piece removed on purpose, or a piece file lost) is absent, and the reason is named
-(`Absence::Torn`, `NotFound`, `NotFirst`, `Gap`). Nothing of it reaches the caller. The second pass reads each part
-whole, checks its CRCs and hands its bytes on, hashing them. A part that doesn't read is named by its piece, offset,
-part number and where its bytes start in the value. A length or hash that differs from the seal's is
-`ValueError::Mismatch`.
+reads only each part's head, its flags and the seal. A value is absent when it is torn, its first part is missing, or
+its parts have a gap. A gap is a piece removed on purpose, or a piece file lost. The reason is named (`Absence::Torn`,
+`NotFound`, `NotFirst`, `Gap`), and nothing of the value reaches the caller.
+
+The second pass reads each part whole, checks its CRCs and hands its bytes on, hashing them. A part that doesn't read is
+named by its piece, offset, part number and where its bytes start in the value. A length or hash that differs from the
+seal's is `ValueError::Mismatch`.
 
 Under `Integrity::None` a piece has no payload CRCs, so only the value's hash catches a changed byte, and the error
 names the value, not the part.
