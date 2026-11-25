@@ -2775,7 +2775,8 @@ leaves out the piece's carry (`TapeWriter::carried_bytes`), with the rows of the
 grows to its carry and the budget.
 
 Before a call the chain also counts the first copies the call would write (`TapeWriter::first_copies_len`). It cuts
-first when they would take the piece past the budget.
+first when they would take the piece past the budget. Inside a unit (`TapeWriter::write_chunk_unit`) the chain never
+cuts, so the first copies the unit's run writes go uncounted; they fall within `CUT_SLACK`.
 
 Caps bound the carry: its state records by `IndexPolicy::state_entries_max`, its state items and keys by
 `NearPolicy::kept_bytes_max` (`KEPT_BYTES_MAX`). A mux counts the definitions and items it puts again after a cut as

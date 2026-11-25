@@ -161,12 +161,20 @@ impl Near {
     /// oldest first, into `out` (cleared first). [Self::first_copy_due] decides each.
     pub fn first_copies(&self, pos: u64, first: Bytes<u64>, out: &mut alloc::vec::Vec<Slot>) {
         out.clear();
-        out.extend(
-            self.unswept
-                .iter()
-                .take_while(|(at, _)| at.saturating_add(first.get()) <= pos)
-                .map(|(_, s)| *s),
-        );
+        out.extend(self.first_copies_iter(pos, first));
+    }
+
+    /// [Self::first_copies] as an iterator, allocating nothing: the oldest first, and none past the first slot not
+    /// yet `first` bytes behind `pos`.
+    pub fn first_copies_iter(
+        &self,
+        pos: u64,
+        first: Bytes<u64>,
+    ) -> impl Iterator<Item = Slot> + '_ {
+        self.unswept
+            .iter()
+            .take_while(move |(at, _)| at.saturating_add(first.get()) <= pos)
+            .map(|(_, s)| *s)
     }
 
     /// Whether the record of item `hash` in `slot` is due its first copy at `pos` under `rule`: Some(true) when it

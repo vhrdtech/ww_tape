@@ -8,17 +8,18 @@
     reason = "tests fail by panicking and compute expected values freely"
 )]
 //! The allocations a writer makes per chunk and per put in steady state, its tracks defined and their definitions
-//! near: a few per call at most, never one per candidate definition looked at.
+//! near: a few per call at most, never one per candidate definition looked at. A chain cut by bytes checks its policy
+//! before each call, the first copies due counted too, and allocates no more.
 
 use std::convert::Infallible;
 use std::hint::black_box;
 
 use shrink_wrap::prelude::RefVec;
 use ww_tape::{
-    BlockKind, ChunkHead, ClockOrigin, ClockSpec, Codec, ColumnKind, ColumnSpec, Definitions,
-    EndMode, EventsDef, GridDef, ItemNum, Magnitude, Ratio64, Segment, SeriesGrid, StatePolicy,
-    SyncPolicy, TapeSink, TapeWriter, TrackKind, TrackNum, TrackRepeat, TrackSpec, clock_key,
-    track_key,
+    BlockKind, ChainOptions, ChunkHead, ClockOrigin, ClockSpec, Codec, ColumnKind, ColumnSpec,
+    CutPolicy, Definitions, EndMode, EventsDef, GridDef, ItemNum, Magnitude, MemPieces, OwnerId,
+    PieceChain, PieceTapes, Ratio64, Segment, SeriesGrid, StatePolicy, SyncPolicy, TapeSink,
+    TapeWriter, TrackKind, TrackNum, TrackRepeat, TrackSpec, WriterOptions, clock_key, track_key,
 };
 use ww_tape_testalloc::{Counting, thread_heap_of};
 
@@ -216,4 +217,95 @@ fn a_put_in_steady_state_allocates_little() {
         "{} allocations for {CALLS} puts: {per} a put",
         heap.allocations
     );
+}
+
+/// A chain cut by bytes, its budget past what the test writes: each call checks the policy, the first copies due
+/// counted ([PieceChain::put], [PieceChain::write_chunk]), and the memory store reserves the budget up front.
+fn chain() -> PieceChain<MemPieces> {
+    let options = ChainOptions {
+        cut: CutPolicy {
+            bytes: exact_units::Bytes::new(16 << 20),
+            ..CutPolicy::default()
+        },
+        writer: WriterOptions {
+            sync: SyncPolicy::None,
+            ..WriterOptions::default()
+        },
+        tapes: PieceTapes::Each,
+    };
+    PieceChain::create_on(MemPieces::new(), OwnerId([0x7a; 32]), 0, &[], options).unwrap()
+}
+
+/// [a_chunk_written_in_steady_state_allocates_little] through a chain cut by bytes: no more allocations a chunk.
+#[test]
+fn a_chunk_through_a_chain_cut_by_bytes_allocates_little() {
+    let (defs, series, _) = definitions();
+    let samples: Vec<u8> = (0..COUNT as usize * 2).map(|i| (i * 31) as u8).collect();
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    let columns = [(spec, samples.as_slice())];
+    let heads: Vec<ChunkHead> = (0..WARM + CALLS)
+        .map(|k| head(series[(k % u64::from(SERIES)) as usize], k))
+        .collect();
+    let mut c = chain();
+    let (warm, counted) = heads.split_at(WARM as usize);
+    for h in warm {
+        c.write_chunk(&defs, h, &columns).unwrap();
+    }
+    let ((), heap) = thread_heap_of(|| {
+        for h in counted {
+            black_box(c.write_chunk(&defs, h, &columns).unwrap());
+        }
+    });
+    assert_eq!(c.seq(), 0, "no cut");
+    let per = heap.allocations / CALLS;
+    assert!(
+        per <= CHUNK_ALLOCATIONS_MAX,
+        "{} allocations for {CALLS} chunks: {per} a chunk",
+        heap.allocations
+    );
+}
+
+/// [a_put_in_steady_state_allocates_little] through a chain cut by bytes: no more allocations a put.
+#[test]
+fn a_put_through_a_chain_cut_by_bytes_allocates_little() {
+    let (defs, _, state) = definitions();
+    let items: Vec<[u8; 8]> = (0..WARM + CALLS).map(u64::to_le_bytes).collect();
+    let mut c = chain();
+    let (warm, counted) = items.split_at(WARM as usize);
+    for (k, item) in warm.iter().enumerate() {
+        c.put(&defs, state, k as i64, item).unwrap();
+    }
+    let ((), heap) = thread_heap_of(|| {
+        for (k, item) in counted.iter().enumerate() {
+            black_box(
+                c.put(&defs, state, (WARM as usize + k) as i64, item)
+                    .unwrap(),
+            );
+        }
+    });
+    assert_eq!(c.seq(), 0, "no cut");
+    let per = heap.allocations / CALLS;
+    assert!(
+        per <= PUT_ALLOCATIONS_MAX,
+        "{} allocations for {CALLS} puts: {per} a put",
+        heap.allocations
+    );
+}
+
+/// The first copies a chain counts before each call allocate nothing, also when some are due: a put of an 8 KiB item
+/// leaves the layout, the producer, the clock and the track's definition 4 KiB behind.
+#[test]
+fn counting_the_first_copies_due_allocates_nothing() {
+    let (defs, _, state) = definitions();
+    let mut c = chain();
+    c.put(&defs, state, 0, &[0x5a; 8192]).unwrap();
+    let w = c.writer().unwrap();
+    let (due, heap) = thread_heap_of(|| black_box(w.first_copies_len(&defs)));
+    assert!(due > 0, "the case: first copies due");
+    assert_eq!(heap.allocations, 0, "{due} bytes of first copies counted");
 }

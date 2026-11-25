@@ -186,8 +186,8 @@ pub struct TapeWriter<S: TapeSink> {
     /// The layout and the producer as put ([Self::ensure_head]), copied at a use as track 0's definitions are; none
     /// before they are put
     head_items: Vec<Candidate<'static>>,
-    /// The first copies due where the call's run starts, found by [Self::find_first_copies], and the slots it looked
-    /// at: buffers a call reuses
+    /// The first copies due where the call's run starts, found by [Self::find_first_copies], and the slots it found
+    /// past their first copy: buffers a call reuses
     sweep: Vec<Candidate<'static>>,
     sweep_slots: Vec<Slot>,
     /// Seq of the next block placed by the writer: after the last block written
@@ -1825,44 +1825,44 @@ impl<S: TapeSink> TapeWriter<S> {
     /// record lies [NearPolicy::copy_first] behind, still the newest of its slot. A call finds them right before its
     /// run, so a resume after blocks the call placed first decides as the writer did.
     fn find_first_copies(&mut self, defs: &Definitions) {
-        let mut slots = core::mem::take(&mut self.sweep_slots);
+        let mut past = core::mem::take(&mut self.sweep_slots);
         let mut sweep = core::mem::take(&mut self.sweep);
-        let mut past = Vec::new();
-        self.first_copies_due(defs, &mut slots, &mut sweep, &mut past);
+        past.clear();
+        sweep.clear();
+        self.each_first_copy(defs, |slot| past.push(slot), |c| sweep.push(c));
         for slot in &past {
             self.near.swept(slot);
         }
         self.sweep = sweep;
-        self.sweep_slots = slots;
+        self.sweep_slots = past;
     }
 
-    /// The first copies a call writes in its run where the next block goes, as candidates into `out`, the oldest
-    /// first: as many as the open run has room for, by a bound on their blocks of puts; the rest wait for the next
-    /// calls. The call's own puts and block take [FIRST_COPY_RUN_RESERVE] of the room. Slots past their first copy
-    /// go into `past`; `slots` is a buffer.
-    fn first_copies_due(
+    /// Each first copy a call writes in its run where the next block goes, as a candidate given to `take`, the
+    /// oldest first: as many as the open run has room for, by a bound on their blocks of puts; the rest wait for the
+    /// next calls. The call's own puts and block take [FIRST_COPY_RUN_RESERVE] of the room. Each slot past its first
+    /// copy goes to `past`. Allocates nothing.
+    fn each_first_copy(
         &self,
         defs: &Definitions,
-        slots: &mut Vec<Slot>,
-        out: &mut Vec<Candidate<'static>>,
-        past: &mut Vec<Slot>,
+        mut past: impl FnMut(Slot),
+        mut take: impl FnMut(Candidate<'static>),
     ) {
         let pos = self.offset();
-        self.near
-            .first_copies(pos, self.near_policy.copy_first, slots);
-        out.clear();
         let room = crate::RUN_BLOCKS_MAX
             .saturating_sub(self.run_blocks)
             .saturating_sub(FIRST_COPY_RUN_RESERVE);
         let mut bytes = 0usize;
-        for slot in slots.iter() {
-            let Some(c) = self.copy_candidate(defs, slot) else {
+        for slot in self
+            .near
+            .first_copies_iter(pos, self.near_policy.copy_first)
+        {
+            let Some(c) = self.copy_candidate(defs, &slot) else {
                 continue;
             };
-            match self.near.first_copy_check(slot, c.hash, pos, c.rule) {
+            match self.near.first_copy_check(&slot, c.hash, pos, c.rule) {
                 Some(true) => {}
                 Some(false) => {
-                    past.push(*slot);
+                    past(slot);
                     continue;
                 }
                 None => continue,
@@ -1872,21 +1872,18 @@ impl<S: TapeSink> TapeWriter<S> {
             if bytes.div_ceil(DEFINITION_BLOCK_LEN / 2).saturating_add(3) > room {
                 break;
             }
-            out.push(c);
+            take(c);
         }
     }
 
     /// Bytes the first copies due at the next block add to the next call that writes a run, at most: a record head
     /// and a block of puts each ([TapeWriter::put] and the others pick them). A chain's cut by bytes counts them
     /// before the call ([PieceChain](crate::piece::PieceChain)), so a piece stays within its carry and its budget.
+    /// Allocates nothing, so a check before every call costs no heap.
     pub fn first_copies_len(&self, defs: &Definitions) -> u64 {
-        if self.head.is_none() {
-            return 0;
-        }
-        let mut slots = Vec::new();
-        let mut due = Vec::new();
-        self.first_copies_due(defs, &mut slots, &mut due, &mut Vec::new());
-        u64::try_from(puts_len_upper(&due)).unwrap_or(u64::MAX)
+        let mut n = 0usize;
+        self.each_first_copy(defs, |_| {}, |c| n = n.saturating_add(put_len_upper(&c)));
+        u64::try_from(n).unwrap_or(u64::MAX)
     }
 
     /// The record a copy in `slot` writes: the layout or the producer as put, the definition `defs` holds, or the
@@ -4918,16 +4915,21 @@ fn puts_len<E>(records: &[PutRef<'_>]) -> Result<usize, WriteError<E>> {
 /// At least the bytes of the blocks of puts holding all of `cands`, without making them: each record in a block of
 /// its own at most, and a definition written twice at once ([Rule::twice]) with its copy.
 fn puts_len_upper(cands: &[Candidate<'_>]) -> usize {
-    cands.iter().fold(0usize, |n, c| {
-        let one = c
-            .item
-            .bytes()
-            .len()
-            .saturating_add(crate::MAX_RECORD_HEAD)
-            .saturating_add(crate::open::EMPTY_LEN);
-        // a definition written twice at once has its copy after the run
-        n.saturating_add(one.saturating_mul(if c.rule.twice { 2 } else { 1 }))
-    })
+    cands
+        .iter()
+        .fold(0usize, |n, c| n.saturating_add(put_len_upper(c)))
+}
+
+/// [puts_len_upper] of the one candidate `c`.
+fn put_len_upper(c: &Candidate<'_>) -> usize {
+    let one = c
+        .item
+        .bytes()
+        .len()
+        .saturating_add(crate::MAX_RECORD_HEAD)
+        .saturating_add(crate::open::EMPTY_LEN);
+    // a definition written twice at once has its copy after the run
+    one.saturating_mul(if c.rule.twice { 2 } else { 1 })
 }
 
 /// What the next piece of a chain starts with, from the piece before.
