@@ -1522,7 +1522,6 @@ impl<'b> Chunk<'b> {
     }
 }
 
-/// The offset field of a column entry.
 /// A column a chunk's head names, read from the head alone: what it is and where its bytes lie in the block.
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1572,6 +1571,7 @@ pub(crate) fn head_columns(
     Ok(out)
 }
 
+/// The offset field of a column entry.
 fn column_offset(entry: &[u8; COLUMN_ENTRY_LEN]) -> crate::FromFile<u32> {
     let [.., o0, o1, o2, o3] = *entry;
     crate::FromFile::new(u32::from_le_bytes([o0, o1, o2, o3]))
