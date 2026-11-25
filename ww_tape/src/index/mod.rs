@@ -27,7 +27,7 @@
 //!  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
 //!  ...     entries, each:
 //!            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-//!           13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile, bit 5 keyed, bit 6 deleted
+//!           13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break (events chunk) or grid start (series chunk of level 0), bit 4 tile, bit 5 keyed, bit 6 deleted
 //!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
@@ -115,7 +115,8 @@ const ENTRY_RANGE: u8 = 2;
 /// [Integrity::CrcOnly](crate::Integrity::CrcOnly) or [Integrity::None](crate::Integrity::None) lists. The unit hash
 /// field holds zero ([IndexEntry::unhashed]).
 pub const ENTRY_UNHASHED: u8 = 4;
-/// Entry flag: the chunk is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK).
+/// Entry flag: an events chunk marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK), a series chunk of level 0
+/// marked [FLAG_GRID_START](crate::FLAG_GRID_START); on another entry it is refused.
 const ENTRY_BREAK: u8 = 8;
 /// Entry flag: the entry carries its grid chunk's tile number ([IndexEntry::tile]).
 const ENTRY_TILE: u8 = 16;
@@ -195,6 +196,9 @@ pub struct IndexEntry {
     /// The events chunk is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK): its track's monotone relations
     /// start again, no order across its start.
     pub relation_break: bool,
+    /// The series chunk of level 0 is marked [FLAG_GRID_START](crate::FLAG_GRID_START): its grid or scale isn't the
+    /// one of the chunk of its track and tile before it.
+    pub grid_start: bool,
     /// A chunk's unit hash, which its track's hash takes in; [UnitHash::NONE] for other blocks, for an entry a
     /// reader made by a scan and for an [unhashed](Self::unhashed) entry.
     pub unit: UnitHash,
@@ -350,6 +354,7 @@ impl IndexEntry {
             latest_end: 0,
             repeat: false,
             relation_break: false,
+            grid_start: false,
             unit: UnitHash::NONE,
             unhashed: false,
             range: None,
@@ -369,6 +374,7 @@ impl IndexEntry {
                 if let Some(c) = block.chunk() {
                     return Self::of_chunk(offset, bytes.len(), &c.head()).map(|e| Self {
                         relation_break: c.relation_break(),
+                        grid_start: c.grid_start(),
                         ..e
                     });
                 }
@@ -413,6 +419,7 @@ impl IndexEntry {
             latest_end: head.latest_end,
             repeat: false,
             relation_break: false,
+            grid_start: false,
             unit: UnitHash::NONE,
             unhashed: false,
             range: None,
@@ -467,7 +474,11 @@ impl IndexEntry {
                 (if self.repeat { ENTRY_REPEAT } else { 0 })
                     | (if self.range.is_some() { ENTRY_RANGE } else { 0 })
                     | (if self.tile.is_some() { ENTRY_TILE } else { 0 })
-                    | (if self.relation_break { ENTRY_BREAK } else { 0 })
+                    | (if self.relation_break || self.grid_start {
+                        ENTRY_BREAK
+                    } else {
+                        0
+                    })
                     | (if self.unhashed { ENTRY_UNHASHED } else { 0 })
                     | (if self.key.is_some() { ENTRY_KEYED } else { 0 })
                     | (if self.deleted { ENTRY_DELETED } else { 0 }),
@@ -515,14 +526,16 @@ impl IndexEntry {
     /// Read an entry from its first [ENTRY_READ_LEN] bytes and check it, as every reader of an index does: its flags are known
     /// ([IndexError::Invalid]), an unhashed entry holds no unit hash, it names a block
     /// ([IndexError::BadEntries]), a range is a chunk's, its smallest value at most its largest, a tile number a series
-    /// chunk's without a range, and a relation break an events chunk's.
+    /// chunk's without a range, and bit 3 an events chunk's (a relation break) or a series chunk's of level 0 (a grid
+    /// start).
     pub(crate) fn read(b: &[u8; ENTRY_READ_LEN]) -> Result<Self, IndexError> {
         let flags = b.get(ENTRY_FLAGS_AT).copied().unwrap_or(0);
         if flags & !ENTRY_FLAGS_KNOWN != 0 {
             return Err(IndexError::Invalid("an entry flag this build doesn't know"));
         }
         let e = Self::decode(b);
-        if e.is_valid() {
+        let marked = flags & ENTRY_BREAK == 0 || e.relation_break || e.grid_start;
+        if marked && e.is_valid() {
             Ok(e)
         } else {
             Err(IndexError::BadEntries)
@@ -557,7 +570,11 @@ impl IndexEntry {
             last_tick: i64::from_le_bytes([s0, s1, s2, s3, s4, s5, s6, s7]),
             latest_end: i64::from_le_bytes([e0, e1, e2, e3, e4, e5, e6, e7]),
             repeat: flags & ENTRY_REPEAT != 0,
-            relation_break: flags & ENTRY_BREAK != 0,
+            relation_break: flags & ENTRY_BREAK != 0
+                && BlockKind::from_u8(kind) == BlockKind::Events,
+            grid_start: flags & ENTRY_BREAK != 0
+                && BlockKind::from_u8(kind) == BlockKind::Series
+                && level == 0,
             unhashed: flags & ENTRY_UNHASHED != 0,
             unit: UnitHash(u),
             range: (flags & ENTRY_RANGE != 0).then(|| {
@@ -594,7 +611,8 @@ impl IndexEntry {
                 && (self.kind == BlockKind::Series
                     || (self.kind == BlockKind::Summary
                         && self.tree == crate::summary::Tree::Series.to_u8())));
-        let mark = !self.relation_break || self.kind == BlockKind::Events;
+        let mark = (!self.relation_break || self.kind == BlockKind::Events)
+            && (!self.grid_start || (self.kind == BlockKind::Series && self.level == 0));
         let unit = !self.unhashed || self.unit.is_none();
         // an overview is a grid chunk's; a scan's entry of one carries no tile number, the reader reads its head
         let level = match self.kind {

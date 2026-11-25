@@ -226,6 +226,7 @@ fn entries(data: &[u8]) {
                 latest_end: 0,
                 repeat: true,
                 relation_break: false,
+                grid_start: false,
                 unit: ww_tape::UnitHash::NONE,
                 unhashed: false,
                 range: None,

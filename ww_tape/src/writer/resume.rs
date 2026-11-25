@@ -1204,6 +1204,10 @@ impl<S: TapeSink> TapeWriter<S> {
                     .seed_damaged(key, e.range.map(|(_, hi)| hi), e.relation_break);
             }
         }
+        // a series chunk unread: its track's next chunk starts a grid
+        for e in entries.iter().filter(|e| e.kind == BlockKind::Series) {
+            self.grids.unread(e.track_id);
+        }
         // a keyed record unread: its track's keys may miss it; of a track the writer doesn't know, every such track's.
         // A block naming only an unknown track's definition sets no doubt: the keyed records of that track are what
         // the keys may miss, and their own entries name them

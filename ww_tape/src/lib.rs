@@ -20,7 +20,8 @@
 //!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
 //!          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
-//!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
+//!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
+//!          the start of a grid or scale (FLAG_GRID_START, the same bit), bit 5 on a summary block
 //!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
 //!          without it refuses the block), bit 6 on a records block marked FLAG_REPEAT its records keyed state
 //!          (FLAG_KEYED: each item a key and a value, so a reader without it misreads them as plain state), bit 7 on a
@@ -383,6 +384,20 @@ pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
 /// so a reader takes no order across its start. Its index entry carries the mark too
 /// ([IndexEntry::relation_break](crate::index::IndexEntry::relation_break)).
 pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
+/// Header flag on series chunk blocks of level 0: the chunk's grid or scale ([SeriesGrid]) isn't the one of the chunk
+/// of its track (and tile) before it in sample order.
+///
+/// The bit of [FLAG_RELATION_BREAK], which only events chunks carry: what it means goes by the kind. A writer marks
+/// the chunks it encodes, refuses a caller's chunk marked otherwise than due, and restamps a relayed one
+/// ([TapeWriter::relay_block](crate::TapeWriter::relay_block)). Its index entry carries the mark too
+/// ([IndexEntry::grid_start](crate::index::IndexEntry::grid_start)), so a reader finds a series' grids from the index,
+/// reading only the marked chunks' heads ([TapeReader::series_timeline](crate::TapeReader::series_timeline)). An
+/// overview chunk's mark means nothing and is ignored.
+pub const FLAG_GRID_START: u16 = 1 << 4;
+const _: () = assert!(
+    FLAG_GRID_START == FLAG_RELATION_BREAK,
+    "the grid start of a series chunk takes the bit an events chunk's relation break takes"
+);
 /// Header flag on summary blocks: the block belongs to the tree of one tile of a grid, whose coordinates follow its
 /// scale ([summary](crate::summary#tiles)).
 ///
@@ -1152,6 +1167,36 @@ pub fn mark_relation_break(block: &mut [u8]) -> Result<(), BlockError> {
     restamp(block, id, FLAG_RELATION_BREAK, Reread::Whole)
 }
 
+/// Mark the whole, good series chunk block `block` of level 0 as the start of a grid or scale ([FLAG_GRID_START]), or
+/// clear the mark with `on` false; its header, head CRC and block CRC rewritten, nothing else.
+///
+/// It serves a caller's block given to a writer where its mark is due. Another kind of block, or an overview chunk:
+/// [BlockError::NotChunk].
+pub fn mark_grid_start(block: &mut [u8], on: bool) -> Result<(), BlockError> {
+    let b = Block::read(block)?;
+    if !b
+        .chunk()
+        .is_some_and(|c| c.head().kind == BlockKind::Series && c.head().level == 0)
+    {
+        return Err(BlockError::NotChunk);
+    }
+    let id = BlockId::new(b.session, b.seq);
+    let (set, clear) = if on {
+        (FLAG_GRID_START, 0)
+    } else {
+        (0, FLAG_GRID_START)
+    };
+    restamp_flags(block, id, set, clear, Reread::Whole)
+}
+
+/// [mark_grid_start] of a series chunk of level 0 the writer just encoded, its CRCs known good.
+#[cfg(feature = "alloc")]
+pub(crate) fn mark_grid_start_trusted(block: &mut [u8]) -> Result<(), BlockError> {
+    let b = Block::read_trusted(block)?;
+    let id = BlockId::new(b.session, b.seq);
+    restamp(block, id, FLAG_GRID_START, Reread::Head)
+}
+
 /// Mark the whole, good block `block` as belonging with the block after it ([FLAG_WITH_NEXT]), its CRCs rewritten.
 #[cfg(feature = "alloc")]
 pub(crate) fn mark_with_next(block: &mut [u8]) -> Result<(), BlockError> {
@@ -1172,6 +1217,17 @@ enum Reread {
 
 /// Give the good block `block`, read as `read` says, the id `id` and the header flags `set` too, its CRCs rewritten.
 fn restamp(block: &mut [u8], id: BlockId, set: u16, read: Reread) -> Result<(), BlockError> {
+    restamp_flags(block, id, set, 0, read)
+}
+
+/// [restamp], the header flags `clear` cleared before `set` is set.
+fn restamp_flags(
+    block: &mut [u8],
+    id: BlockId,
+    set: u16,
+    clear: u16,
+    read: Reread,
+) -> Result<(), BlockError> {
     let b = match read {
         Reread::Whole => Block::read(block)?,
         #[cfg(feature = "alloc")]
@@ -1184,7 +1240,7 @@ fn restamp(block: &mut [u8], id: BlockId, set: u16, read: Reread) -> Result<(), 
     }
     let chunk = b.is_chunk() && b.body_known();
     let index = b.kind == BlockKind::Index && b.body_known();
-    let flags = b.flags | set;
+    let flags = (b.flags & !clear) | set;
     // a block read whole holds its header and CRC
     let short = BlockError::Short {
         needed: HEADER_LEN + CRC_LEN,
@@ -1404,6 +1460,12 @@ impl<'b> Block<'b> {
     /// Whether the block is an events chunk whose track's monotone relations start again ([FLAG_RELATION_BREAK]).
     pub fn is_relation_break(&self) -> bool {
         self.kind == BlockKind::Events && self.flags & FLAG_RELATION_BREAK != 0
+    }
+
+    /// Whether the block is a series chunk marked as the start of a grid or scale ([FLAG_GRID_START]); an overview
+    /// chunk's mark is ignored.
+    pub fn is_grid_start(&self) -> bool {
+        self.chunk().is_some_and(|c| c.grid_start())
     }
 
     /// The track of its first record, None for a block without records this reader reads in place: what tells a

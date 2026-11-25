@@ -15,6 +15,7 @@ use super::{
 use crate::index::{IndexEntry, IndexError, TrackIdent};
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{PieceStore, TapeSink, sink_err};
+use crate::writer::grids::Grids;
 use crate::writer::kept::Kept;
 use crate::writer::resume::{SinkSource, refuse_headless};
 use crate::writer::{
@@ -265,6 +266,15 @@ impl<T: PieceStore> PieceChain<T> {
                 )))?;
             read_listed(&src, done.piece.start, e, buf)
         })?;
+        let grids = grids_in(&closed, |done, e| {
+            let src = store
+                .closed(&done.tape)
+                .map_err(sink_err("opening a closed piece"))?
+                .ok_or(WriteError::Index(IndexError::Invalid(
+                    "a closed piece of the chain is gone",
+                )))?;
+            listed_head(&src, done.piece.start, e)
+        })?;
         let (mut writer, resumed) = if let Some((mut w, resumed)) = reopened {
             headed(&w)?;
             reserve_piece(&mut w, options.cut);
@@ -302,6 +312,7 @@ impl<T: PieceStore> PieceChain<T> {
             (w, resumed)
         };
         writer.take_newest(&newest);
+        writer.take_grids(&grids);
         let resumed = numbers.under(resumed);
         Ok((
             Self {
@@ -341,6 +352,9 @@ impl<T: PieceStore> PieceChain<T> {
         }
         let newest = newest_in(&closed, |done, e, buf| {
             read_listed(&SinkSource(&sink), done.piece.start, e, buf)
+        })?;
+        let grids = grids_in(&closed, |done, e| {
+            listed_head(&SinkSource(&sink), done.piece.start, e)
         })?;
         // the bytes after the last piece cut: the last piece, or every byte the tape keeps
         let open_at = match closed.last() {
@@ -387,6 +401,7 @@ impl<T: PieceStore> PieceChain<T> {
             (w, resumed)
         };
         writer.take_newest(&newest);
+        writer.take_grids(&grids);
         let resumed = numbers.under(resumed);
         // the pieces before the first at hand may be dropped: the seq is the head's
         let seq = writer
@@ -1135,6 +1150,8 @@ type ClosedIn<K> = (Vec<Done<K>>, ChainNumbers);
 
 /// Each track's last chunk in a piece, by its entry.
 type LastChunks = BTreeMap<TrackIdent, IndexEntry>;
+/// A piece's last series chunk of level 0 of each track and tile number, by its entry.
+type LastSeries = BTreeMap<(crate::TrackId, Option<u128>), IndexEntry>;
 
 /// What the piece after a closed one starts from.
 struct LastPiece {
@@ -1148,6 +1165,9 @@ struct LastPiece {
     ranges: Newest,
     /// Each track's last chunk in the piece, by its entry, read only when no later piece holds a chunk of the track
     last_chunks: BTreeMap<TrackIdent, IndexEntry>,
+    /// Each series track's last chunk of level 0 in the piece, per tile number, by its entry: its head read only when
+    /// no later piece holds a chunk of the track and tile
+    last_series: LastSeries,
     /// The newest item of each state track of its next head that reads in it, for the next cut to carry
     kept: Kept,
     /// The pieces of the chain its close in force names as removed on purpose
@@ -1226,7 +1246,7 @@ fn read_closed_at<B: ByteSource>(
         id.seq.wrapping_add(1)
     };
     let next_tracks = crate::index::next_starts(starts, ranges);
-    let (newest, last_chunks) = last_chunks_of(reader, i, ranges)?;
+    let (newest, last_chunks, last_series) = last_chunks_of(reader, i, ranges)?;
     let kept = kept_of(reader, i, &next_tracks)?;
     Ok((
         Closed {
@@ -1247,6 +1267,7 @@ fn read_closed_at<B: ByteSource>(
             next_seq,
             ranges: newest,
             last_chunks,
+            last_series,
             kept,
             removed: p.removed.clone(),
             unlisted: close.unlisted_keys_unknown || head.unlisted_keys_unknown,
@@ -1352,15 +1373,26 @@ fn kept_of<B: ByteSource>(
 }
 
 /// The tops of the chunks' ranges of the tracks of piece `i` of `reader`, whose close lists `rows`, from each
-/// track's last break on ([FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK)), and each track's last chunk in the
-/// piece, by its entry, unread.
+/// track's last break on ([FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK)), each track's last chunk in the
+/// piece, by its entry, unread, and each series track's last chunk of level 0 per tile.
 fn last_chunks_of<B: ByteSource>(
     reader: &TapeReader<B>,
     i: usize,
     rows: &[crate::piece::TrackRange],
-) -> Result<(Newest, LastChunks), WriteError<B::Error>> {
+) -> Result<(Newest, LastChunks, LastSeries), WriteError<B::Error>> {
     let entries = reader.entries(i).map_err(WriteError::Read)?;
-    Ok(last_chunks_in(&entries, rows))
+    let (newest, last) = last_chunks_in(&entries, rows);
+    let mut series = LastSeries::new();
+    for &e in entries
+        .iter()
+        .filter(|e| e.kind == crate::BlockKind::Series && e.level == 0)
+    {
+        let key = (e.track_id, e.tile);
+        if series.get(&key).is_none_or(|l| l.offset < e.offset) {
+            series.insert(key, e);
+        }
+    }
+    Ok((newest, last, series))
 }
 
 /// [last_chunks_of] the index entries `entries` of a piece.
@@ -1483,6 +1515,56 @@ fn newest_in<K, E>(
         }
     }
     Ok(newest)
+}
+
+/// The grids of the series tracks' newest chunks in the pieces `closed`: each track and tile's last chunk of level 0
+/// in the newest piece that holds one, its head read by `read` (None where it doesn't read: that track and tile get
+/// no grid, and its next chunk starts one). One head per track and tile is read.
+fn grids_in<K, E>(
+    closed: &[Done<K>],
+    mut read: impl FnMut(&ChainPiece<K>, &IndexEntry) -> Result<Option<ChunkHead>, WriteError<E>>,
+) -> Result<Grids, WriteError<E>> {
+    let mut grids = Grids::default();
+    let mut known = BTreeSet::new();
+    for (done, last) in closed.iter().rev() {
+        for (key, e) in &last.last_series {
+            if !known.insert(*key) {
+                continue;
+            }
+            if let Some(head) = read(done, e)? {
+                grids.seed(&head);
+            }
+        }
+    }
+    Ok(grids)
+}
+
+/// The head of the chunk that entry `e` of the piece at `start` in `src` lists; None when it doesn't read as the
+/// chunk the entry names. The head is read alone: its length is within the entry's and [MAX_BLOCK_LEN](crate::MAX_BLOCK_LEN).
+fn listed_head<B: ByteSource>(
+    src: &B,
+    start: u64,
+    e: &IndexEntry,
+) -> Result<Option<ChunkHead>, WriteError<B::Error>> {
+    let Ok(len) = crate::FromFile::new(e.len).at_most(crate::MAX_BLOCK_LEN) else {
+        return Ok(None);
+    };
+    let Some(at) = start.checked_add(e.offset) else {
+        return Ok(None);
+    };
+    let err = crate::sink::sink_err("reading a piece's last chunk head of a track");
+    let mut buf = alloc::vec![0u8; crate::chunk::CHUNK_HEAD_PREFIX];
+    if len < buf.len() {
+        return Ok(None);
+    }
+    src.read_at(at, &mut buf).map_err(err)?;
+    let Some(head_len) = ChunkHead::head_len(&buf).ok().filter(|n| *n <= len) else {
+        return Ok(None);
+    };
+    buf.resize(head_len, 0);
+    let err = crate::sink::sink_err("reading a piece's last chunk head of a track");
+    src.read_at(at, &mut buf).map_err(err)?;
+    Ok(ChunkHead::read_head(&buf).ok().filter(|h| e.names_chunk(h)))
 }
 
 /// Whether piece `i` of `reader` holds a block its writer counted: one the index lists that isn't marked

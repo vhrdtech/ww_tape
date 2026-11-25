@@ -192,10 +192,11 @@ pub fn flags_hostile(data: &[u8]) {
     reader(&f);
 }
 
-/// `tape-series-hostile`: a series track and its chunks of hostile grids, ticks and scales.
+/// `tape-series-hostile`: a series track and its chunks of hostile grids, ticks, scales and grid start marks.
 ///
 /// Their heads are read alone (the same as read from the whole block) and built into a timeline that is then asked
-/// about every stretch.
+/// about every stretch. The file's timeline from its entries ([TapeReader::series_timeline], reading only the heads
+/// it must) holds up the same way.
 pub fn series_hostile(data: &[u8]) {
     let f = hostile::series(data);
     let bs = blocks(&f);
@@ -227,6 +228,14 @@ pub fn series_hostile(data: &[u8]) {
         series::query(&t, at, count);
     }
     series::query(&t, u64::from(count), 1);
+    if let Ok(r) = TapeReader::open(&f[..]) {
+        for i in 0..r.pieces().len() {
+            if let Ok((t, _)) = r.series_timeline(i, ww_tape::TrackId::new(7), period) {
+                series::check(&t);
+                series::query(&t, u64::from(count), 1);
+            }
+        }
+    }
 }
 
 /// A grid track a block of definitions names: its id, tile layout and the shape of a cell.

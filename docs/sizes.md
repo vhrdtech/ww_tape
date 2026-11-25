@@ -196,16 +196,15 @@ writer spends 71 µs per MiB. The copy with its CRCs takes 58 µs, and a reader 
 
 ### Reading a track's timeline
 
-A reader finds where a series track's samples lie from its [[chunk heads]] alone. A head read stops before the samples,
-so its cost hardly grows with the chunk. `just bench-chunks` reads the timeline of 256 chunks of 1 MiB from memory, in a
-file without alignment and in one aligned to 4 KiB.
+A reader finds where a series track's samples lie from its index entries. An entry marks the chunk where a grid or
+scale starts, and the reader reads a [[chunk heads|chunk head]] only there, at the start of a piece and after lost
+samples ([Grid starts](format.md#grid-starts)). A head read stops before the samples, so its cost hardly grows with
+the chunk.
 
---8<-- "docs/plots/bench_chunks_timeline-0.txt"
-
---8<-- "docs/plots/bench_chunks_timeline-4096.txt"
-
-A head reads 335 bytes, or 4084 bytes in an aligned file, where the head reaches to the next 4 KiB boundary. A whole
-block reads 1 048 895 bytes and checks its CRCs.
+`just bench-chunks` reads the timeline of 256 chunks of 1 MiB on one grid from memory. It reads 129 bytes per chunk,
+its index entry and a share of the one head, in about 100 ns, against 1 048 903 bytes for a whole block. It then reads
+the timeline of 10 000 chunks in 10 stretches from a file in the page cache: the index and 10 heads, 23 reads in 1.0
+ms. Reading every head took 20 003 reads and 6.3 to 7.0 ms on the same machine, an AMD Ryzen AI 9 HX 370.
 
 ### What the writer holds in memory
 

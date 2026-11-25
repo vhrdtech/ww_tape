@@ -36,7 +36,7 @@ use crate::piece::{
     Integrity, OwnerId, PieceHead, PieceHeadBlock, PieceSummary, RemovedPiece, TAIL_LEN, Tail,
     TrackHash, TrackRange, TrackStart, UnitHash, Walked, check_chain, payload_hash, walk_piece,
 };
-use crate::series::{SeriesError, SeriesTimeline};
+use crate::series::{SeriesError, SeriesGrid, SeriesTimeline};
 use crate::walk::{Head, SessionState, Verdict, is_free};
 use crate::{
     Block, BlockError, BlockKind, GAP_CHECKS_MAX, HEADER_LEN, Layout, MAGIC, MAX_BLOCK_LEN, Medium,
@@ -166,6 +166,10 @@ pub enum ReadError<E> {
     /// A box query's chunk at `offset` of track `track_id` is of a grid whose layout isn't the box's, or no
     /// definition of its track in force there reads: the box was made for another grid.
     GridLayout { offset: u64, track_id: TrackId },
+    /// The series chunk at `offset` of track `track_id` is marked a grid start
+    /// ([FLAG_GRID_START](crate::FLAG_GRID_START)) where its grid and scale are its track and tile's chunk's before it
+    /// in the piece, or unmarked where they aren't.
+    GridStart { offset: u64, track_id: TrackId },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -203,6 +207,10 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
                 f,
                 "chunk at byte {offset} of track {track_id}: its grid's layout isn't the box's, or its definition \
                  doesn't read"
+            ),
+            Self::GridStart { offset, track_id } => write!(
+                f,
+                "series chunk at byte {offset} of track {track_id}: its grid start mark says otherwise than its grid"
             ),
         }
     }
@@ -1517,10 +1525,19 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(head)
     }
 
-    /// The timeline of the series track `track_id` in piece `i`, of `period` ticks per sample, from the heads of its
-    /// chunks alone ([Self::read_chunk_head]). A chunk whose head is damaged, or out of line with its neighbours, is
-    /// left out with its error beside the timeline, as a lost chunk: the samples around it keep their grid. An
-    /// index that can't be read, or a failing source, is an error.
+    /// The timeline of the series track `track_id` in piece `i`, of `period` ticks per sample, from its index entries,
+    /// reading a chunk's head ([Self::read_chunk_head]) only where the entries don't say its grid.
+    ///
+    /// The entries are taken in sample order, each tile on its own. A chunk goes on from the grid of the chunk of its
+    /// tile before it when its entry isn't marked a grid start ([IndexEntry::grid_start]), follows that chunk with no
+    /// samples between, and its first and last tick are its samples' on that grid. Any other chunk's head is read: the
+    /// first of the piece, a marked one, one after lost samples, one whose ticks don't fit. A writer marks every change
+    /// of grid or scale, so over a long recording the heads read are its grids, not its chunks; a missing mark on a
+    /// change of grid shows in the ticks, one on a change of scale only to [Self::verify].
+    ///
+    /// A chunk whose head is damaged, or out of line with its neighbours, is left out with its error beside the
+    /// timeline, as a lost chunk: the samples around it keep their grid. An index that can't be read, or a failing
+    /// source, is an error.
     pub fn series_timeline(
         &self,
         i: usize,
@@ -1528,33 +1545,60 @@ impl<S: ByteSource> TapeReader<S> {
         period: Ratio64,
     ) -> R<Timeline<S>, S> {
         let start = self.piece(i)?.start;
-        let mut buf = Vec::new();
-        let mut heads = Vec::new();
-        let mut errors = Vec::new();
-        for e in self.track_entries(i, track_id)? {
+        let mut entries: Vec<IndexEntry> = self
+            .track_entries(i, track_id)?
+            .into_iter()
             // overview chunks repeat the time runs of the chunks they summarise
-            if e.kind != BlockKind::Series || e.level != 0 {
-                continue;
-            }
-            let offset = start.saturating_add(e.offset);
-            match self.read_chunk_head(i, &e, &mut buf) {
-                Ok(h) => heads.push((h, offset)),
-                // the index names another chunk than the one there: it is damaged
-                Err(ReadError::Index(IndexError::BadEntries)) => errors.push(ReadError::Block {
-                    offset,
-                    error: BlockError::NotChunk,
-                }),
-                Err(ReadError::Block { offset, error }) => {
-                    errors.push(ReadError::Block { offset, error });
-                }
-                Err(other) => return Err(other),
-            }
-        }
-        heads.sort_by_key(|(h, _)| h.first_item);
+            .filter(|e| e.kind == BlockKind::Series && e.level == 0)
+            .collect();
+        entries.sort_by_key(|e| e.first_item);
+        let mut buf = Vec::new();
+        let mut errors = Vec::new();
         let mut timeline = SeriesTimeline::new(period);
-        for (h, offset) in heads {
-            if let Err(error) = timeline.push_chunk(&h) {
-                errors.push(ReadError::Series { offset, error });
+        // by tile: the grid of the newest chunk taken and where its samples end
+        let mut newest: BTreeMap<Option<u128>, (SeriesGrid, ItemNum)> = BTreeMap::new();
+        for e in &entries {
+            let offset = start.saturating_add(e.offset);
+            let went_on = newest
+                .get(&e.tile)
+                .filter(|(_, end)| !e.grid_start && *end == e.first_item)
+                .and_then(|(grid, _)| Some((*grid, fits(grid, period, e)?)));
+            let (grid, count) = match went_on {
+                Some(went_on) => went_on,
+                None => match self.read_chunk_head(i, e, &mut buf) {
+                    Ok(h) => match SeriesGrid::of_chunk(&h, period) {
+                        Ok(grid) => (grid, h.count),
+                        Err(error) => {
+                            newest.remove(&e.tile);
+                            errors.push(ReadError::Series { offset, error });
+                            continue;
+                        }
+                    },
+                    Err(error) => {
+                        newest.remove(&e.tile);
+                        errors.push(match error {
+                            // the index names another chunk than the one there: it is damaged
+                            ReadError::Index(IndexError::BadEntries) => ReadError::Block {
+                                offset,
+                                error: BlockError::NotChunk,
+                            },
+                            ReadError::Block { offset, error } => {
+                                ReadError::Block { offset, error }
+                            }
+                            other => return Err(other),
+                        });
+                        continue;
+                    }
+                },
+            };
+            match timeline.push(e.first_item, count, grid) {
+                Ok(()) => {
+                    newest.insert(e.tile, (grid, e.end_item()));
+                }
+                Err(error) => {
+                    newest.remove(&e.tile);
+                    errors.push(ReadError::Series { offset, error });
+                }
             }
         }
         Ok((timeline, errors))
@@ -1594,7 +1638,10 @@ impl<S: ByteSource> TapeReader<S> {
     /// close row states the hash its track's blocks fold to from the head row's, or says it incomplete exactly where
     /// a damaged block kept or the head leaves units out. The strict check of what [Self::range_hash] takes from the
     /// index unread. Each monotone relation of a track starts each chunk at or above the chunk before it in the piece,
-    /// but at a chunk marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK): else [ReadError::RelationOrder].
+    /// but at a chunk marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK): else [ReadError::RelationOrder]. Each
+    /// series chunk of level 0 after one of its track and tile in the piece is marked
+    /// [FLAG_GRID_START](crate::FLAG_GRID_START) exactly where its grid or scale isn't that chunk's: else
+    /// [ReadError::GridStart].
     ///
     /// The final index is read as the piece is walked, its track lists merged in file order: verify holds one entry
     /// per track list and the entries of one block, whatever the piece's size. A final index of more than
@@ -1832,6 +1879,12 @@ impl<S: ByteSource> TapeReader<S> {
                 offset: p.start.saturating_add(offset),
                 track_id,
                 relation,
+            });
+        }
+        if let Some((offset, track_id)) = replay.grid_mark() {
+            return Err(ReadError::GridStart {
+                offset: p.start.saturating_add(offset),
+                track_id,
             });
         }
         Ok(verify::Verified {
@@ -2291,6 +2344,14 @@ fn set_scanned(p: &mut PieceInfo, n: u64) {
         Found::Checkpoint { scanned } | Found::Scan { scanned } => *scanned = n,
         Found::Tail => {}
     }
+}
+
+/// The count of the samples entry `e` lists when they are on `grid`, of `period` ticks per sample: a chunk's u32, the
+/// entry's first and last tick theirs on it; else None.
+fn fits(grid: &SeriesGrid, period: Ratio64, e: &IndexEntry) -> Option<u32> {
+    let count = u32::try_from(e.count).ok()?;
+    (grid.chunk_ticks(period, e.first_item, count) == Ok((e.first_tick, e.last_tick)))
+        .then_some(count)
 }
 
 #[cfg(test)]

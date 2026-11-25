@@ -1276,6 +1276,7 @@ mod tests {
             latest_end: 0,
             repeat: false,
             relation_break: false,
+            grid_start: false,
             unit: crate::piece::UnitHash::NONE,
             unhashed: false,
             range: None,

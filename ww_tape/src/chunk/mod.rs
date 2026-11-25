@@ -1371,6 +1371,14 @@ impl<'b> Chunk<'b> {
             && le_u16(self.head_bytes, 6).is_some_and(|f| f & crate::FLAG_RELATION_BREAK != 0)
     }
 
+    /// Whether the chunk is a series chunk of level 0 whose grid or scale starts here
+    /// ([FLAG_GRID_START](crate::FLAG_GRID_START)).
+    pub fn grid_start(&self) -> bool {
+        self.head.kind == BlockKind::Series
+            && self.head.level == 0
+            && le_u16(self.head_bytes, 6).is_some_and(|f| f & crate::FLAG_GRID_START != 0)
+    }
+
     /// Where the payload starts in the block.
     pub fn payload_offset(&self) -> usize {
         self.head_bytes.len()

@@ -6,6 +6,17 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- Series chunks carry `FLAG_GRID_START` and index entry bit 3 where a grid starts; older readers refuse them: upgrade readers (FMT-16).
+- A caller's series chunk must carry its grid start mark exactly when due, else `InputError::Flags`; use `mark_grid_start` (FMT-16).
+- `IndexEntry` gains `grid_start`: struct literals add it; `ReadError` gains `GridStart` (FMT-16).
+
+### Features
+
+- `TapeReader::series_timeline` reads the index, and heads only where a grid or piece starts or samples are lost (FMT-16).
+- `relay_block` restamps a relayed chunk's grid start mark; `verify` refuses a wrong mark (FMT-16).
+
 ## [0.11.0] - 2026-11-25
 
 ### Breaking

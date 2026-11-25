@@ -4,8 +4,9 @@
 //! content hash every placed block goes into (`ItemHash::of`, BLAKE3), and the unit hash of the chunk that its index
 //! entry stores and its track's hash takes in (`TrackHash::chunk_unit`). Prints a Markdown table of ns per chunk and
 //! GB/s for each, the best of `--rounds` rounds of `--chunks` chunks, with the load average around it. Then what a
-//! reader spends on such a track: its series timeline from the chunk heads alone and from whole blocks, and the hash
-//! of all its chunks from the index (`TapeReader::range_hash`).
+//! reader spends on such a track: its series timeline from the index, reading heads only where a grid starts, and from
+//! whole blocks, and the hash of all its chunks from the index (`TapeReader::range_hash`). Last, the timeline of a long
+//! series of many grids from a file: reads and time.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -238,11 +239,17 @@ fn main() -> anyhow::Result<()> {
     })?;
     drop(chain);
     let mut w = writer()?;
+    let mut first = true;
     let theirs = ns_per_try(r, c, |_| {
         let k = w.next_id().seq;
         let h = head(track, k, count)?;
         let n = write_chunk(&mut buf, w.next_id(), &h, &columns, 0)
             .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        // the track's first chunk starts its grid
+        if first {
+            ww_tape::mark_grid_start(&mut buf[..n], true).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            first = false;
+        }
         w.write_block(&defs, &buf[..n]).map_err(e)?;
         Ok(())
     })?;
@@ -332,7 +339,7 @@ fn long_timeline(
     let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).map_err(e)?;
     for k in 0..args.long_chunks {
         let mut h = head(track, u64::from(k), LONG_CHUNK_SAMPLES)?;
-        let scale = if (k / per) % 2 == 0 {
+        let scale = if (k / per).is_multiple_of(2) {
             ww_tape::Magnitude::ONE
         } else {
             ww_tape::Magnitude::pow10(-3)
@@ -396,9 +403,9 @@ impl ByteSource for Counted {
     }
 }
 
-/// What a series timeline of a track of `--chunks` chunks costs a reader, from the chunk heads alone
-/// (`TapeReader::series_timeline`) and from whole blocks, in a file of payloads aligned to `alignment`, in memory:
-/// bytes read and ns per chunk; the track is `track`, held in `defs`.
+/// What a series timeline of a track of `--chunks` chunks costs a reader, from the index and the heads where a grid
+/// starts (`TapeReader::series_timeline`) and from whole blocks, in a file of payloads aligned to `alignment`, in
+/// memory: bytes read and ns per chunk; the track is `track`, held in `defs`.
 fn timeline(
     bench: &Bench,
     defs: &Definitions,
@@ -481,7 +488,7 @@ fn timeline(
         fold = (fold.0.min(ns), src.read.get() - from);
     }
     for (what, (ns, bytes)) in [
-        ("`TapeReader::series_timeline`: heads alone", heads),
+        ("`TapeReader::series_timeline`: the index", heads),
         ("`TapeReader::read_block` of every chunk", whole),
         ("`TapeReader::range_hash`: unit hashes from the index", fold),
     ] {

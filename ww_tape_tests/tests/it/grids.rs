@@ -166,6 +166,13 @@ fn write_tiles(
     }
 }
 
+/// A closed grid of every tile in every run, each tile's chunks on one grid: its bytes, its track id and its tiles.
+pub(crate) fn tiles_twice() -> (Vec<u8>, TrackId, usize) {
+    let g = write(&EXTENTS, 1 << 20, true);
+    let tiles = all_tiles(&g.layout).len();
+    (g.bytes, g.id, tiles)
+}
+
 /// Every entry of a grid chunk in the final index carries the tile number its head's coordinates pack to; the
 /// piece verifies, its index the same set as its walk.
 #[test]

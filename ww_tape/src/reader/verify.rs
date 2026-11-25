@@ -225,6 +225,11 @@ pub(super) struct Replay<L> {
     /// The first chunk whose monotone relation goes below the one before without a break: its offset, track id and
     /// relation (None: the range relation, from a damaged chunk's entry)
     order: Option<(u64, TrackId, Option<u16>)>,
+    /// The grid of each series track and tile's newest chunk of level 0 so far
+    grids: BTreeMap<(TrackId, crate::TileCoords), crate::SeriesGrid>,
+    /// The first series chunk marked a grid start where its grid is its track and tile's chunk's before, or unmarked
+    /// where it isn't: its offset and track id
+    grid_mark: Option<(u64, TrackId)>,
     /// The piece is below [Integrity::Full](crate::Integrity::Full): its entries are unhashed, its tracks not hashed,
     /// each close row's hash absent (zero, incomplete)
     unhashed: bool,
@@ -251,6 +256,8 @@ impl<L: Listed> Replay<L> {
             incomplete: BTreeSet::new(),
             tops: BTreeMap::new(),
             order: None,
+            grids: BTreeMap::new(),
+            grid_mark: None,
             unhashed,
         };
         for t in starts {
@@ -273,6 +280,25 @@ impl<L: Listed> Replay<L> {
     /// offset in the piece, its track id and the relation (None: the range relation, by a damaged chunk's entry).
     pub(super) fn order(&self) -> Option<(u64, TrackId, Option<u16>)> {
         self.order
+    }
+
+    /// The first series chunk whose grid start mark isn't due: its offset and track id.
+    pub(super) fn grid_mark(&self) -> Option<(u64, TrackId)> {
+        self.grid_mark
+    }
+
+    /// Take the grid of the counted series chunk `c` at `at`: marked a grid start exactly where its grid isn't the
+    /// one of its track and tile's chunk before it in the piece. The first chunk of a track and tile in the piece, or
+    /// the first after a damaged one, may go on from a grid this piece doesn't hold: unchecked.
+    fn grid_of(&mut self, at: u64, c: &Chunk<'_>) {
+        let head = c.head();
+        let (BlockKind::Series, 0, Some(grid)) = (head.kind, head.level, head.grid) else {
+            return;
+        };
+        let before = self.grids.insert((head.track_id, head.tile), grid);
+        if before.is_some_and(|b| (b != grid) != c.grid_start()) && self.grid_mark.is_none() {
+            self.grid_mark = Some((at, head.track_id));
+        }
     }
 
     /// Take relation `relation`'s values `lo..=hi` of the chunk of track `key` at `at`, after the track's chunks before.
@@ -423,6 +449,7 @@ impl<L: Listed> Replay<L> {
                 if head.kind == BlockKind::Events {
                     self.order_of(at, key, c);
                 }
+                self.grid_of(at, c);
             }
         }
         self.learn(&b, counted);
@@ -510,6 +537,9 @@ impl<L: Listed> Replay<L> {
                         && let Some(key) = self.key_of(track, Some(e.track_id))
                     {
                         self.order_of_damaged(e, key);
+                        if e.kind == BlockKind::Series {
+                            self.grids.retain(|(t, _), _| *t != e.track_id);
+                        }
                         if e.unit == UnitHash::NONE {
                             self.touched.insert(key);
                             self.incomplete.insert(key);
