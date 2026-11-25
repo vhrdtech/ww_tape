@@ -12,6 +12,7 @@ benchmarks, golden files and book pages.
 - Book: parts by reading level, Introduction, Basic, Advanced and Nomicon, then Reference and Articles shelves (BOOK-8).
 - Book: `vz check` holds the nav to `book_checks.toml` in `just test` and `just book-check` (BOOK-8).
 - Book: every `rust` block is a section of a test that runs; the page doctests are gone (BOOK-8).
+- Book: the program outputs a page shows live in `docs/generated/`, written by tests; a stale one fails (BOOK-8).
 
 ## [0.15.0] - 2026-11-25
 

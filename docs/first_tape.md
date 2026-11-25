@@ -21,7 +21,7 @@ It writes the drive's first minute into a file `drive.wwt` in a directory of the
 names the file. Then it opens the file and prints one line for each [[track]]:
 
 ```text
---8<-- "examples/example_drive/tests/first_tape.out"
+--8<-- "docs/generated/first_tape.txt"
 ```
 
 The counts follow from the drive's rates, which [What a tape holds](tape.md) lists. A second holds three log lines,

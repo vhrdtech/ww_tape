@@ -142,6 +142,10 @@ A short example goes into `ww_tape_tests/tests/it/book_pages.rs` as a test of it
 its result. A longer one is a section of an example crate or of the test that already runs it. The build fails when
 the file or the marked section is gone, and `vz check` fails a `rust` block that includes nothing.
 
+What a program prints comes from a test too. The test passes the output to `ww_tape_book_outputs::check`, which
+fails when the file under `docs/generated/` holds something else. `just book-outputs` writes the files again, and the
+page includes one in a `text` block, as [A first tape](first_tape.md) does.
+
 ## Figures
 
 A figure stands right after the sentence that needs it. Its caption states what the reader should take from it.

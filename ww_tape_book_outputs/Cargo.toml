@@ -1,0 +1,14 @@
+[package]
+name = "ww_tape_book_outputs"
+version.workspace = true
+authors.workspace = true
+description = "Tests only: what the book shows of a program's output, written into docs/generated/ by its test, which fails when the file is stale"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lints]
+workspace = true

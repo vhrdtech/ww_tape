@@ -233,6 +233,12 @@ book-frame:
 book-strict: book-refs
     uv run --with "{{ kit }}" zensical build --clean --strict
 
+# Write the program outputs the book shows (docs/generated/) again: every test named `book_output*`, through
+# ww_tape_book_outputs; a stale file fails `just test`
+[group('book')]
+book-outputs:
+    WW_TAPE_BOOK_OUTPUTS=write cargo nextest run --workspace -E 'test(/book_output/)'
+
 # Check the glossary (docs/glossary.toml) and write what the book's references read: the index of the crates' public
 # items (target/vz/code_index.json), the cards' stylesheet and script, and the footer's build stamp and its age
 # script (not in git)
