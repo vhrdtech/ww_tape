@@ -3,10 +3,7 @@
 //! whose last block is its own, is refused with nothing written.
 
 use ww_tape::sink::MemSink;
-use ww_tape::{
-    Block, BlockKind, Definitions, GroupPut, GroupRefusal, InputError, TapeWriter, TrackNum,
-    WriteError,
-};
+use ww_tape::{Block, BlockKind, Definitions, GroupPut, TapeWriter, TrackNum};
 
 use crate::definitions::{CLOCK, hold, state, track};
 use crate::follow::walk;
@@ -17,6 +14,8 @@ use crate::mux_items::item;
 pub(crate) const EMPTY: u32 = 2;
 /// A state track.
 const STATE: u32 = 3;
+/// Another state track.
+const OTHER: u32 = 4;
 
 /// The definitions of the grid track, [EMPTY] (written twice at once when `twice`) and [STATE], and the blocks of
 /// `units` units of the grid track, one run each: each unit's first chunk marked, its last not.
@@ -42,7 +41,7 @@ pub(crate) fn relayed_units(twice: bool, units: u64) -> (Definitions, Vec<[Vec<u
         .iter()
         .map(|u| [block(&u[0]), block(&u[1])])
         .collect();
-    hold(&mut defs, &[empty_track(twice), state(STATE)]).unwrap();
+    hold(&mut defs, &[empty_track(twice), state(STATE), state(OTHER)]).unwrap();
     (defs, blocks)
 }
 
@@ -149,29 +148,114 @@ fn a_put_and_a_typed_item_go_inside_an_open_unit() {
     assert!(whole(&blocks).is_empty(), "no puts after the unit");
 }
 
+/// The item piece `bytes` holds in force on state track `track` at its end.
+fn in_force(bytes: &[u8], track: u32) -> Option<Vec<u8>> {
+    let r = ww_tape::TapeReader::open(bytes).unwrap();
+    let slot = ww_tape::Slot::State {
+        track: TrackNum::new(track),
+    };
+    r.state_at(0, slot, u64::MAX).unwrap().item.map(|i| i.item)
+}
+
+/// A group put on `track`: `item` at tick 0.
+fn group_of(track: u32, item: &'static [u8]) -> [GroupPut<'static>; 1] {
+    [GroupPut {
+        track: TrackNum::new(track),
+        ticks: 0,
+        item,
+    }]
+}
+
 #[test]
-fn a_group_inside_an_open_unit_is_refused_with_nothing_written() {
+fn a_group_inside_an_open_unit_waits_whole_for_its_end() {
     let (defs, units) = relayed_units(false, 1);
     let mut w = crate::resume::begin(0);
+    let tape = w.sink().tape();
     w.write_block(&defs, &units[0][0]).unwrap();
     let before = w.bytes();
-    let puts = [GroupPut {
-        track: TrackNum::new(STATE),
-        ticks: 0,
-        item: b"on",
-    }];
-    let r = w.put_group(&defs, &puts);
-    assert!(
-        matches!(
-            r,
-            Err(WriteError::Input(InputError::Group(GroupRefusal::UnitOpen)))
-        ),
-        "{r:?}"
+    assert_eq!(
+        w.put_group(&defs, &group_of(STATE, b"on")).unwrap(),
+        vec![false],
+        "held, not yet written"
     );
-    assert_eq!(w.bytes(), before, "nothing written");
+    assert_eq!(w.bytes(), before, "nothing written inside the unit");
     assert!(w.unit_open());
     w.write_block(&defs, &units[0][1]).unwrap();
-    assert_eq!(w.put_group(&defs, &puts).unwrap(), vec![true]);
+    let bytes = tape.to_vec().unwrap();
+    let blocks = kinds(&bytes);
+    let last = blocks
+        .iter()
+        .rposition(|(k, _)| *k == BlockKind::Series)
+        .unwrap();
+    assert_eq!(
+        blocks[last - 1].0,
+        BlockKind::Series,
+        "the unit whole: {blocks:x?}"
+    );
+    assert_eq!(
+        crate::put_definitions::groups(&blocks[last..]),
+        1,
+        "the group after it"
+    );
+    assert_eq!(in_force(&bytes, STATE).as_deref(), Some(&b"on"[..]));
+}
+
+/// The blocks of puts of another producer's two groups, on [STATE] and [OTHER], as a relay receives them.
+fn producer_groups(defs: &Definitions) -> Vec<Vec<u8>> {
+    let mut w = crate::resume::begin(0);
+    let tape = w.sink().tape();
+    w.put_group(defs, &group_of(STATE, b"one")).unwrap();
+    w.put_group(defs, &group_of(OTHER, b"two")).unwrap();
+    drop(w);
+    walk(&tape.to_vec().unwrap())
+        .into_iter()
+        .map(|(_, b)| b)
+        .filter(|b| Block::read(b).unwrap().kind == BlockKind::Records)
+        .collect()
+}
+
+#[test]
+fn a_relayed_group_ending_inside_another_producers_unit_waits_for_its_end() {
+    let (mut defs, units) = relayed_units(false, 1);
+    let groups = producer_groups(&defs);
+    let mut w = crate::resume::begin(0);
+    let tape = w.sink().tape();
+    w.relay_block(&mut defs, &units[0][0]).unwrap();
+    // the first group's blocks, its last among them, while the unit is open
+    let first_end = groups
+        .iter()
+        .position(|b| {
+            let f = Block::read(b).unwrap().flags;
+            f & ww_tape::FLAG_GROUP != 0 && f & ww_tape::FLAG_WITH_NEXT == 0
+        })
+        .unwrap();
+    for b in &groups[..=first_end] {
+        w.relay_block(&mut defs, b).unwrap();
+    }
+    assert!(w.unit_open(), "the group waits: the unit stays open");
+    w.relay_block(&mut defs, &units[0][1]).unwrap();
+    for b in &groups[first_end + 1..] {
+        w.relay_block(&mut defs, b).unwrap();
+    }
+    let bytes = tape.to_vec().unwrap();
+    let blocks = kinds(&bytes);
+    let chunks: Vec<usize> = (0..blocks.len())
+        .filter(|i| blocks[*i].0 == BlockKind::Series)
+        .collect();
+    assert_eq!(chunks.len(), 2);
+    assert!(
+        blocks[chunks[0]..chunks[1]]
+            .iter()
+            .all(|(_, f)| f & ww_tape::FLAG_WITH_NEXT != 0),
+        "the unit whole: {blocks:x?}"
+    );
+    assert_eq!(
+        crate::put_definitions::groups(&blocks),
+        2,
+        "both groups whole"
+    );
+    assert_eq!(in_force(&bytes, STATE).as_deref(), Some(&b"one"[..]));
+    assert_eq!(in_force(&bytes, OTHER).as_deref(), Some(&b"two"[..]));
 }
 
 /// A mux cutting every `chunks` chunks, with [CLOCK], the grid track and [EMPTY] defined; a relay handle.
@@ -207,6 +291,12 @@ fn relay_mux(
         mux.define_track(empty.spec()).unwrap(),
         TrackNum::new(EMPTY)
     );
+    for n in [STATE, OTHER] {
+        let ww_tape::Describe::Track(t) = state(n) else {
+            unreachable!("state() gives a track")
+        };
+        assert_eq!(mux.define_track(t.spec()).unwrap(), TrackNum::new(n));
+    }
     let relay = mux.relay(ww_tape_mux::RelayMode::Relay);
     (mux, relay)
 }
@@ -263,4 +353,65 @@ fn definitions_carried_after_a_cut_into_a_relayed_unit_go_inside_it() {
             1
         );
     }
+}
+
+/// The unit's chunks lie together in `blocks`, and every group is whole.
+fn unit_and_groups(blocks: &[(BlockKind, u16)]) -> usize {
+    let chunks: Vec<usize> = (0..blocks.len())
+        .filter(|i| blocks[*i].0 == BlockKind::Series)
+        .collect();
+    assert_eq!(chunks.len(), 2);
+    assert!(
+        blocks[chunks[0]..chunks[1]]
+            .iter()
+            .all(|(_, f)| f & ww_tape::FLAG_WITH_NEXT != 0),
+        "the unit whole: {blocks:x?}"
+    );
+    crate::put_definitions::groups(blocks)
+}
+
+#[test]
+fn the_mux_holds_a_group_put_during_a_relayed_unit_until_its_end() {
+    let (_, units) = relayed_units(false, 1);
+    let mem = ww_tape::MemPieces::new();
+    let (mux, relay) = relay_mux(&mem, 0);
+    let group = mux.group(&[TrackNum::new(STATE)]).unwrap();
+    relay.send(units[0][0].clone()).unwrap();
+    relay.flush().unwrap();
+    group.put_group(&group_of(STATE, b"on")).unwrap();
+    group.flush().unwrap();
+    relay.send(units[0][1].clone()).unwrap();
+    relay.flush().unwrap();
+    assert_eq!(mux.stats().refused, 0, "nothing refused");
+    drop((relay, group));
+    mux.close().unwrap();
+    let p = crate::mux_multi::pieces(&mem);
+    assert_eq!(p.len(), 1);
+    assert_eq!(unit_and_groups(&kinds(&p[0])), 1);
+    assert_eq!(in_force(&p[0], STATE).as_deref(), Some(&b"on"[..]));
+}
+
+#[test]
+fn the_mux_holds_a_relayed_group_ending_during_another_producers_unit() {
+    let (defs, units) = relayed_units(false, 1);
+    let groups = producer_groups(&defs);
+    let mem = ww_tape::MemPieces::new();
+    let (mux, relay) = relay_mux(&mem, 0);
+    let other = mux.relay(ww_tape_mux::RelayMode::Relay);
+    relay.send(units[0][0].clone()).unwrap();
+    relay.flush().unwrap();
+    for b in &groups {
+        other.send(b.clone()).unwrap();
+    }
+    other.flush().unwrap();
+    relay.send(units[0][1].clone()).unwrap();
+    relay.flush().unwrap();
+    assert_eq!(mux.stats().refused, 0, "nothing refused");
+    drop((relay, other));
+    mux.close().unwrap();
+    let p = crate::mux_multi::pieces(&mem);
+    assert_eq!(p.len(), 1);
+    assert_eq!(unit_and_groups(&kinds(&p[0])), 2);
+    assert_eq!(in_force(&p[0], STATE).as_deref(), Some(&b"one"[..]));
+    assert_eq!(in_force(&p[0], OTHER).as_deref(), Some(&b"two"[..]));
 }

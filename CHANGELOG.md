@@ -19,7 +19,7 @@ benchmarks, golden files and book pages.
 ### Fixes
 
 - A put while a unit is open goes into the unit's run instead of splitting it (FMT-15).
-- `put_group` while a unit is open is refused with `GroupRefusal::UnitOpen`, nothing written (FMT-15).
+- A group put or relayed while a unit is open waits whole and follows the unit's last chunk (FMT-15).
 
 ## [0.10.1] - 2026-11-24
 

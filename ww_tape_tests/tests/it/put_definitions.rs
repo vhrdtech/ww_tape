@@ -81,7 +81,7 @@ fn a_full_piece_the_writer_cannot_cut_refuses_with_nothing_written() {
 
 /// The blocks of each group in `blocks`: from one marked [FLAG_GROUP_START] to its last, the last not marked
 /// [FLAG_WITH_NEXT], the others marked.
-fn groups(blocks: &[(BlockKind, u16)]) -> usize {
+pub(crate) fn groups(blocks: &[(BlockKind, u16)]) -> usize {
     let mut n = 0;
     let mut open = false;
     for (k, f) in blocks {

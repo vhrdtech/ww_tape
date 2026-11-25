@@ -909,8 +909,9 @@ A group of `GROUP_BYTES_MAX` of items of `MAX_RECORD_HEAD` (25) bytes or more al
 items may take more blocks than its bytes say, and the writer refuses it whole.
 
 `PieceChain::put_group` cuts before a group that the piece has no room for and puts it whole into the next piece.
-No cut falls inside a group, nor a checkpoint or a deferred block. A group's last block is its own, so the writer
-refuses a group while a unit is open (`GroupRefusal::UnitOpen`).
+No cut falls inside a group, nor a checkpoint or a deferred block. A group's last block is its own, so a group put or
+relayed while a caller's unit is open waits whole. The writer writes it right after the unit's last chunk. Such
+groups count toward `RELAY_GROUPS_MAX` and `RELAY_HELD_BYTES_MAX`, and a cut carries them.
 
 A group on a track defined twice ([above](#definitions-written-twice-at-once)) opens with its block marked
 `FLAG_TWICE`. That block is one of the group: it carries `FLAG_GROUP` and `FLAG_GROUP_START` and counts toward
