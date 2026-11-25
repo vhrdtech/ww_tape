@@ -116,10 +116,10 @@ fn renamed_pieces_still_form_their_chain() -> Result<(), Box<dyn Error>> {
     assert_eq!(
         found,
         [
-            ("d.wwt".into(), 0, 0..1550),
-            ("c.wwt".into(), 1, 1550..3100),
-            ("b.wwt".into(), 2, 3100..4650),
-            ("a.wwt".into(), 3, 4650..6000),
+            ("d.wwt".into(), 0, 0..1500),
+            ("c.wwt".into(), 1, 1500..3000),
+            ("b.wwt".into(), 2, 3000..4500),
+            ("a.wwt".into(), 3, 4500..6000),
         ]
     );
     // --8<-- [end:renamed]

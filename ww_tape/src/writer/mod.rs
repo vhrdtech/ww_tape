@@ -1482,13 +1482,12 @@ impl<S: TapeSink> TapeWriter<S> {
         self.bytes
     }
 
-    /// [Self::bytes] and the final index the close lists them in, [ENTRY_LEN](crate::index::ENTRY_LEN) bytes an
-    /// entry: what the piece holds once closed, short of the close and tail. A piece of puts lists an entry for each
-    /// small block, so its final index may outgrow its blocks.
+    /// [Self::bytes] and, at most, the final index the close lists them in: its entries, each
+    /// [ENTRY_LEN](crate::index::ENTRY_LEN) bytes, and its blocks' heads, directories and CRCs. What the piece holds
+    /// once closed, short of the close and the tail. A piece of puts lists an entry for each small block, so its final
+    /// index may outgrow its blocks.
     pub fn closed_bytes(&self) -> u64 {
-        let entries = u64::try_from(self.indexer.entries().len()).unwrap_or(u64::MAX);
-        let index =
-            entries.saturating_mul(u64::try_from(crate::index::ENTRY_LEN).unwrap_or(u64::MAX));
+        let index = u64::try_from(self.indexer.final_bytes_upper()).unwrap_or(u64::MAX);
         self.bytes.saturating_add(index)
     }
 

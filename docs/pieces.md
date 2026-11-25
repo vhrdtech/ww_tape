@@ -76,8 +76,8 @@ A limit of 0 or `None` is off. The chain checks the policy before each chunk and
 of blocks. So a cut never comes after the last write and never leaves a piece without data, and a chain of puts alone
 is cut too.
 
-A piece of puts lists an index entry of 128 bytes for each small block, so the final index counts toward `bytes`. The chain also cuts before a write that the piece's index has no room left for.
-[`PieceChain::cut_now`] cuts at once.
+A piece of puts lists an index entry of 128 bytes for each small block, so the final index counts toward `bytes`. The
+chain also cuts before a write that the piece's index has no room left for. [`PieceChain::cut_now`] cuts at once.
 
 A cut by age makes the file's bytes depend on the clock. The drive's recorder counts chunks instead, as many as 15
 minutes of the run make:

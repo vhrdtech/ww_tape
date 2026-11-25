@@ -34,7 +34,8 @@ pub struct CutPolicy {
     pub interval: Option<Duration>,
 }
 
-/// What a piece may hold past [CutPolicy::bytes]: the chunk that takes it over the limit, the close and the tail.
+/// What a piece may hold past [CutPolicy::bytes]: the chunk or call that takes it over the limit with its final index
+/// entries, the close and the tail.
 pub const CUT_SLACK: Bytes<u64> = Bytes::new(1 << 20);
 
 /// Refuse a resumed piece of a chain that kept blocks but no piece head: its head is damaged, and a piece without

@@ -277,3 +277,78 @@ fn a_state_only_chain_is_cut_by_its_policy() {
         "the last put"
     );
 }
+
+/// Pieces the ring of [a_ring_of_state_only_pieces_trims_as_it_goes] keeps: the one written and those before it.
+const RING: u64 = 3;
+
+/// A ring of pieces in memory, the oldest removed as the chain moves on, holds a state-only chain within its bound:
+/// each piece kept reads alone, naming the track, with the state the run had put by its end.
+#[test]
+fn a_ring_of_state_only_pieces_trims_as_it_goes() {
+    let mem = MemPieces::new();
+    let mut o = crate::follow::options(0);
+    o.cut.bytes = exact_units::Bytes::new(BUDGET);
+    let mux = TapeMux::create(
+        mem.clone(),
+        crate::follow::OWNER,
+        0,
+        &[],
+        o,
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let ww_tape::Describe::Clock(c) = clock(CLOCK) else {
+        unreachable!("clock() gives a clock")
+    };
+    mux.define_clock(c.spec()).unwrap();
+    let ww_tape::Describe::Track(t) = state(1) else {
+        unreachable!("a track")
+    };
+    let track = mux.define_track(t.spec()).unwrap();
+    let h = mux.state(track).unwrap();
+    let mut removed = 0;
+    let mut held_max = 0;
+    for i in 0..STATE_PUTS {
+        h.put(i as i64, &i.to_le_bytes()).unwrap();
+        if i % 10_000 == 9_999 {
+            h.flush().unwrap();
+            let now = mux.watch().get().piece;
+            while removed + RING <= now {
+                assert!(
+                    mem.remove(&removed).unwrap(),
+                    "piece {removed} there to trim"
+                );
+                removed += 1;
+            }
+            held_max = held_max.max(now + 1 - removed);
+        }
+    }
+    drop(h);
+    mux.close().unwrap();
+    assert!(removed > 10, "{removed} pieces trimmed");
+    assert!(held_max <= RING, "{held_max} pieces held at once");
+    let slot = ww_tape::Slot::State { track };
+    let kept: Vec<Vec<u8>> = (removed..)
+        .map_while(|seq| mem.get(&seq).unwrap())
+        .map(|t| t.to_vec().unwrap())
+        .collect();
+    assert!(!kept.is_empty() && kept.len() as u64 <= RING);
+    for (i, piece) in kept.iter().enumerate() {
+        let r = ww_tape::TapeReader::open(&piece[..]).unwrap();
+        let defs = r.definitions_at(0, u64::MAX).unwrap();
+        assert!(
+            defs.items
+                .contains_key(&ww_tape::Slot::Track { number: track })
+        );
+        assert!(
+            r.state_at(0, slot, u64::MAX).unwrap().item.is_some(),
+            "piece {i}"
+        );
+    }
+    let last = ww_tape::TapeReader::open(&kept[kept.len() - 1][..]).unwrap();
+    assert_eq!(
+        last.state_at(0, slot, u64::MAX).unwrap().item.unwrap().item,
+        (STATE_PUTS - 1).to_le_bytes(),
+        "the last put"
+    );
+}

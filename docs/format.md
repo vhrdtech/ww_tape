@@ -2424,8 +2424,8 @@ The writer's policies (`WriterOptions`, `PieceChain`'s `ChainOptions`):
 | `NearPolicy::kept_bytes_max` | 64 MiB (`KEPT_BYTES_MAX`) | the bytes of newest state items the writer keeps for a cut to carry |
 | `CutPolicy::bytes`, `chunks`, `interval` | none: 0 or None turns each off | when a chain cuts to a new piece: by size, chunk count or age |
 
-A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`: the chunk that takes it over the limit, the close
-and the tail. A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
+A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`. That is the chunk or call that takes it over, with
+its final index entries, then the close and the tail. `CutPolicy::bytes` counts the final index of what came before. A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
 
 A track's state policy (`StatePolicy`) is part of its definition, and track 0's is in the layout:
 
