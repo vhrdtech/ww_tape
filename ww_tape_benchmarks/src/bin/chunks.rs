@@ -60,6 +60,12 @@ struct Args {
     /// Rounds; the best is kept.
     #[arg(long, default_value_t = 5)]
     rounds: u32,
+    /// Chunks of the long series whose timeline is read from a file.
+    #[arg(long, default_value_t = 10_000)]
+    long_chunks: u32,
+    /// Stretches of the long series: its scale changes this many times less one, evenly.
+    #[arg(long, default_value_t = 10)]
+    long_stretches: u32,
 }
 
 /// A sink that keeps no bytes: the writer's own work is measured, not a file's.
@@ -266,7 +272,103 @@ fn main() -> anyhow::Result<()> {
         let table = timeline(&bench, &defs, track, &columns, count, &args, alignment)?;
         println!("{}", bench.push(table));
     }
+    let table = long_timeline(&bench, &defs, track, &args)?;
+    println!("{}", bench.push(table));
     bench.finish()
+}
+
+/// A file source that counts its reads.
+struct CountedFile {
+    file: ww_tape_fs::FileSource,
+    reads: std::cell::Cell<u64>,
+}
+
+impl ByteSource for CountedFile {
+    type Error = ww_tape_fs::FsError;
+
+    fn size(&self) -> Result<u64, Self::Error> {
+        self.file.size()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), Self::Error> {
+        self.reads.set(self.reads.get() + 1);
+        self.file.read_at(offset, buf)
+    }
+}
+
+/// Chunk samples of the long series: 256 i16 samples, so the file stays small and only heads count.
+const LONG_CHUNK_SAMPLES: u32 = 256;
+
+/// What `TapeReader::series_timeline` costs over a long series of `--long-chunks` chunks whose scale changes
+/// `--long-stretches` less one times, from a file in the page cache: reads and ns per chunk, the best of
+/// `--rounds`.
+fn long_timeline(
+    bench: &Bench,
+    defs: &Definitions,
+    track: TrackNum,
+    args: &Args,
+) -> anyhow::Result<Measure> {
+    let mut table = bench.table(
+        "long-timeline",
+        &format!(
+            "Timeline of a series of {} chunks in {} stretches, from a file, best of {} rounds.",
+            args.long_chunks, args.long_stretches, args.rounds
+        ),
+        &["Read", "Reads", "ms", "ns per chunk"],
+    );
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
+    let dir = std::env::temp_dir().join(format!("ww_tape_bench_long_{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("long.wwt");
+    let samples = vec![0u8; LONG_CHUNK_SAMPLES as usize * 2];
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    let columns = [(spec, samples.as_slice())];
+    let per = (args.long_chunks / args.long_stretches.max(1)).max(1);
+    let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).map_err(e)?;
+    for k in 0..args.long_chunks {
+        let mut h = head(track, u64::from(k), LONG_CHUNK_SAMPLES)?;
+        let scale = if (k / per) % 2 == 0 {
+            ww_tape::Magnitude::ONE
+        } else {
+            ww_tape::Magnitude::pow10(-3)
+        };
+        h.grid = h.grid.map(|g| g.rescaled(scale));
+        w.write_chunk(defs, &h, &columns).map_err(e)?;
+    }
+    w.close().map_err(e)?;
+    let src = CountedFile {
+        file: ww_tape_fs::FileSource::open(&path).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+        reads: 0.into(),
+    };
+    let r = TapeReader::open(&src).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let track_id = head(track, 0, LONG_CHUNK_SAMPLES)?.track_id;
+    let mut best = (f64::INFINITY, 0u64);
+    for _ in 0..args.rounds {
+        let from = src.reads.get();
+        let t = Instant::now();
+        let (tl, errors) = r
+            .series_timeline(0, track_id, period())
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let ns = t.elapsed().as_nanos() as f64;
+        anyhow::ensure!(
+            errors.is_empty() && tl.stretches().len() as u32 == args.long_chunks.div_ceil(per),
+            "{errors:?}"
+        );
+        best = (best.0.min(ns), src.reads.get() - from);
+    }
+    _ = std::fs::remove_dir_all(&dir);
+    table.row(vec![
+        Cell::text("`TapeReader::series_timeline`"),
+        Cell::count(best.1),
+        Cell::num(best.0 / 1e6, 2),
+        Cell::num(best.0 / f64::from(args.long_chunks), 0),
+    ]);
+    Ok(table)
 }
 
 /// Bytes that count what is read of them.
