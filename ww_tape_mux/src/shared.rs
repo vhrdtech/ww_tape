@@ -93,6 +93,11 @@ pub(crate) enum Work<T: PieceStore> {
         carry: ItemCarry,
         reply: ReplyTx<Result<ItemHash, MuxError<T::Error>>>,
     },
+    /// Put the definitions of tracks without data, and hold the tracks for later pieces.
+    PutDefinitions {
+        tracks: Vec<TrackNum>,
+        reply: Done<T::Error>,
+    },
     /// Hold a typed item no more.
     ReleaseItem {
         hash: ItemHash,

@@ -12,6 +12,7 @@ use ww_tape::{
 };
 
 use crate::define;
+use crate::defined::HeldDefs;
 use crate::error::{GroupUnitPut, MuxError};
 use crate::items::{self, Held};
 use crate::open;
@@ -57,6 +58,8 @@ struct State<'a, T: PieceStore> {
     rebuild: Option<Vec<IndexEntry>>,
     /// Typed items put again in each piece a cut starts
     items: Held,
+    /// Tracks put without data, put again in each piece a cut starts
+    defined: HeldDefs,
     /// The data tracks the unit placed last wrote on, for the items of their owners
     wrote: Vec<TrackNum>,
 }
@@ -80,6 +83,7 @@ pub(crate) fn run<T: PieceStore>(
         late: Vec::new(),
         rebuild,
         items: Held::new(chain.seq()),
+        defined: HeldDefs::new(chain.seq()),
         wrote: Vec::new(),
     };
     let mut next_tick = Instant::now().checked_add(tick);
@@ -182,7 +186,8 @@ fn rebuilt<T: PieceStore>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mu
     }
 }
 
-/// Put the held typed items into a piece a cut just started: a failure stops the chain, a refusal is counted.
+/// Put the definitions of the tracks held without data, then the held typed items, into a piece a cut just
+/// started: a failure stops the chain, a refusal is counted.
 fn carry_items<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &Definitions,
@@ -192,7 +197,10 @@ fn carry_items<T: PieceStore>(
     if shared.failure.get().is_some() {
         return;
     }
-    let r = st.items.carry(chain, defs, &st.wrote);
+    let r = st
+        .defined
+        .carry(chain, defs)
+        .and_then(|n| Ok(n.saturating_add(st.items.carry(chain, defs, &st.wrote)?)));
     st.wrote.clear();
     match r {
         Ok(refused) => Counters::add(&shared.counters.refused, refused),
@@ -212,10 +220,44 @@ fn writes<T: PieceStore>(work: &Work<T>) -> bool {
             | Work::Put { .. }
             | Work::PutGroup { .. }
             | Work::PutItem { .. }
+            | Work::PutDefinitions { .. }
             | Work::Cut { .. }
             | Work::Flush { sync: true, .. }
             | Work::Close { .. }
     )
+}
+
+/// Before `work`: the rebuild of a resumed piece's trees when it writes; the end of the trees when it puts and the
+/// chain cuts before puts ([PieceChain::puts_cut_due]), so the trees end in the piece their items are in. A failure
+/// stops the chain.
+fn before<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    st: &mut State<'_, T>,
+    work: &Work<T>,
+) {
+    if !writes(work) {
+        return;
+    }
+    rebuilt(chain, defs, st);
+    let puts = matches!(
+        work,
+        Work::Put { .. }
+            | Work::PutGroup { .. }
+            | Work::PutItem { .. }
+            | Work::PutDefinitions { .. }
+    );
+    if puts
+        && st.shared.failure.get().is_none()
+        && chain.puts_cut_due()
+        && let Err(e) = end_trees(chain, defs, st)
+    {
+        if stops(chain, &e) {
+            st.shared.fail(e);
+        } else {
+            Counters::add(&st.shared.counters.refused, 1);
+        }
+    }
 }
 
 /// End the summary trees of the piece and cut to a new one.
@@ -346,9 +388,7 @@ fn place<T: PieceStore>(
     bytes: u64,
 ) -> Option<Exit<T>> {
     let shared = st.shared;
-    if writes(&work) {
-        rebuilt(chain, defs, st);
-    }
+    before(chain, defs, st, &work);
     let failed = shared.failure.get().is_some();
     match work {
         Work::Chunk {
@@ -456,6 +496,9 @@ fn place<T: PieceStore>(
             };
             reply.send(r);
         }
+        Work::PutDefinitions { tracks, reply } => {
+            reply.send(put_definitions(chain, defs, st, &tracks));
+        }
         Work::ReleaseItem { hash, reply } => reply.send(st.items.release(hash)),
         Work::DefineTrack { item, reply } => reply.send(define::hold_track(defs, &item)),
         Work::DefineClock { items, reply } => reply.send(define::hold_clock(defs, &items)),
@@ -496,6 +539,22 @@ fn place<T: PieceStore>(
         Work::Stop => return Some(Exit::Stop),
     }
     None
+}
+
+/// Put the definitions of `tracks`, without data, and hold them for later pieces.
+fn put_definitions<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    st: &mut State<'_, T>,
+    tracks: &[TrackNum],
+) -> Result<(), MuxError<T::Error>> {
+    let shared = st.shared;
+    if let Some(f) = shared.failure.get() {
+        return Err(MuxError::Failed(f.clone()));
+    }
+    st.defined
+        .put(chain, defs, tracks)
+        .map_err(|e| refused(chain, shared, e))
 }
 
 /// The put of `item` on `track` at `ticks`: by key when `keyed`, the item then a [KeyedItem].

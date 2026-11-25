@@ -12,7 +12,8 @@
 //! | [RelayHandle] | another producer's block | [PieceChain::relay_block] or [PieceChain::adopt_block] |
 //! | [StateHandle] | a state item, on change; a key's value or deletion on a keyed track | [PieceChain::put], [PieceChain::put_key], [PieceChain::delete_key] |
 //!
-//! Typed items go through [TapeMux::put_item], carried into later pieces as their [ItemCarry] says.
+//! Typed items go through [TapeMux::put_item], carried into later pieces as their [ItemCarry] says; the definitions
+//! of tracks without data through [TapeMux::put_definitions], carried into every later piece.
 //!
 //! The writing thread places units in the order they came, and does the chores: puts of definitions and state,
 //! cuts by the chain's policy, sync and checkpoints by time ([MuxOptions::tick]), the close. Handles never pass
@@ -94,6 +95,7 @@
 //! | [HELD_ITEM_BYTES_MAX] | 4 MiB | the bytes of the typed items held for later pieces |
 
 mod define;
+mod defined;
 mod error;
 mod events;
 mod grid;
@@ -388,6 +390,30 @@ where
         let w = Work::PutItem {
             item,
             carry,
+            reply: tx,
+        };
+        self.shared.control_async(w, rx).await?
+    }
+
+    /// Put the definitions of `tracks` ([PieceChain::put_definitions]) once every unit sent before is placed: each
+    /// track's clock chain, maps, bundles and its own definition, so a track that never gets data is in the chain.
+    /// The mux holds the tracks and puts their definitions again in each piece a later cut starts. A definition that
+    /// lies near behind in the piece is not written again ([ww_tape::TapeWriter::put]'s near rule); a track defined
+    /// twice ([ww_tape::TrackSpec::defined_twice]) gets its copy.
+    ///
+    /// A resumed mux holds no track: put them again after the resume, as the tracks are defined again.
+    pub fn put_definitions(&self, tracks: &[TrackNum]) -> Result<(), MuxError<T::Error>> {
+        block_on(self.put_definitions_async(tracks))
+    }
+
+    /// [Self::put_definitions] as a future.
+    pub async fn put_definitions_async(
+        &self,
+        tracks: &[TrackNum],
+    ) -> Result<(), MuxError<T::Error>> {
+        let (tx, rx) = reply();
+        let w = Work::PutDefinitions {
+            tracks: tracks.to_vec(),
             reply: tx,
         };
         self.shared.control_async(w, rx).await?

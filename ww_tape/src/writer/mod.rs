@@ -203,6 +203,9 @@ pub struct TapeWriter<S: TapeSink> {
     /// The last block written belongs with the block after it ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): the writer
     /// places none of its own blocks until the unit ends
     unit_open: bool,
+    /// The open run is a caller's: its last block, data the caller gave, is marked
+    /// [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT). A put now goes inside it, marked, never ending it
+    caller_run: bool,
     /// The chunks of the open unit so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
     unit_chunks: usize,
     /// The blocks of the open run so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
@@ -560,6 +563,7 @@ impl<S: TapeSink> TapeWriter<S> {
             indexer: Indexer::new(IndexPolicy::default()),
             index_due: false,
             unit_open: false,
+            caller_run: false,
             unit_chunks: 0,
             run_blocks: 0,
             relay_groups: relay::RelayGroups::default(),
@@ -777,7 +781,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Put `item` on state track `track` of `defs` at `ticks` of its clock: the producer uses it now, and puts it at
     /// each use. It is written, after the track's definition and what it names where those don't lie close behind,
     /// unless the newest record of the track is the same item at most the track's `near` behind in the piece and no
-    /// copy is due ([near]). Deferred blocks are placed first. Whether the item was written.
+    /// copy is due ([near]). Deferred blocks are placed first. Whether the item was written: `false` also for one held
+    /// behind a waiting group ([Self::puts_waiting]).
     pub fn put(
         &mut self,
         defs: &Definitions,
@@ -852,7 +857,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .into());
         }
         let (put, slot, item) = Self::key_put(defs, track, keyed)?;
-        keyed::check(&self.kept, defs, &[put], self.key_limits())?;
+        self.check_keys(defs, &[put])?;
         self.put_state(defs, track, &facts, ticks, slot, &item)
     }
 
@@ -880,6 +885,39 @@ impl<S: TapeSink> TapeWriter<S> {
             len: item.len(),
         };
         Ok((put, Slot::Keyed { track, key }, item))
+    }
+
+    /// [keyed::check] of `puts` behind the keyed puts that wait for a caller's open unit to end, in their order: a
+    /// burst behind a waiting group neither collides nor passes the carry's limits unseen.
+    fn check_keys(
+        &self,
+        defs: &Definitions,
+        puts: &[keyed::KeyPut<'_>],
+    ) -> Result<(), WriteError<S::Error>> {
+        let mut all = Vec::new();
+        for w in self.relay_groups.waiting() {
+            for c in &w.cands {
+                if let (Slot::Keyed { track, .. }, RecordTrack::Data(_)) = (c.slot, c.track)
+                    && let Some(ident) = defs
+                        .track_identity(track)
+                        .map(|(id, owner)| (id, OwnerId(owner)))
+                {
+                    let bytes = c.item.bytes();
+                    let item = crate::KeyedItem::read(bytes).map_err(DescribeError::KeyedItem)?;
+                    all.push(keyed::KeyPut {
+                        track,
+                        ident,
+                        item,
+                        len: bytes.len(),
+                    });
+                }
+            }
+        }
+        if all.is_empty() {
+            return keyed::check(&self.kept, defs, puts, self.key_limits());
+        }
+        all.extend(puts.iter().copied());
+        keyed::check(&self.kept, defs, &all, self.key_limits())
     }
 
     /// The limits the keys every cut carries keep to ([keyed::check]).
@@ -931,6 +969,9 @@ impl<S: TapeSink> TapeWriter<S> {
     /// keyed records in blocks of their own. A crash inside the group leaves a run of marked blocks at the end of
     /// the piece, which a resume drops whole ([Self::resume_on]); a reader of the piece before the resume and a
     /// follower show none of it. Which puts were written, one flag each.
+    ///
+    /// While a caller's unit is open ([Self::unit_open]) the group waits whole and is written after the unit's last
+    /// block: every flag is then `false`, as for puts the near rule passes over, and [Self::puts_waiting] counts it.
     ///
     /// The group is checked whole before anything is written: every track a state track of `defs`, an item
     /// ([GroupItem::State]) on one that isn't keyed ([DescribeError::Keyed]) and a key ([GroupItem::Key]) on one
@@ -985,7 +1026,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if puts.is_empty() {
             return Ok(Vec::new());
         }
-        keyed::check(&self.kept, defs, &key_puts, self.key_limits())?;
+        self.check_keys(defs, &key_puts)?;
         self.want(&tracks);
         self.track_room(defs, &tracks)?;
         let mut cands = self.needed(defs, &tracks);
@@ -1002,6 +1043,10 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         }
         self.admit(defs, &[], entries_max(&cands))?;
+        if self.caller_run {
+            self.hold_group(cands.into_iter().map(Candidate::owned).collect())?;
+            return Ok(vec![false; puts.len()]);
+        }
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
@@ -1014,7 +1059,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Put the typed item `item` on track 0, after its bundle where `defs` holds it and it doesn't lie close behind:
     /// written unless the same item lies within track 0's `near` ([crate::Layout::definitions]) and no copy is due.
-    /// Whether it was written.
+    /// Whether it was written: `false` also for one held behind a waiting group ([Self::puts_waiting]).
     pub fn put_item(
         &mut self,
         defs: &Definitions,
@@ -1055,6 +1100,34 @@ impl<S: TapeSink> TapeWriter<S> {
         self.put_last(&cands)
     }
 
+    /// Put the definitions of `tracks` (numbers held in `defs`) with no data: each track's clock chain, maps, bundles
+    /// and its own definition ([Definitions::needs]), so a track that never gets data is still in the piece. Each is
+    /// written unless it lies within track 0's `near` and no copy is due, as before data. Gives the tracks no row in
+    /// the close: a cut carries them no further. Whether any was written: `false` also when held behind a waiting
+    /// group ([Self::puts_waiting]).
+    pub fn put_definitions(
+        &mut self,
+        defs: &Definitions,
+        tracks: &[TrackNum],
+    ) -> Result<bool, WriteError<S::Error>> {
+        self.check()?;
+        self.want(tracks);
+        for t in tracks {
+            defs.track(*t)
+                .ok_or(DescribeError::UnknownTrack { track: *t })?;
+        }
+        let cands = self.needed(defs, tracks);
+        if cands.is_empty() {
+            return Ok(false);
+        }
+        self.admit(defs, tracks, 0)?;
+        self.room(0, !self.head_put)?;
+        self.place_deferred()?;
+        self.ensure_carried(defs)?;
+        let chosen = self.put_chosen(&cands, PutsEnd::Last)?;
+        Ok(chosen.contains(&true))
+    }
+
     /// Put `cands` ([Self::choose]); whether the last one was written.
     fn put_last(&mut self, cands: &[Candidate<'_>]) -> Result<bool, WriteError<S::Error>> {
         let chosen = self.put_chosen(cands, PutsEnd::Last)?;
@@ -1069,6 +1142,17 @@ impl<S: TapeSink> TapeWriter<S> {
         cands: &[Candidate<'_>],
         end: PutsEnd,
     ) -> Result<Vec<bool>, WriteError<S::Error>> {
+        // a put behind a group waiting for the open unit waits too, so the two keep their order
+        if self.caller_run && end == PutsEnd::Last && self.relay_groups.has_waiting() {
+            self.hold_waiting(cands.iter().cloned().map(Candidate::owned).collect(), false)?;
+            return Ok(vec![false; cands.len()]);
+        }
+        // inside a caller's open run the puts belong with its next block, so they never end it
+        let end = if self.caller_run && end == PutsEnd::Last {
+            PutsEnd::WithNext
+        } else {
+            end
+        };
         // a call that needs a definition or puts an item uses the layout and the producer: a copy is due as for a
         // definition, where the piece has room for it
         let copies = if cands.is_empty() {
@@ -1565,7 +1649,17 @@ impl<S: TapeSink> TapeWriter<S> {
     /// The layout and the producer ([Self::ensure_head]), then, when due, the definitions of the tracks the piece head
     /// carries ([Self::carried]), belonging with the call's block: what a call given `defs` writes before its own.
     /// Those of rows marked [TrackStart::not_carried] are left out, and so are those past the state entries left.
+    /// Then the groups that waited for a caller's unit to end ([Self::write_waiting]).
     fn ensure_carried(&mut self, defs: &Definitions) -> Result<(), WriteError<S::Error>> {
+        self.carry_head(defs)?;
+        if self.relay_groups.has_waiting() {
+            self.write_waiting(Some(defs))?;
+        }
+        Ok(())
+    }
+
+    /// [Self::ensure_carried] without the groups waiting.
+    fn carry_head(&mut self, defs: &Definitions) -> Result<(), WriteError<S::Error>> {
         self.load_keys(defs, false);
         if !self.carried_due {
             return self.ensure_head();
@@ -1808,10 +1902,25 @@ impl<S: TapeSink> TapeWriter<S> {
         self.bytes
     }
 
+    /// [Self::bytes] and, at most, the final index the close lists them in: its entries, each
+    /// [ENTRY_LEN](crate::index::ENTRY_LEN) bytes, and its blocks' heads, directories and CRCs. What the piece holds
+    /// once closed, short of the close and the tail. A piece of puts lists an entry for each small block, so its final
+    /// index may outgrow its blocks.
+    pub fn closed_bytes(&self) -> u64 {
+        let index = u64::try_from(self.indexer.final_bytes_upper()).unwrap_or(u64::MAX);
+        self.bytes.saturating_add(index)
+    }
+
     /// The piece's bytes up to the writer's last sync ([Self::bytes] then): durable once the sink's sync is. 0 before
     /// the first sync.
     pub fn synced_bytes(&self) -> u64 {
         self.synced
+    }
+
+    /// Whether a call wrote in the piece past its head: the layout and the producer are put. A cut now leaves no
+    /// piece empty.
+    pub(crate) fn wrote_past_head(&self) -> bool {
+        self.head_put
     }
 
     /// Whether the piece has a piece head: written by [Self::begin_piece], or read back by a resume.
@@ -1956,6 +2065,7 @@ impl<S: TapeSink> TapeWriter<S> {
             0
         };
         self.unit_open = with_next;
+        self.caller_run &= with_next;
         let unit = self.account_hashed(block, header, *crc, payload)?;
         self.unsynced = self.unsynced.saturating_add(1);
         let due = match self.policy {
@@ -2778,7 +2888,9 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         self.chunk_buf = buf;
         let placed = r?;
+        self.caller_run = self.unit_open;
         self.after_block()?;
+        self.write_waiting_after_unit(defs)?;
         Ok(placed)
     }
 
@@ -2847,7 +2959,9 @@ impl<S: TapeSink> TapeWriter<S> {
         } else {
             self.write_own(block)?
         };
+        self.caller_run = self.unit_open;
         self.after_block()?;
+        self.write_waiting_after_unit(defs)?;
         Ok(Some(placed))
     }
 
@@ -2898,7 +3012,9 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut own = block.to_vec();
         crate::set_id_trusted(&mut own, self.next_id()).map_err(WriteError::Block)?;
         let placed = self.write_own(&own)?;
+        self.caller_run = self.unit_open;
         self.after_block()?;
+        self.write_waiting_after_unit(defs)?;
         Ok(Some(placed))
     }
 
@@ -3036,7 +3152,7 @@ impl<S: TapeSink> TapeWriter<S> {
             &mut BlockSeen::default(),
             (&mut cands, &mut key_puts),
         )?;
-        keyed::check(&self.kept, defs, &key_puts, self.key_limits())?;
+        self.check_keys(defs, &key_puts)?;
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
@@ -3113,7 +3229,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 });
             }
         }
-        keyed::check(&self.kept, defs, &key_puts, self.key_limits())
+        self.check_keys(defs, &key_puts)
     }
 
     /// Put the records of a producer's group held ([Self::put_block]) as one group.
@@ -3123,10 +3239,109 @@ impl<S: TapeSink> TapeWriter<S> {
         cands: &[Candidate<'_>],
     ) -> Result<(), WriteError<S::Error>> {
         self.admit(defs, &[], entries_max(cands))?;
+        if self.caller_run {
+            return self.hold_group(cands.iter().cloned().map(Candidate::owned).collect());
+        }
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
         self.put_chosen(cands, PutsEnd::Group).map(|_| ())
+    }
+
+    /// Hold the whole group `cands` while a caller's unit is open: its last block, a block of puts, would end the
+    /// unit. It is written once the unit ends ([Self::write_waiting]). Refused as a relay's groups are, past
+    /// [RELAY_GROUPS_MAX] groups or [RELAY_HELD_BYTES_MAX] bytes held.
+    fn hold_group(&mut self, cands: Vec<Candidate<'static>>) -> Result<(), WriteError<S::Error>> {
+        if self.relay_groups.len() >= RELAY_GROUPS_MAX {
+            return Err(group_refused(GroupRefusal::TooManyHeld {
+                session: self.session,
+                max: RELAY_GROUPS_MAX,
+            }));
+        }
+        self.hold_waiting(cands, true)
+    }
+
+    /// Hold `cands` behind the groups waiting ([Self::hold_group]), as a group or the records of one put: refused
+    /// past [RELAY_HELD_BYTES_MAX] bytes held.
+    fn hold_waiting(
+        &mut self,
+        cands: Vec<Candidate<'static>>,
+        group: bool,
+    ) -> Result<(), WriteError<S::Error>> {
+        let cost = cands.iter().fold(0usize, |n, c| {
+            n.saturating_add(c.item.bytes().len())
+                .saturating_add(RELAY_RECORD_OVERHEAD)
+        });
+        let len = self.relay_groups.held().saturating_add(cost);
+        if len > RELAY_HELD_BYTES_MAX {
+            return Err(if group {
+                group_refused(GroupRefusal::HeldTooLong {
+                    session: self.session,
+                    len,
+                    max: RELAY_HELD_BYTES_MAX,
+                })
+            } else {
+                WriteError::Input(InputError::WaitingTooLong {
+                    len,
+                    max: RELAY_HELD_BYTES_MAX,
+                })
+            });
+        }
+        self.relay_groups
+            .wait(relay::Waiting { cands, cost, group });
+        Ok(())
+    }
+
+    /// The groups, and the puts behind them, that wait for a caller's unit to end: written after its last block. A
+    /// put or group call that returned all `false` while some wait was held, not passed over by the near rule.
+    pub fn puts_waiting(&self) -> usize {
+        self.relay_groups.waiting().len()
+    }
+
+    /// Write the groups and puts that waited for a caller's unit to end, oldest first, each group whole; with `defs`,
+    /// after the definitions a new piece carries. One the piece has no room for ([IndexError::StateEntries]) waits
+    /// on, with those after it, and the error is returned: a chain cuts and writes it in the next piece.
+    fn write_waiting(&mut self, defs: Option<&Definitions>) -> Result<(), WriteError<S::Error>> {
+        while !self.caller_run
+            && let Some(w) = self.relay_groups.next_waiting()
+        {
+            let end = if w.group {
+                PutsEnd::Group
+            } else {
+                PutsEnd::Last
+            };
+            let r = self
+                .room(0, !self.head_put)
+                .and_then(|()| defs.map_or(Ok(()), |d| self.carry_head(d)))
+                .and_then(|()| self.put_chosen(&w.cands, end).map(drop));
+            if let Err(e) = r {
+                if matches!(e, WriteError::Index(IndexError::StateEntries { .. })) {
+                    self.relay_groups.wait_first(w);
+                }
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+
+    /// Before a close: write the groups and puts waiting, in order. A caller's unit still open ends with them: they
+    /// follow its blocks, and the last of them, unmarked, ends its run, so nothing written is cut and the producer's
+    /// part of the unit reads as it wrote it. With nothing waiting, the close itself ends the run.
+    fn close_waiting(&mut self) -> Result<(), WriteError<S::Error>> {
+        self.caller_run = false;
+        self.write_waiting(None)
+    }
+
+    /// [Self::write_waiting] right after the block that ends a caller's unit: a group the piece has no room for
+    /// waits for the next call, which cuts in a chain.
+    fn write_waiting_after_unit(&mut self, defs: &Definitions) -> Result<(), WriteError<S::Error>> {
+        if self.caller_run || !self.relay_groups.has_waiting() {
+            return Ok(());
+        }
+        match self.write_waiting(Some(defs)) {
+            Err(WriteError::Index(IndexError::StateEntries { .. })) => Ok(()),
+            r => r,
+        }
     }
 
     /// Push the records of block `b` of puts to put onto `out`, each after what it needs ([Self::put_block]), and
@@ -3682,6 +3897,9 @@ impl<S: TapeSink> TapeWriter<S> {
     /// the tail. A disk may write pages out of order; the first sync keeps a close record and tail that reached it from
     /// naming blocks that didn't.
     fn end(mut self, how: End, summary: Option<&[u8]>) -> Result<Ended<S>, WriteError<S::Error>> {
+        if matches!(how, End::Close(_)) && self.relay_groups.has_waiting() {
+            self.close_waiting()?;
+        }
         let summary = summary
             .map(|body| {
                 crate::piece::write_close_summary(body, BlockId::new(self.session, 0)).ok_or(

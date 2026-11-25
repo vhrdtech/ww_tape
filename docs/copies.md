@@ -55,7 +55,7 @@ Verify reads every byte. For the drive's chain it reads about 119 MB in 41 472 r
 than the recording's 116 MB. Verify reads each block's 32-byte header before the block, 13 816 headers in all.
 
 Verify reads each [[final index]] whole, about 1.8 MB in all. It then reads the first 120 bytes of each index entry again,
-one by one as it replays the blocks: about 1.7 MB more. It does not read the closes and tails, about 13 KB in all.
+one by one as it replays the blocks: about 1.7 MB more. It does not read the closes and tails, about 12 KB in all.
 
 All four pieces hold. An archive runs verify once after a transfer and on a schedule, never on each open.
 

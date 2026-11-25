@@ -91,6 +91,11 @@ pub enum InputError {
     /// A call that would make a run of blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) and the block they
     /// belong with longer than `max` blocks ([RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX)). Nothing is written.
     RunTooLong { max: usize },
+    /// A put behind a group of puts waiting for a caller's open unit to end
+    /// ([TapeWriter::puts_waiting](super::TapeWriter::puts_waiting)) that would bring what waits to `len` bytes, each
+    /// record its bytes and [RELAY_RECORD_OVERHEAD](super::RELAY_RECORD_OVERHEAD), more than `max`
+    /// ([RELAY_HELD_BYTES_MAX](super::RELAY_HELD_BYTES_MAX)). Nothing is written or held.
+    WaitingTooLong { len: usize, max: usize },
     /// A put by key that would make the keys every cut carries take `needed` of `limit`'s `max`: a piece could not
     /// hold them with the layout, the producer and one put more. Nothing is written; a deletion makes room.
     CarryFull {
@@ -346,6 +351,10 @@ impl core::fmt::Display for InputError {
             Self::RunTooLong { max } => write!(
                 f,
                 "a run of blocks belonging with the next of more than {max} blocks"
+            ),
+            Self::WaitingTooLong { len, max } => write!(
+                f,
+                "a put behind a waiting group would bring what waits to {len} bytes, more than {max}"
             ),
             Self::Group(GroupRefusal::TooLong { len, max }) => write!(
                 f,

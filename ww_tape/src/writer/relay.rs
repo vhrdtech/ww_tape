@@ -5,7 +5,9 @@
 //! producer between a group's blocks goes through and leaves the group whole.
 use alloc::collections::BTreeMap;
 
-use super::RelayGroup;
+use alloc::vec::Vec;
+
+use super::{Candidate, RelayGroup};
 use crate::SessionTag;
 
 /// The producers whose groups of puts a relay holds at once ([TapeWriter::relay_block](super::TapeWriter::relay_block)).
@@ -30,10 +32,22 @@ const _: () = {
     );
 };
 
-/// The groups held, by the session tag of their producer's blocks.
+/// A group or a single put that waits for a caller's open unit to end, with what it costs held.
+#[derive(Clone, Debug)]
+pub(super) struct Waiting {
+    pub(super) cands: Vec<Candidate<'static>>,
+    pub(super) cost: usize,
+    /// A whole group, written as one; else the records of one put
+    pub(super) group: bool,
+}
+
+/// The groups held, by the session tag of their producer's blocks; and, in arrival order, the whole groups and the
+/// puts after them that wait for a caller's open unit to end ([TapeWriter::put_group](super::TapeWriter::put_group)).
+/// The groups waiting count toward [RELAY_GROUPS_MAX], and all toward [RELAY_HELD_BYTES_MAX].
 #[derive(Clone, Debug, Default)]
 pub(super) struct RelayGroups {
     held: BTreeMap<SessionTag, RelayGroup>,
+    waiting: Vec<Waiting>,
 }
 
 impl RelayGroups {
@@ -47,15 +61,45 @@ impl RelayGroups {
         self.held.insert(session, group);
     }
 
-    /// The groups held.
+    /// The groups held, those waiting included.
     pub(super) fn len(&self) -> usize {
-        self.held.len()
+        let waiting = self.waiting.iter().filter(|w| w.group).count();
+        self.held.len().saturating_add(waiting)
     }
 
-    /// What all the groups held cost ([RELAY_HELD_BYTES_MAX]).
+    /// What all the groups held cost ([RELAY_HELD_BYTES_MAX]), those waiting and the puts behind them included.
     pub(super) fn held(&self) -> usize {
-        self.held
+        let held = self
+            .held
             .values()
-            .fold(0usize, |n, g| n.saturating_add(g.held))
+            .fold(0usize, |n, g| n.saturating_add(g.held));
+        self.waiting
+            .iter()
+            .fold(held, |n, w| n.saturating_add(w.cost))
+    }
+
+    /// Hold `w` until the open unit ends, after those waiting already.
+    pub(super) fn wait(&mut self, w: Waiting) {
+        self.waiting.push(w);
+    }
+
+    /// Whether a group or a put waits.
+    pub(super) fn has_waiting(&self) -> bool {
+        !self.waiting.is_empty()
+    }
+
+    /// The groups and puts waiting.
+    pub(super) fn waiting(&self) -> &[Waiting] {
+        &self.waiting
+    }
+
+    /// The oldest waiting, taken out to write.
+    pub(super) fn next_waiting(&mut self) -> Option<Waiting> {
+        (!self.waiting.is_empty()).then(|| self.waiting.remove(0))
+    }
+
+    /// Put `w` back as the oldest waiting: it could not be written yet.
+    pub(super) fn wait_first(&mut self, w: Waiting) {
+        self.waiting.insert(0, w);
     }
 }
