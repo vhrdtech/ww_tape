@@ -857,7 +857,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .into());
         }
         let (put, slot, item) = Self::key_put(defs, track, keyed)?;
-        keyed::check(&self.kept, defs, &[put], self.key_limits())?;
+        self.check_keys(defs, &[put])?;
         self.put_state(defs, track, &facts, ticks, slot, &item)
     }
 
@@ -885,6 +885,39 @@ impl<S: TapeSink> TapeWriter<S> {
             len: item.len(),
         };
         Ok((put, Slot::Keyed { track, key }, item))
+    }
+
+    /// [keyed::check] of `puts` behind the keyed puts that wait for a caller's open unit to end, in their order: a
+    /// burst behind a waiting group neither collides nor passes the carry's limits unseen.
+    fn check_keys(
+        &self,
+        defs: &Definitions,
+        puts: &[keyed::KeyPut<'_>],
+    ) -> Result<(), WriteError<S::Error>> {
+        let mut all = Vec::new();
+        for w in self.relay_groups.waiting() {
+            for c in &w.cands {
+                if let (Slot::Keyed { track, .. }, RecordTrack::Data(_)) = (c.slot, c.track)
+                    && let Some(ident) = defs
+                        .track_identity(track)
+                        .map(|(id, owner)| (id, OwnerId(owner)))
+                {
+                    let bytes = c.item.bytes();
+                    let item = crate::KeyedItem::read(bytes).map_err(DescribeError::KeyedItem)?;
+                    all.push(keyed::KeyPut {
+                        track,
+                        ident,
+                        item,
+                        len: bytes.len(),
+                    });
+                }
+            }
+        }
+        if all.is_empty() {
+            return keyed::check(&self.kept, defs, puts, self.key_limits());
+        }
+        all.extend(puts.iter().copied());
+        keyed::check(&self.kept, defs, &all, self.key_limits())
     }
 
     /// The limits the keys every cut carries keep to ([keyed::check]).
@@ -993,7 +1026,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if puts.is_empty() {
             return Ok(Vec::new());
         }
-        keyed::check(&self.kept, defs, &key_puts, self.key_limits())?;
+        self.check_keys(defs, &key_puts)?;
         self.want(&tracks);
         self.track_room(defs, &tracks)?;
         let mut cands = self.needed(defs, &tracks);
@@ -3119,7 +3152,7 @@ impl<S: TapeSink> TapeWriter<S> {
             &mut BlockSeen::default(),
             (&mut cands, &mut key_puts),
         )?;
-        keyed::check(&self.kept, defs, &key_puts, self.key_limits())?;
+        self.check_keys(defs, &key_puts)?;
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
@@ -3196,7 +3229,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 });
             }
         }
-        keyed::check(&self.kept, defs, &key_puts, self.key_limits())
+        self.check_keys(defs, &key_puts)
     }
 
     /// Put the records of a producer's group held ([Self::put_block]) as one group.
@@ -3241,11 +3274,18 @@ impl<S: TapeSink> TapeWriter<S> {
         });
         let len = self.relay_groups.held().saturating_add(cost);
         if len > RELAY_HELD_BYTES_MAX {
-            return Err(group_refused(GroupRefusal::HeldTooLong {
-                session: self.session,
-                len,
-                max: RELAY_HELD_BYTES_MAX,
-            }));
+            return Err(if group {
+                group_refused(GroupRefusal::HeldTooLong {
+                    session: self.session,
+                    len,
+                    max: RELAY_HELD_BYTES_MAX,
+                })
+            } else {
+                WriteError::Input(InputError::WaitingTooLong {
+                    len,
+                    max: RELAY_HELD_BYTES_MAX,
+                })
+            });
         }
         self.relay_groups
             .wait(relay::Waiting { cands, cost, group });

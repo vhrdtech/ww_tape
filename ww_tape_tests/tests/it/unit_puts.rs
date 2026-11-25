@@ -557,3 +557,36 @@ fn the_mux_keeps_a_put_behind_a_waiting_group() {
     assert_eq!(unit_and_groups(&kinds(&p[0])), 1);
     assert_eq!(in_force(&p[0], STATE).as_deref(), Some(&b"new"[..]));
 }
+
+/// A keyed track beside the unit's.
+const KEYED: u32 = 5;
+
+/// A burst of new keys behind a waiting group is checked with the keys that wait before it: past the carry's
+/// state entries one is refused ([ww_tape::InputError::CarryFull]), as written one by one it would be.
+#[test]
+fn keys_behind_a_waiting_group_count_toward_the_carry() {
+    let (mut defs, units) = relayed_units(false, 1);
+    hold(&mut defs, &[crate::keyed::keyed(KEYED)]).unwrap();
+    let mut w = crate::resume::begin(0);
+    let mut index = crate::resume::options(0).index;
+    index.state_entries_max = exact_units::Count::new(40);
+    w.set_index_policy(index).unwrap();
+    w.write_block(&defs, &units[0][0]).unwrap();
+    w.put_group(&defs, &group_of(STATE, b"old")).unwrap();
+    let keys: Vec<Vec<u8>> = (0..40).map(|i| format!("/k{i}").into_bytes()).collect();
+    let refused = keys
+        .iter()
+        .map(|k| w.put_key(&defs, TrackNum::new(KEYED), 0, k, b"v"))
+        .position(|r| {
+            matches!(
+                r,
+                Err(ww_tape::WriteError::Input(
+                    ww_tape::InputError::CarryFull { .. }
+                ))
+            )
+        });
+    assert!(
+        refused.is_some_and(|i| i < 40),
+        "a key past the carry refused"
+    );
+}

@@ -924,7 +924,8 @@ groups count toward `RELAY_GROUPS_MAX` and `RELAY_HELD_BYTES_MAX`, and a cut car
 
 A put, typed item or definition put behind a waiting group waits too, so the two keep their order.
 `TapeWriter::puts_waiting` counts what waits. A close while the unit is still open tears the unit as a crash does.
-The writer cuts its blocks off, as a resume would, and writes what waits in their place.
+The writer cuts its blocks off, as a resume would, and writes what waits in their place. Keyed puts that wait count
+toward the carry's limits as if written.
 
 A group on a track defined twice ([above](#definitions-written-twice-at-once)) opens with its block marked
 `FLAG_TWICE`. That block is one of the group: it carries `FLAG_GROUP` and `FLAG_GROUP_START` and counts toward
