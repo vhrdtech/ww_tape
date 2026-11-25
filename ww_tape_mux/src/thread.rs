@@ -187,7 +187,8 @@ fn rebuilt<T: PieceStore>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mu
 }
 
 /// Put the definitions of the tracks held without data, then the held typed items, into a piece a cut just
-/// started: a failure stops the chain, a refusal is counted.
+/// started: a failure stops the chain, a refusal is counted. They count as the piece's carry
+/// ([PieceChain::as_carry]): a piece holding them alone is never due for a cut.
 fn carry_items<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &Definitions,
@@ -197,10 +198,11 @@ fn carry_items<T: PieceStore>(
     if shared.failure.get().is_some() {
         return;
     }
-    let r = st
-        .defined
-        .carry(chain, defs)
-        .and_then(|n| Ok(n.saturating_add(st.items.carry(chain, defs, &st.wrote)?)));
+    let r = chain.as_carry(|chain| {
+        st.defined
+            .carry(chain, defs)
+            .and_then(|n| Ok(n.saturating_add(st.items.carry(chain, defs, &st.wrote)?)))
+    });
     st.wrote.clear();
     match r {
         Ok(refused) => Counters::add(&shared.counters.refused, refused),
@@ -228,7 +230,7 @@ fn writes<T: PieceStore>(work: &Work<T>) -> bool {
 }
 
 /// Before `work`: the rebuild of a resumed piece's trees when it writes; the end of the trees when it puts and the
-/// chain cuts before puts ([PieceChain::puts_cut_due]), so the trees end in the piece their items are in. A failure
+/// chain cuts before puts ([PieceChain::cut_due]), so the trees end in the piece their items are in. A failure
 /// stops the chain.
 fn before<T: PieceStore>(
     chain: &mut PieceChain<T>,
@@ -249,7 +251,7 @@ fn before<T: PieceStore>(
     );
     if puts
         && st.shared.failure.get().is_none()
-        && chain.puts_cut_due()
+        && chain.cut_due()
         && let Err(e) = end_trees(chain, defs, st)
     {
         if stops(chain, &e) {

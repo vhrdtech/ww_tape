@@ -23,10 +23,14 @@ use crate::writer::{
 };
 use crate::{ChunkHead, ColumnSpec, Definitions, HEADER_LEN, SessionTag};
 
-/// When a [PieceChain] cuts to a new piece; checked before each chunk. Zero or None turns a limit off.
+/// When a [PieceChain] cuts to a new piece; checked before each chunk and each call of puts.
+///
+/// Zero or None turns a limit off. A piece that holds its carry alone ([TapeWriter::data_bytes] 0) is never cut: a cut
+/// then would start the same piece again.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct CutPolicy {
-    /// Once a piece holds this many bytes, the final index it will list counted ([TapeWriter::closed_bytes]).
+    /// Once a piece holds this many bytes past its carry, the final index it will list counted
+    /// ([TapeWriter::data_bytes]). A carry larger than this makes pieces of the carry and this many bytes.
     pub bytes: Bytes<u64>,
     /// Once a piece holds this many chunk blocks.
     pub chunks: Count<Chunk, u64>,
@@ -446,7 +450,8 @@ impl<T: PieceStore> PieceChain<T> {
     /// `call` on the writer; when the piece lists all the state entries it may ([IndexError::StateEntries]), again
     /// on a new piece. A call refused so has written nothing: it checks its room first. The new piece carries the
     /// definitions of the call's tracks first ([TapeWriter::want]), so the call fits it. A call the writer refuses
-    /// as input ([crate::InputError]) is checked before its room, so it never cuts.
+    /// as input ([crate::InputError]) is checked before its room, so it never cuts. Nor does a call refused by a piece
+    /// that holds its carry alone, made for the call's tracks: a cut would make the same piece.
     fn with_room<R>(
         &mut self,
         defs: &Definitions,
@@ -455,7 +460,10 @@ impl<T: PieceStore> PieceChain<T> {
         match call(self.writer()?) {
             // a cut inside a unit would split it: the call fails instead
             Err(WriteError::Index(IndexError::StateEntries { .. }))
-                if !self.writer.as_ref().is_some_and(TapeWriter::unit_open) =>
+                if self
+                    .writer
+                    .as_ref()
+                    .is_some_and(|w| !w.unit_open() && w.cut_makes_progress()) =>
             {
                 self.cut_now(defs)?;
                 call(self.writer()?)
@@ -484,7 +492,12 @@ impl<T: PieceStore> PieceChain<T> {
     ) -> Result<(), WriteError<T::Error>> {
         self.cut_for_block(defs, block)?;
         match self.writer()?.relay_block(defs, block) {
-            Err(WriteError::Index(IndexError::StateEntries { .. })) => {
+            Err(WriteError::Index(IndexError::StateEntries { .. }))
+                if self
+                    .writer
+                    .as_ref()
+                    .is_some_and(TapeWriter::cut_makes_progress) =>
+            {
                 self.cut_now(defs)?;
                 self.writer()?.relay_block(defs, block)
             }
@@ -532,24 +545,14 @@ impl<T: PieceStore> PieceChain<T> {
         self.cut_now(defs)
     }
 
-    /// Whether the policy says the current piece is full before a call of puts ([Self::cut_due]), and a call wrote in
-    /// it past its head: a cut then leaves no piece empty. Never inside a run or unit.
-    pub fn puts_cut_due(&self) -> bool {
-        self.cut_due()
-            && self
-                .writer
-                .as_ref()
-                .is_some_and(TapeWriter::wrote_past_head)
-    }
-
-    /// Cut before a call of puts on `tracks` when [Self::puts_cut_due]: refused before the cut when their definitions
+    /// Cut before a call of puts on `tracks` when [Self::cut_due]: refused before the cut when their definitions
     /// fit no piece; the next piece carries `tracks` first. So a chain of puts alone is cut by its policy too.
     fn cut_for_puts(
         &mut self,
         defs: &Definitions,
         tracks: &[TrackNum],
     ) -> Result<(), WriteError<T::Error>> {
-        if !self.puts_cut_due() {
+        if !self.cut_due() {
             return Ok(());
         }
         let w = self.writer()?;
@@ -558,7 +561,7 @@ impl<T: PieceStore> PieceChain<T> {
         self.cut_now(defs)
     }
 
-    /// Put a state track's item ([TapeWriter::put]), in a new piece when [Self::puts_cut_due].
+    /// Put a state track's item ([TapeWriter::put]), in a new piece when [Self::cut_due].
     pub fn put(
         &mut self,
         defs: &Definitions,
@@ -595,7 +598,7 @@ impl<T: PieceStore> PieceChain<T> {
 
     /// Put a group of state tracks' items, taken whole or not at all ([TapeWriter::put_group]). When the piece has no
     /// room for the group's state entries, the chain cuts before it and puts it whole in the new piece: never a cut
-    /// inside it. In a new piece when [Self::puts_cut_due].
+    /// inside it. In a new piece when [Self::cut_due].
     pub fn put_group(
         &mut self,
         defs: &Definitions,
@@ -606,7 +609,7 @@ impl<T: PieceStore> PieceChain<T> {
         self.with_room(defs, |w| w.put_group(defs, puts))
     }
 
-    /// Put a typed item ([TapeWriter::put_item]), in a new piece when [Self::puts_cut_due].
+    /// Put a typed item ([TapeWriter::put_item]), in a new piece when [Self::cut_due].
     pub fn put_item(
         &mut self,
         defs: &Definitions,
@@ -617,7 +620,7 @@ impl<T: PieceStore> PieceChain<T> {
     }
 
     /// Put the definitions of tracks with no data ([TapeWriter::put_definitions]), in a new piece when
-    /// [Self::puts_cut_due].
+    /// [Self::cut_due].
     pub fn put_definitions(
         &mut self,
         defs: &Definitions,
@@ -642,8 +645,9 @@ impl<T: PieceStore> PieceChain<T> {
         self.with_room(defs, |w| w.defer_block(defs, block.clone()))
     }
 
-    /// Whether the policy says the current piece is full: checked before a chunk, by its bytes, its chunk blocks
-    /// ([TapeWriter::chunks], whoever wrote them) and its age. False after a failed cut.
+    /// Whether the policy says the current piece is full: checked before a chunk and a call of puts, by its bytes past
+    /// its carry ([TapeWriter::data_bytes]), its chunk blocks ([TapeWriter::chunks], whoever wrote them) and its age.
+    /// False after a failed cut, and while the piece holds its carry alone: a cut must make progress.
     pub fn cut_due(&self) -> bool {
         let Some(w) = self.writer.as_ref() else {
             return false;
@@ -652,8 +656,12 @@ impl<T: PieceStore> PieceChain<T> {
         if w.unit_open() {
             return false;
         }
+        let data = w.data_bytes();
+        if data == 0 {
+            return false;
+        }
         let c = self.cut;
-        (c.bytes.get() > 0 && w.closed_bytes() >= c.bytes.get())
+        (c.bytes.get() > 0 && data >= c.bytes.get())
             || (c.chunks.get() > 0 && w.chunks() >= c.chunks.get())
             || c.interval
                 .is_some_and(|t| w.clock().passed(self.started, t))
@@ -785,6 +793,22 @@ impl<T: PieceStore> PieceChain<T> {
         self.seq = seq;
         self.started = self.writer.as_ref().and_then(|w| w.clock().now_ms());
         Ok(())
+    }
+
+    /// Run `call` on the chain, what it writes in the piece counted as the piece's carry
+    /// ([TapeWriter::carried_bytes]), not as its data: items a caller puts again in every piece, which
+    /// [CutPolicy::bytes] then leaves out as it leaves out the definitions and state a cut carries. Nothing is counted
+    /// when `call` cuts.
+    pub fn as_carry<R>(&mut self, call: impl FnOnce(&mut Self) -> R) -> R {
+        let seq = self.seq;
+        let before = self.writer.as_ref().map(TapeWriter::closed_bytes);
+        let r = call(self);
+        if let (Some(before), Some(w)) = (before, self.writer.as_mut())
+            && self.seq == seq
+        {
+            w.add_carried(w.closed_bytes().saturating_sub(before));
+        }
+        r
     }
 
     /// Remove the closed pieces of sequence numbers `seqs` from the store, on purpose, so that the chain still reads

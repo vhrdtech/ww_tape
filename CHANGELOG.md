@@ -6,6 +6,18 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- `CutPolicy::bytes` leaves out a piece's carry, so chains cut elsewhere; `PieceChain::puts_cut_due` is gone, call `cut_due` (WRITE-1).
+
+### Features
+
+- `TapeWriter::carried_bytes`, `TapeWriter::data_bytes` and `PieceChain::as_carry` tell and extend what a piece's carry takes (WRITE-1).
+
+### Fixes
+
+- A carry at or past the cut budget no longer makes a chain or mux cut before every put (WRITE-1).
+
 ## [0.12.0] - 2026-11-25
 
 ### Breaking

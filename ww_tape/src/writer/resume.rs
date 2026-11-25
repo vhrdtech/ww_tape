@@ -951,6 +951,11 @@ impl<S: TapeSink> TapeWriter<S> {
             None => Named::default(),
         };
         let mut past_head = base.is_some();
+        // the carry: the head and the run of blocks after it that belong with the next; none after a close
+        let mut carry = CarryRun {
+            open: base.is_none(),
+            end: 0,
+        };
         for (i, s) in walked.iter().enumerate() {
             if s.good {
                 let len = usize::try_from(s.len).map_err(|_overflow| too_long(s.len))?;
@@ -981,9 +986,15 @@ impl<S: TapeSink> TapeWriter<S> {
                 };
                 named.take(&w.sink, &step)?;
                 past_head |= kind != BlockKind::PieceHead;
+                carry.saw(
+                    kind,
+                    &buf,
+                    s.end().saturating_add(wide(w.indexer.final_bytes_upper())),
+                );
                 continue;
             }
             past_head = true;
+            carry.open = false;
             w.twice.lost();
             // the damaged blocks the index lists in these bytes stand by their entries, each ending before the next
             // good block and within the bytes kept; other bytes are junk
@@ -1067,6 +1078,8 @@ impl<S: TapeSink> TapeWriter<S> {
         } else if w.head.is_some() {
             w.ensure_head()?;
         }
+        // a piece of its head alone took the layout and the producer again: all it holds is its carry
+        w.carried = carry.end_of(past_head, w.closed_bytes());
         let resumed = Resumed {
             kept_bytes,
             dropped_bytes: size.saturating_sub(kept_bytes),
@@ -1511,4 +1524,30 @@ fn too_long<E>(len: u64) -> WriteError<E> {
     WriteError::Block(crate::BlockError::BadLength(
         u32::try_from(len).unwrap_or(u32::MAX),
     ))
+}
+
+/// The carry of a piece a resume walks: its head and the run of good blocks after it that belong with the next
+/// ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)), ended by any other block or by damage.
+struct CarryRun {
+    /// Every block walked so far is in the carry
+    open: bool,
+    /// The writer's [TapeWriter::closed_bytes] at the end of the carry
+    end: u64,
+}
+
+impl CarryRun {
+    /// The good block `block` of `kind` walked, `closed` the closed bytes once it is replayed.
+    fn saw(&mut self, kind: BlockKind, block: &[u8], closed: u64) {
+        self.open = self.open
+            && (kind == BlockKind::PieceHead
+                || Block::read(block).is_ok_and(|b| b.flags & crate::FLAG_WITH_NEXT != 0));
+        if self.open {
+            self.end = closed;
+        }
+    }
+
+    /// The carry of the piece resumed: [Self::end] when a block lies `past_head`, else all it holds, `closed`.
+    fn end_of(&self, past_head: bool, closed: u64) -> u64 {
+        if past_head { self.end } else { closed }
+    }
 }

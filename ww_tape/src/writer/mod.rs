@@ -260,6 +260,14 @@ pub struct TapeWriter<S: TapeSink> {
     /// The definitions of the tracks the piece head carries are not in the piece yet: the next call given
     /// definitions puts them first ([Self::ensure_carried])
     carried_due: bool,
+    /// What the piece's carry takes of [Self::closed_bytes]: the piece head, the layout and the producer, the
+    /// definitions, state and keys it carries ([Self::put_carried]), and what a chain counts as carry
+    /// ([PieceChain::as_carry](crate::piece::PieceChain::as_carry)). A cut policy counts the bytes past it
+    /// ([Self::data_bytes]).
+    carried: u64,
+    /// The tracks the piece's carry put first ([Self::want] of the call a cut was made for): a cut for them again,
+    /// with nothing past the carry, would make the same piece
+    carried_for: Vec<TrackNum>,
     /// The tracks of the newest call that wrote or was to write data or a put: the next cut carries their
     /// definitions first ([Self::want])
     wanted: Vec<TrackNum>,
@@ -591,6 +599,8 @@ impl<S: TapeSink> TapeWriter<S> {
             removed_added: false,
             carried_due: false,
             keys_base: None,
+            carried: 0,
+            carried_for: Vec::new(),
             wanted: Vec::new(),
             unlisted: None,
             group_records: group_records::GroupRecords::default(),
@@ -1705,12 +1715,15 @@ impl<S: TapeSink> TapeWriter<S> {
             .map(|b| self.entries(b, &vec![true; b.len()]))
             .sum();
         self.room(n, !self.head_put)?;
+        let before = self.closed_bytes();
         self.ensure_head()?;
         for b in blocks {
             let all = vec![true; b.len()];
             self.write_chosen(b, &all, PutsEnd::WithNext)?;
         }
         self.carried_due = false;
+        self.add_carried(self.closed_bytes().saturating_sub(before));
+        self.carried_for.clone_from(&self.wanted);
         Ok(())
     }
 
@@ -1866,7 +1879,10 @@ impl<S: TapeSink> TapeWriter<S> {
         // the layout and the producer follow every piece head, the definitions of the tracks it carries them
         self.head_put = false;
         self.carried_due = !tracks.is_empty();
-        self.ensure_head()
+        self.carried_for.clear();
+        self.ensure_head()?;
+        self.carried = self.closed_bytes();
+        Ok(())
     }
 
     /// Compute the CRCs and hashes of `level` in this piece from its head on.
@@ -1917,10 +1933,30 @@ impl<S: TapeSink> TapeWriter<S> {
         self.synced
     }
 
-    /// Whether a call wrote in the piece past its head: the layout and the producer are put. A cut now leaves no
-    /// piece empty.
-    pub(crate) fn wrote_past_head(&self) -> bool {
-        self.head_put
+    /// What the piece's carry takes of [Self::closed_bytes]: its head, the layout and the producer, the definitions,
+    /// state and keys it carries, and what a chain counted as carry
+    /// ([PieceChain::as_carry](crate::piece::PieceChain::as_carry)). A resume finds the run of blocks after the head
+    /// that belong with the next ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)); of a piece resumed after its close, none.
+    pub fn carried_bytes(&self) -> u64 {
+        self.carried
+    }
+
+    /// [Self::closed_bytes] past the carry ([Self::carried_bytes]): what a [CutPolicy](crate::piece::CutPolicy)
+    /// counts. 0 while the piece holds its carry alone, however large: a piece grows to its carry and the budget.
+    pub fn data_bytes(&self) -> u64 {
+        self.closed_bytes().saturating_sub(self.carried)
+    }
+
+    /// Count `n` more bytes of the piece as its carry.
+    pub(crate) fn add_carried(&mut self, n: u64) {
+        self.carried = self.carried.saturating_add(n);
+    }
+
+    /// Whether a cut now makes progress: the piece holds data past its carry, or the next data is on other tracks than
+    /// those the carry put first ([Self::want]), which a new piece carries first. Else the cut would make the same
+    /// piece.
+    pub(crate) fn cut_makes_progress(&self) -> bool {
+        self.data_bytes() > 0 || self.wanted != self.carried_for
     }
 
     /// Whether the piece has a piece head: written by [Self::begin_piece], or read back by a resume.
@@ -3620,8 +3656,12 @@ impl<S: TapeSink> TapeWriter<S> {
         let kept = self.kept.clone();
         let newest = self.relations.newest().clone();
         let relay_groups = self.relay_groups.clone();
+        // the carry stays what it was: a resume after a close finds none
+        let (carried, carried_for) = (self.carried, self.carried_for.clone());
         let ended = self.end(End::Kept, None)?;
         let (mut w, _) = Self::resume_on(ended.sink, options)?;
+        w.carried = carried;
+        w.carried_for = carried_for;
         w.keep_after(kept);
         w.take_newest(&newest);
         w.relay_groups = relay_groups;
@@ -3694,6 +3734,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let kept = core::mem::take(&mut w.kept);
         let unlisted = w.unlisted.is_some();
         let relay_groups = core::mem::take(&mut w.relay_groups);
+        let wanted = core::mem::take(&mut w.wanted);
         let done = w.end(End::Cut, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
@@ -3705,7 +3746,9 @@ impl<S: TapeSink> TapeWriter<S> {
         next_piece.newest = newest;
         next_piece.kept = kept;
         let mut next = Self::start_next(next()?, &options, next_piece)?;
+        next.wanted = wanted;
         next.put_carried(&rows.carried)?;
+        next.wanted.clear();
         next.relay_groups = relay_groups;
         let mut closed = done.closed;
         closed.tracks = next.head_rows().to_vec();
@@ -3798,6 +3841,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let kept = core::mem::take(&mut w.kept);
         let unlisted = w.unlisted.is_some();
         let relay_groups = core::mem::take(&mut w.relay_groups);
+        let wanted = core::mem::take(&mut w.wanted);
         let mut done = w.end(End::CutInPlace, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
@@ -3819,7 +3863,9 @@ impl<S: TapeSink> TapeWriter<S> {
             .rebase(base)
             .map_err(sink_err("starting the next piece behind the last"))?;
         let mut next = Self::start_next(done.sink, &options, next_piece)?;
+        next.wanted = wanted;
         next.put_carried(&rows.carried)?;
+        next.wanted.clear();
         next.relay_groups = relay_groups;
         done.closed.tracks = next.head_rows().to_vec();
         done.closed.states_unknown = rows.states_unknown;
