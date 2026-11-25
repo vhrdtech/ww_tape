@@ -103,7 +103,7 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
 - ✅ **FMT-17 Header flags only mark**
 
-  A flag only marks: a reader that doesn't know it reads every byte of the block right. A body read another way is a block kind of its own, which such a reader skips as good. Coded records are kind 15, keyed puts kind 16 and tile summaries kind 17; header bits 0, 5 and 6 are retired. Bit 3 belongs to the block contract: a reader skips an unknown kind with it unchecked, and never resumes at one after damage.
+  A flag only marks: a reader that doesn't know it reads every byte of the block right. A body read another way is a block kind of its own, which such a reader skips as good. Coded records are kind 15, keyed puts kind 16 and tile summaries kind 17; header bits 0, 5 and 6 are retired. Header bits 1 and 3 belong to the block contract: a bit-1 block holds state outside the seq order, whatever its kind. A reader skips an unknown kind with bit 3 unchecked, and never resumes at one after damage.
 
   Read more: [Header flags](docs/format.md#header-flags). Tests `keyed.rs`, `grid_summaries.rs`, `reserved.rs`; fuzz targets `tape-keyed-hostile`, `tape-summary-hostile`, `tape-records-hostile`.
 

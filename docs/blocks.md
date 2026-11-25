@@ -39,10 +39,12 @@ knows the block is damaged. One header bit narrows the CRC to a chunk's head, fo
 source ([Fewer checks, sealed later](integrity.md)).
 
 A block of a kind the reader does not know reads as a good block whose body it skips, and the reading goes on. A newer
-kind of block thus never looks like damage to an old reader. The flags in the header only mark: a body that reads
-another way, such as a coded body, is a kind of its own. A block of a later version is different: it ends the
-[[piece]] the reader is in. The reader lists the rest as a piece of that version, which it refuses to read
-([`ReadError::Version`]).
+kind of block thus never looks like damage to an old reader. Besides the bit that narrows the CRC, one header bit
+marks a block of state a writer put or copied, which every reader knows. The other flags only mark: a body that reads
+another way, such as a coded body, is a kind of its own.
+
+A block of a later version is different: it ends the [[piece]] the reader is in. The reader lists the rest as a piece
+of that version, which it refuses to read ([`ReadError::Version`]).
 
 ## Kinds of block
 

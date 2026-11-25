@@ -17,16 +17,17 @@
 //!   0   4  magic "WWTP"
 //!   4  u8  version, 1
 //!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
-//!   6 u16  flags. Bit 3 is part of the block contract, as len and the CRC are (FLAG_PAYLOAD_UNCHECKED): set, the
-//!          CRC at the end covers what the block's kind says, a chunk's header and head without its payload; a reader
-//!          that doesn't know the kind or version skips such a block by its length, unchecked, and never goes on at one
-//!          right after damage. Every other bit is a flag, and a flag only marks: bit 1 state records a writer put or
-//!          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 4 on an
-//!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
-//!          the start of a grid or scale (FLAG_GRID_START, the same bit), bit 7 on a block of puts definitions written
-//!          twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9 on a group's first
-//!          block (FLAG_GROUP_START); bits 0, 5 and 6 retired (coded records, tile summaries and keyed puts are kinds
-//!          15, 17 and 16); others 0, and a reader ignores them
+//!   6 u16  flags. Bits 1 and 3 are part of the block contract, as len and the CRC are. Bit 1 (FLAG_REPEAT): the
+//!          block holds state records a writer put or copied, not data, and carries the seq of the block before it.
+//!          Bit 3 (FLAG_PAYLOAD_UNCHECKED): the CRC at the end covers what the block's kind says, a chunk's header and
+//!          head without its payload; a reader that doesn't know the kind or version skips such a block by its length,
+//!          unchecked, and never goes on at one right after damage. Every other bit is a flag, and a flag only marks:
+//!          bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 4 on an events chunk a break in
+//!          its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0 the start of a grid or
+//!          scale (FLAG_GRID_START, the same bit), bit 7 on a block of puts definitions written twice at once
+//!          (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9 on a group's first block
+//!          (FLAG_GROUP_START); bits 0, 5 and 6 retired (coded records, tile summaries and keyed puts are kinds 15, 17
+//!          and 16); others 0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -63,12 +64,14 @@
 //! without the definitions; a writer keeps the two in agreement, and a reader may take a record whose slot names
 //! another clock than its track's for damage.
 //!
-//! The **block contract** is the same in every version: the magic, version, kind and length, header bit 3 and the CRC
-//! at the end. So any reader can check a block and skip it by its length; a block marked [FLAG_PAYLOAD_UNCHECKED] of a
-//! kind or version it doesn't know it can only skip ([Checked::Unchecked]). A later version bumps the version byte and
-//! changes only the body. New block kinds and flag bits are added the same way, and a flag only marks: a reader that
-//! doesn't know it reads every byte of the block right. A body read another way is a kind of its own. A block of another version that goes on with the data ends the piece the reader is in and starts a
-//! piece of that version, which the reader lists with its version and refuses to read ([reader::ReadError::Version]).
+//! The **block contract** is the same in every version: the magic, version, kind and length, header bits 1 and 3 and
+//! the CRC at the end. So any reader can check a block and skip it by its length; a block marked
+//! [FLAG_PAYLOAD_UNCHECKED] of a kind or version it doesn't know it can only skip ([Checked::Unchecked]). A block
+//! marked [FLAG_REPEAT] holds state, not data, and takes no part in the seq order, whatever its kind. A later version
+//! bumps the version byte and changes only the body. New block kinds and flag bits are added the same way, and every
+//! other flag only marks: a reader that doesn't know it reads every byte of the block right. A body read another way
+//! is a kind of its own. A block of another version that goes on with the data ends the piece the reader is in and
+//! starts a piece of that version, which the reader lists with its version and refuses to read ([reader::ReadError::Version]).
 //! A block of an unknown kind reads as it is ([Block::body_known] false, no records), not as damage. [Describe] is an
 //! evolvable enum, so a describe record of a variant a reader doesn't know reads as [Describe::Unknown] and is
 //! skipped.
@@ -338,8 +341,11 @@ const _: () = assert!(
     lz4::LZ4_DECODED_MAX == MAX_BLOCK_LEN,
     "an lz4 column decodes to at most a whole block"
 );
-/// Header flag: the block holds state records a writer put or copied ([state]), not new items of the producer's: it
-/// carries the seq of the block before it and takes no part in the seq order.
+/// Header bit 1, part of the block contract rather than a flag: the block holds state records a writer put or copied.
+///
+/// They are [state], not new items of the producer's. The block carries the seq of the block before it and takes no
+/// part in the seq order. A reader that didn't know the bit would take a block of puts for data, and for a rewrite of
+/// the block before it. Blocks of keyed puts ([BlockKind::KeyedPuts]) always carry it.
 ///
 /// A reader holding an item of the same hash in the same slot takes such a record as nothing new.
 pub const FLAG_REPEAT: u16 = 1 << 1;

@@ -716,10 +716,15 @@ fn format_page_piece_rows_read_a_chain() {
 #[test]
 fn format_page_integrity_fields_are_the_constants() {
     let page = std::fs::read_to_string("../docs/format.md").unwrap();
+    assert_eq!(ww_tape::FLAG_REPEAT, 1 << 1);
     assert_eq!(ww_tape::FLAG_PAYLOAD_UNCHECKED, 1 << 3);
-    assert!(page.contains(
-        "flags. Bit 3 is part of the block contract, as len and the CRC are (FLAG_PAYLOAD_UNCHECKED)"
-    ));
+    assert!(
+        page.contains(
+            "flags. Bits 1 and 3 are part of the block contract, as len and the CRC are."
+        )
+    );
+    assert!(page.contains("Bit 1 (FLAG_REPEAT): the"));
+    assert!(page.contains("Bit 3 (FLAG_PAYLOAD_UNCHECKED): the CRC"));
     assert_eq!(ww_tape::index::ENTRY_UNHASHED, 1 << 2);
     assert!(page.contains("bit 2 unhashed (no unit hash)"));
     use ww_tape::Integrity;
