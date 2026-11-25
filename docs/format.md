@@ -1830,8 +1830,8 @@ The other relations' values are in chunks. For each track, the resume reads one 
 MiB): the track's last chunk in the newest closed piece that holds one. A resume of a chain of N tracks therefore
 reads up to N chunks besides each piece's head, close, tail and index.
 
-A chain resume restores the grid of each series track and tile's newest chunk the same way, from the head alone of its
-last chunk of level 0 in the newest closed piece that holds one ([Grid starts](#grid-starts)).
+A chain resume restores the grid of each series track and tile's newest chunk the same way. It reads the head alone of
+the last such chunk of level 0 in the newest closed piece that holds one ([Grid starts](#grid-starts)).
 
 The writer cannot vouch for an order it cannot read. Where that chunk does not read, it refuses the track's next chunk
 (`DescribeError::RelationUnread`). The call `TapeWriter::accept_relation_break(defs, track, relation, from)` lets it go
@@ -1936,8 +1936,8 @@ the final index as it goes. A piece holds up when every check passes:
    incomplete exactly where a damaged block a resume kept, or the head, leaves units out.
 5. Each monotone relation starts each chunk at or above the chunk before it in the piece, except at a chunk marked
    `FLAG_RELATION_BREAK` (`ReadError::RelationOrder`).
-6. Each series chunk of level 0 after one of its track and tile in the piece is marked `FLAG_GRID_START` exactly where
-   its grid or scale isn't that chunk's ([Grid starts](#grid-starts), `ReadError::GridStart`).
+6. A series chunk of level 0 is marked `FLAG_GRID_START` exactly where its track and tile's grid or scale changes
+   ([Grid starts](#grid-starts), `ReadError::GridStart`).
 
 The fields of check 2 are the offset, length, kind, track, items and ticks, and a chunk's unit hash and range
 relation's range. The reader computes the unit hash from the chunk's bytes and the range from its relation column.
@@ -2184,30 +2184,37 @@ scale, and says where the gaps are (`gap_before`).
 
 #### 12.2.2 Grid starts {#grid-starts}
 
-An index entry carries a chunk's first sample, count and ticks, but not its grid or scale: those are in the chunk's
+An index entry carries a chunk's first sample, count and ticks, but not its grid or scale. Those are in the chunk's
 head, and a scale may be up to `SCALE_LEN_MAX` (64) bytes. A **grid start** mark says where they change instead. A
-writer marks a series chunk of level 0 whose grid or scale isn't the one of the chunk of its track and tile before
-it, in two places:
+writer marks a series chunk of level 0 whose grid or scale differs from its track and tile's chunk before it. The
+mark takes two places:
 
 - bit 4 of its header flags (`FLAG_GRID_START`, `Block::is_grid_start`, `Chunk::grid_start`), the bit an events chunk's
   relation break takes;
 - bit 3 of its index entry's flags (`IndexEntry::grid_start`).
 
 Each tile of a grid track has its own sequence of grids. An overview chunk carries no mark, and a reader ignores one.
-The writer's grids go on across a cut, so the first chunk of a piece is marked only where its grid starts. A resume
-takes them from the chunks it keeps, and a chain resume from the head of each series track and tile's last chunk in
-the newest closed piece that holds one. Where it reads none, the next chunk is marked.
 
-The writer marks each chunk it encodes. It refuses a caller's chunk (`write_block`, `adopt_block`, `defer_block`)
-marked otherwise than due, with `InputError::Flags`; `mark_grid_start` sets or clears the mark. A relay
-(`relay_block`) passes on another writer's chunks, which may have lost one on the way: it restamps the mark to what is
-due on this tape. The restamp rewrites the header, the head CRC and the block CRC, and nothing else.
+The writer's grids go on across a cut, so the first chunk of a piece is marked only where its grid starts. A resume
+takes them from the chunks it keeps. A chain resume reads the head of each series track and tile's last chunk in the
+newest closed piece that holds one. Where it reads none, the next chunk is marked.
+
+The writer marks each chunk it encodes. It refuses a caller's chunk marked otherwise than due with
+`InputError::Flags`: `write_block`, `adopt_block` and `defer_block` alike. `mark_grid_start` sets or clears the mark.
+
+A relay (`relay_block`) passes on another writer's chunks, which may have lost one on the way. It restamps the mark to
+what is due on this tape. The restamp rewrites the header, the head CRC and the block CRC, and nothing else.
 
 `TapeReader::series_timeline` builds the timeline from the entries in sample order. A chunk goes on from the grid of
-its tile's chunk before it when its entry isn't marked, it follows that chunk with no samples between, and its first
-and last tick are its samples' on that grid. Any other chunk's head is read: the first of the piece, a marked one,
-one after lost samples, and one whose ticks don't fit. Over ten hours at 48 kHz in 1 MiB chunks, the timeline
-reads one head per grid or scale, per piece and per lost chunk.
+its tile's chunk before it when three things hold:
+
+- its entry isn't marked;
+- it follows that chunk with no samples between;
+- its first and last tick are its samples' on that grid.
+
+Any other chunk's head is read: the first of the piece, a marked one, one after lost samples, and one whose ticks
+don't fit. Over ten hours at 48 kHz in 1 MiB chunks, the timeline reads one head per grid or scale, per piece and per
+lost chunk.
 
 A mark left out on a change of grid shows in the ticks, and the reader reads that head. A mark left out on a change of
 scale, or added where nothing changes, reads without a panic, and `TapeReader::verify` refuses it
@@ -2395,8 +2402,8 @@ torn unit: the writer stops, so no later chunk joins the unit, and a resume drop
 A crash inside a unit leaves a run of marked chunks at the end of the piece. The resume drops it whole
 ([What a resume keeps](#what-a-resume-keeps)), and the handle sends the tile chunk again from its first time step.
 So a run with a crash writes the bytes of one without. A tile chunk sent without overviews (`ChunkSender`, a relay of
-chunks as written) is no unit and gains none. A relay passes another writer's units on as they are, marks and all, but
-a [grid start](#grid-starts) mark, which it restamps where it isn't due on its tape.
+chunks as written) is no unit and gains none. A relay passes another writer's units on as they are,
+restamping only [grid start](#grid-starts) marks to its own tape.
 
 What a reader shows of a unit:
 
