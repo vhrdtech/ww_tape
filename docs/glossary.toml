@@ -17,7 +17,7 @@ chapter = "../anatomy/"
 [[term]]
 name = "back-pressure"
 short = "What a producer meets when the mux's queue is full: its handle waits, fails or drops the unit, by its pressure."
-chapter = "../writing_thread/"
+chapter = "../mux_queue/"
 
 [[term]]
 name = "BLAKE3"
@@ -159,7 +159,7 @@ chapter = "../pieces/"
 name = "deferred block"
 forms = ["deferred blocks"]
 short = "A small block, such as summaries, that the writer holds back for a gap before a chunk's payload in an aligned file."
-chapter = "../writing/"
+chapter = "../aligned/"
 
 [[term]]
 name = "definition"

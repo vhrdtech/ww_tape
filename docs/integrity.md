@@ -19,9 +19,9 @@ A writer can skip the hashes, or the payload CRCs too. Each [[piece]] names its 
 | `None` | also the CRCs over chunk payloads | block CRCs, chunk head CRCs and every structure block |
 
 Below `Full`, the fields of the hashes stay in place and hold zero, and the piece head's level says that they are
-absent. A chunk of `None` is marked unchecked in its header. A reader reports it as [`Checked::Unprotected`], and
-[`ChainLink::Unproven`] marks a link between pieces that no content hash proves. The bench `levels` writes chunks into
-a memory tape at each level:
+absent. A chunk of `None` sets header bit 3, which says that its CRC covers the head alone. A reader reports such a
+chunk as [`Checked::Unprotected`], and [`ChainLink::Unproven`] marks a link between pieces that no content hash
+proves. The bench `levels` writes chunks into a memory tape at each level:
 
 --8<-- "docs/plots/bench_levels_write.txt"
 
@@ -33,6 +33,12 @@ the copy into memory.
 A seal raises a closed piece to `Full` later, at save time or whenever there is time. It computes what the writer
 skipped and writes every block in its place, so the piece keeps its length and its offsets. The sealed piece holds the
 bytes a writer at `Full` writes from the same calls.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/seal.svg"
+<figcaption>A piece written at <code>None</code> and the same piece sealed. The seal fills the fields the writer left
+at zero and changes no offset, so the sealed piece reads as one written at <code>Full</code>.</figcaption>
+</figure>
 
 - [`MemPieces::seal`] swaps a sealed copy in, while a reader holding the old tape reads on.
 - [`ww_tape_fs::writer::seal`] seals a file in place and writes each piece head last. A crash before that leaves the

@@ -36,10 +36,15 @@ nav = [
             },
             { "Writing" = [
                     "writing.md",
+                    "writer_adds.md",
+                    "aligned.md",
                     "writing_thread.md",
+                    "mux_queue.md",
                     "files.md",
                     "pieces.md",
-                    "crashes.md"
+                    "old_pieces.md",
+                    "crashes.md",
+                    "resume_cases.md"
                 ]
             },
             { "Reading" = [

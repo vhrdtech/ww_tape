@@ -722,21 +722,23 @@ fn a_value_through_the_mux() {
         part_len: PART,
         ..Default::default()
     };
-    let mut h = mux.bytes(BYTES, small).unwrap();
+    let v = value(21, 7300);
+    // --8<-- [start:value]
+    let mut h = mux.bytes(BYTES, small).unwrap(); // the track's one handle
+    let id = h.begin(4).unwrap(); // a value at tick 4
+    for (k, part) in v.chunks(1100).enumerate() {
+        h.write(part).unwrap(); // streamed: the handle sends a part whenever one is full
+        if k == 3 {
+            h.flush().unwrap();
+            mux.cut().unwrap(); // a cut inside the value
+        }
+    }
+    let seal = h.finish().unwrap(); // the last part, the seal: the value's length and hash
+    // --8<-- [end:value]
     assert!(matches!(
         mux.bytes(BYTES, small),
         Err(ww_tape_mux::MuxError::Call(ww_tape_mux::CallError::BytesHeld { track })) if track == BYTES
     ));
-    let v = value(21, 7300);
-    let id = h.begin(4).unwrap();
-    for (k, piece) in v.chunks(1100).enumerate() {
-        h.write(piece).unwrap();
-        if k == 3 {
-            h.flush().unwrap();
-            mux.cut().unwrap();
-        }
-    }
-    let seal = h.finish().unwrap();
     assert_eq!(seal.id, id);
     assert_eq!(seal.parts, 9);
     assert_eq!(h.next_part(), ItemNum::new(9));

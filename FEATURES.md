@@ -227,7 +227,7 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   The writer checks the head of a chunk it encodes, not the encoded bytes. A block the caller encoded is read once, with its CRCs checked. On a 1 MiB series chunk this costs 466 µs past the encoding.
 
-  Read more: [What the writer checks](docs/writing.md#what-the-writer-checks).
+  Read more: [What the writer checks](docs/writer_adds.md#what-the-writer-checks).
 
 - ✅ **WRITE-5 Pieces in memory**
 
@@ -253,13 +253,13 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   A close can name pieces of its chain that were removed on purpose, by sequence number, id and close hash. `TapeWriter::record_removed` appends these rows to the chain's last piece, and every later close of that piece names them again. The chain check links over the hole (`ChainLink::Removed`) when both ends match the rows. Removing the piece that holds the rows means naming them again.
 
-  Read more: [Pieces removed on purpose](docs/pieces.md#pieces-removed-on-purpose). Golden file `v1-removed.hex`.
+  Read more: [Pieces removed on purpose](docs/old_pieces.md#pieces-removed-on-purpose). Golden file `v1-removed.hex`.
 
 - ✅ **WRITE-16 Resume after removed pieces**
 
   A chain resumes from its lowest piece at hand, so retention and a writer that restarts work together. A hole in the middle is walked over when the closes at hand name its pieces as removed on purpose. Any other hole is refused. `PieceChain::remove` removes closed pieces in one call. It names them in the piece written, closes and syncs it (`TapeWriter::close_and_go_on`), then takes the pieces out of the store.
 
-  Read more: [Removing pieces while the chain is written](docs/pieces.md#removing-pieces-while-the-chain-is-written). Tests `ww_tape_tests/tests/it/chain_removal.rs`.
+  Read more: [Removing pieces while the chain is written](docs/old_pieces.md#removing-pieces-while-the-chain-is-written). Tests `ww_tape_tests/tests/it/chain_removal.rs`.
 
 - ✅ **WRITE-17 Groups of puts taken whole**
 
@@ -269,7 +269,7 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   A chain cuts before a group, never inside it, and `GroupHandle` sends one through the mux. A relay holds each producer's group until its last block and writes it whole; it drops none without an error. A group's block of definitions written twice at once is one of its blocks; the copy follows the group. Followers hold the places of a run's blocks, at most `RUN_BLOCKS_MAX`, not their bytes.
 
-  Read more: [Groups of puts](docs/format.md#groups-of-puts), [A torn group of puts](docs/crashes.md#a-torn-group-of-puts). Tests `ww_tape_tests/tests/it/groups.rs`, `ww_tape_fs/tests/follow_heap.rs`.
+  Read more: [Groups of puts](docs/format.md#groups-of-puts), [A torn group of puts](docs/resume_cases.md#a-torn-group-of-puts). Tests `ww_tape_tests/tests/it/groups.rs`, `ww_tape_fs/tests/follow_heap.rs`.
 
 ## Writing from many threads (`MUX`)
 
@@ -295,7 +295,7 @@ The writing thread and its handles, in the crate `ww_tape_mux`.
 
   Open: a typed handle's drop still sends blocking, so async code ends a handle with `finish_async`.
 
-  Read more: [Threads and tasks](docs/writing_thread.md#threads-and-tasks). Tests `mux_async.rs` on tokio's two schedulers and smol.
+  Read more: [Threads and tasks](docs/mux_queue.md#threads-and-tasks). Tests `mux_async.rs` on tokio's two schedulers and smol.
 
 - ✅ **MUX-4 A producer's own chunks, receipts and carried items**
 

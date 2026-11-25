@@ -20,7 +20,7 @@ How a reader follows the writer depends on where it runs:
 
 - In the writer's process, a [`TapeReader`] reads a [`MemSink`]'s bytes while the writer appends.
 - Beside a [[mux]], a reader takes a [`ProgressWatch`], which wakes it each time the [[writing thread]] places more.
-  [Writing from many threads](writing_thread.md#readers-while-the-mux-writes) shows it.
+  [Back-pressure, errors and speed](mux_queue.md#readers-while-the-mux-writes) shows it.
 - In another process, a [`ChainFollower`] reads the files of a [[chain]] as they grow ([Reading a growing
   piece](growing_pieces.md#following-a-chain-while-it-is-written)).
 
