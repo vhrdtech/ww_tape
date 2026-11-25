@@ -893,3 +893,53 @@ fn a_callers_overview_chunk_is_never_marked() {
     );
     w.write_block(&defs, &good).unwrap();
 }
+
+/// Two tiles of the grid of `extents`, each at a scale of its own: its bytes, closed or as a crash leaves them
+/// without an index, and its track id.
+fn scaled_tiles(close: bool) -> (Vec<u8>, TrackId) {
+    let axes = axes(&EXTENTS);
+    let track = grid_track(&axes);
+    let layout = track.series().unwrap().tile_layout().unwrap();
+    let id = track.id();
+    let mut defs = ww_tape::Definitions::new();
+    crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let tape = w.sink().tape();
+    let samples = [0u8; 4 * STEPS as usize];
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    // the first tile in runs 0 and 2 at scale 1, the second in run 1 at milli: in sample order, the first tile's
+    // chunk of run 2 follows the second tile's
+    let tiles = all_tiles(&layout);
+    for (run, k) in [(0, 0), (1, 1), (2, 0)] {
+        let mut h = head(id, run, tiles[k]);
+        h.grid = h.grid.map(|g| g.rescaled(Magnitude::pow10(-3 * k as i8)));
+        w.write_chunk(&defs, &h, &[(spec, &samples[..])]).unwrap();
+    }
+    if close {
+        w.close().unwrap();
+    } else {
+        drop(w);
+    }
+    (tape.to_vec().unwrap(), id)
+}
+
+/// A grid's timeline is the same from an unclosed piece, whose entries a scan made without tile numbers, as from the
+/// closed piece's index, each tile at a scale of its own: the scan's entries are keyed by the tile their heads name,
+/// so no chunk goes on from another tile's grid.
+#[test]
+fn a_scanned_grid_keeps_its_tiles_apart() {
+    let (closed, id) = scaled_tiles(true);
+    let (open, _) = scaled_tiles(false);
+    let r = TapeReader::open(&closed[..]).unwrap();
+    let (want, want_errors) = r.series_timeline(0, id, period()).unwrap();
+    let r = TapeReader::open(&open[..]).unwrap();
+    assert!(r.track_entries(0, id).unwrap().iter().all(|e| e.tile.is_none()));
+    let (got, errors) = r.series_timeline(0, id, period()).unwrap();
+    assert_eq!(got, want);
+    assert_eq!(format!("{errors:?}"), format!("{want_errors:?}"));
+}

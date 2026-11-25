@@ -1534,7 +1534,9 @@ impl<S: ByteSource> TapeReader<S> {
     /// on that grid. Any other chunk's head is read: the first of the piece, a marked one, one after lost samples, one
     /// before a chunk taken in the file, one whose ticks don't fit. A writer marks every change of grid or scale and
     /// every chunk out of sample order, so over a long recording the heads read are its grids, not its chunks. A mark
-    /// left out may keep a chunk's first and last tick, so the ticks don't guard against it: [Self::verify] does.
+    /// left out may keep a chunk's first and last tick, so the ticks don't guard against it: [Self::verify] does. In a
+    /// piece a scan read, the entries of a grid track may carry no tile number: such a chunk's head is read for its
+    /// tile, the layout being the track definition's at its first entry.
     ///
     /// A chunk whose head is damaged, or out of line with its neighbours, is left out with its error beside the
     /// timeline, as a lost chunk: the samples around it keep their grid. An index that can't be read, or a failing
@@ -1560,18 +1562,36 @@ impl<S: ByteSource> TapeReader<S> {
         let mut newest: BTreeMap<Option<u128>, (SeriesGrid, ItemNum)> = BTreeMap::new();
         // by tile: the end in the piece of the chunk taken last in the file
         let mut last: BTreeMap<Option<u128>, u64> = BTreeMap::new();
+        // a final index gives each entry of a grid track its tile number: only a scan's entries may lack one
+        let scanned = self.piece(i)?.entries.is_some();
+        let tiled = match entries.first().filter(|_| scanned) {
+            Some(e) => self
+                .layout_at(i, track_id, e, &mut BTreeMap::new())?
+                .filter(|l| l.axes() > 0),
+            None => None,
+        };
         for e in &entries {
             let offset = start.saturating_add(e.offset);
-            let tile = e.tile;
+            // an entry of a grid track a scan made doesn't say its tile: its head does
+            let head = match (tiled, e.tile) {
+                (Some(_), None) => Some(self.read_chunk_head(i, e, &mut buf)),
+                _ => None,
+            };
+            let tile = match (&tiled, &head) {
+                (Some(l), Some(Ok(h))) => l.pack(&h.tile),
+                _ => e.tile,
+            };
             // a chunk before one already taken in the file was marked against the chunks before it in the file only
             let in_file_order = last.get(&tile).is_none_or(|l| *l <= e.offset);
             let went_on = newest
                 .get(&tile)
-                .filter(|(_, end)| !e.grid_start && in_file_order && *end == e.first_item)
+                .filter(|(_, end)| {
+                    head.is_none() && !e.grid_start && in_file_order && *end == e.first_item
+                })
                 .and_then(|(grid, _)| Some((*grid, fits(grid, period, e)?)));
             let (grid, count) = match went_on {
                 Some(went_on) => went_on,
-                None => match self.read_chunk_head(i, e, &mut buf) {
+                None => match head.unwrap_or_else(|| self.read_chunk_head(i, e, &mut buf)) {
                     Ok(h) => match SeriesGrid::of_chunk(&h, period) {
                         Ok(grid) => (grid, h.count),
                         Err(error) => {

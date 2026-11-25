@@ -2227,7 +2227,8 @@ its tile's chunk before it when three things hold:
 - its first and last tick are its samples' on that grid.
 
 Any other chunk's head is read: the first of the piece, a marked one, one after lost samples, one before a chunk
-already taken in the file, and one whose ticks don't fit. Over ten hours at 48 kHz in 1 MiB chunks, the timeline reads one head per grid or scale, per piece and per
+already taken in the file, and one whose ticks don't fit. In a piece a scan read (an unclosed piece past its last
+checkpoint), the entries of a grid track carry no tile number. The reader reads such a chunk's head, for its tile. Over ten hours at 48 kHz in 1 MiB chunks, the timeline reads one head per grid or scale, per piece and per
 lost chunk.
 
 The ticks don't guard against a mark left out, since a new grid may keep a chunk's first and last tick. Take 48 kHz
