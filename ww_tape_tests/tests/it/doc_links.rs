@@ -185,7 +185,7 @@ fn links_outside_the_book_resolve() {
                 .canonicalize()
                 .unwrap()
                 .starts_with(root.join("docs").canonicalize().unwrap());
-            if !anchor.is_empty() && in_book && path.ends_with(".md") {
+            if !anchor.is_empty() && in_book && file.extension().is_some_and(|e| e == "md") {
                 let page = std::fs::read_to_string(&file).unwrap();
                 if !anchors(&page).iter().any(|a| a == anchor) {
                     dead.push(format!("{name}: {target} (no such heading)"));
