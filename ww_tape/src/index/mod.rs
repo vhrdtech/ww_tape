@@ -197,7 +197,7 @@ pub struct IndexEntry {
     /// start again, no order across its start.
     pub relation_break: bool,
     /// The series chunk of level 0 is marked [FLAG_GRID_START](crate::FLAG_GRID_START): its grid or scale isn't the
-    /// one of the chunk of its track and tile before it.
+    /// one of its track and tile's newest chunk before it, or it comes out of sample order.
     pub grid_start: bool,
     /// A chunk's unit hash, which its track's hash takes in; [UnitHash::NONE] for other blocks, for an entry a
     /// reader made by a scan and for an [unhashed](Self::unhashed) entry.

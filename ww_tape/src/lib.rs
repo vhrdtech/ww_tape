@@ -384,15 +384,15 @@ pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
 /// so a reader takes no order across its start. Its index entry carries the mark too
 /// ([IndexEntry::relation_break](crate::index::IndexEntry::relation_break)).
 pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
-/// Header flag on series chunk blocks of level 0: the chunk's grid or scale ([SeriesGrid]) isn't the one of the chunk
-/// of its track (and tile) before it in sample order.
+/// Header flag on series chunk blocks of level 0: the chunk's grid or scale ([SeriesGrid]) isn't the one of its track
+/// (and tile)'s newest chunk before it in the piece, or it comes out of sample order (`series::marks`).
 ///
 /// The bit of [FLAG_RELATION_BREAK], which only events chunks carry: what it means goes by the kind. A writer marks
 /// the chunks it encodes, refuses a caller's chunk marked otherwise than due, and restamps a relayed one
 /// ([TapeWriter::relay_block](crate::TapeWriter::relay_block)). Its index entry carries the mark too
 /// ([IndexEntry::grid_start](crate::index::IndexEntry::grid_start)), so a reader finds a series' grids from the index,
 /// reading only the marked chunks' heads ([TapeReader::series_timeline](crate::TapeReader::series_timeline)). An
-/// overview chunk's mark means nothing and is ignored.
+/// overview chunk carries no mark: a reader ignores one, a writer refuses a caller's.
 pub const FLAG_GRID_START: u16 = 1 << 4;
 const _: () = assert!(
     FLAG_GRID_START == FLAG_RELATION_BREAK,

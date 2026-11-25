@@ -3766,7 +3766,7 @@ impl<S: TapeSink> TapeWriter<S> {
             done.next_seq,
         )?;
         next_piece.newest = newest;
-        next_piece.grids = grids;
+        next_piece.grids = grids.next_piece();
         next_piece.kept = kept;
         let mut next = Self::start_next(next()?, &options, next_piece)?;
         next.put_carried(&rows.carried)?;
@@ -3872,7 +3872,7 @@ impl<S: TapeSink> TapeWriter<S> {
             done.next_seq,
         )?;
         next_piece.newest = newest;
-        next_piece.grids = grids;
+        next_piece.grids = grids.next_piece();
         next_piece.kept = kept;
         let base = done
             .closed

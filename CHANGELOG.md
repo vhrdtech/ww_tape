@@ -8,7 +8,7 @@ benchmarks, golden files and book pages.
 
 ### Breaking
 
-- Series chunks carry `FLAG_GRID_START` and index entry bit 3 where a grid starts; older readers refuse them: upgrade readers (FMT-16).
+- Series chunks carry `FLAG_GRID_START` and entry bit 3 where a grid starts or order breaks; upgrade readers (FMT-16).
 - A caller's series chunk must carry its grid start mark exactly when due, else `InputError::Flags`; use `mark_grid_start` (FMT-16).
 - `IndexEntry` gains `grid_start`: struct literals add it; `ReadError` gains `GridStart` (FMT-16).
 

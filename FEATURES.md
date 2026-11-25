@@ -97,7 +97,7 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
 - ✅ **FMT-16 Index entries mark where a series grid starts**
 
-  A series chunk of level 0 whose grid or scale differs from its track and tile's chunk before it is a grid start. It carries `FLAG_GRID_START` in its header and bit 3 in its index entry, the bits an events chunk's relation break takes. `TapeReader::series_timeline` builds a track's timeline from the entries and reads a head only at a mark, a piece's start, lost samples or ticks that don't fit. The writer marks its own chunks, refuses a caller's marked otherwise than due and restamps a relayed one; resumes and cuts keep the grids. `verify` refuses a wrong mark.
+  A series chunk of level 0 is a grid start where its grid or scale changes or it comes out of sample order. It carries `FLAG_GRID_START` in its header and bit 3 in its index entry, the bits an events chunk's relation break takes. `TapeReader::series_timeline` builds a track's timeline from the entries and reads a head only at a mark, a piece's start, lost samples, a chunk out of file order or ticks that don't fit. The writer marks its own chunks, refuses a caller's marked otherwise than due and restamps a relayed one; resumes and cuts keep the grids. `verify` refuses a wrong mark.
 
   Read more: [Grid starts](docs/format.md#grid-starts). Tests `grid_starts.rs`; fuzz target `tape-series-hostile`.
 

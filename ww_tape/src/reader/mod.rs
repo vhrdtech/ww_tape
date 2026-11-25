@@ -1530,10 +1530,11 @@ impl<S: ByteSource> TapeReader<S> {
     ///
     /// The entries are taken in sample order, each tile on its own. A chunk goes on from the grid of the chunk of its
     /// tile before it when its entry isn't marked a grid start ([IndexEntry::grid_start]), follows that chunk with no
-    /// samples between, and its first and last tick are its samples' on that grid. Any other chunk's head is read: the
-    /// first of the piece, a marked one, one after lost samples, one whose ticks don't fit. A writer marks every change
-    /// of grid or scale, so over a long recording the heads read are its grids, not its chunks; a missing mark on a
-    /// change of grid shows in the ticks, one on a change of scale only to [Self::verify].
+    /// samples between, comes after every chunk taken so far in the file, and its first and last tick are its samples'
+    /// on that grid. Any other chunk's head is read: the first of the piece, a marked one, one after lost samples, one
+    /// before a chunk taken in the file, one whose ticks don't fit. A writer marks every change of grid or scale and
+    /// every chunk out of sample order, so over a long recording the heads read are its grids, not its chunks. A mark
+    /// left out may keep a chunk's first and last tick, so the ticks don't guard against it: [Self::verify] does.
     ///
     /// A chunk whose head is damaged, or out of line with its neighbours, is left out with its error beside the
     /// timeline, as a lost chunk: the samples around it keep their grid. An index that can't be read, or a failing
@@ -1557,11 +1558,16 @@ impl<S: ByteSource> TapeReader<S> {
         let mut timeline = SeriesTimeline::new(period);
         // by tile: the grid of the newest chunk taken and where its samples end
         let mut newest: BTreeMap<Option<u128>, (SeriesGrid, ItemNum)> = BTreeMap::new();
+        // by tile: the end in the piece of the chunk taken last in the file
+        let mut last: BTreeMap<Option<u128>, u64> = BTreeMap::new();
         for e in &entries {
             let offset = start.saturating_add(e.offset);
+            let tile = e.tile;
+            // a chunk before one already taken in the file was marked against the chunks before it in the file only
+            let in_file_order = last.get(&tile).is_none_or(|l| *l <= e.offset);
             let went_on = newest
-                .get(&e.tile)
-                .filter(|(_, end)| !e.grid_start && *end == e.first_item)
+                .get(&tile)
+                .filter(|(_, end)| !e.grid_start && in_file_order && *end == e.first_item)
                 .and_then(|(grid, _)| Some((*grid, fits(grid, period, e)?)));
             let (grid, count) = match went_on {
                 Some(went_on) => went_on,
@@ -1569,13 +1575,13 @@ impl<S: ByteSource> TapeReader<S> {
                     Ok(h) => match SeriesGrid::of_chunk(&h, period) {
                         Ok(grid) => (grid, h.count),
                         Err(error) => {
-                            newest.remove(&e.tile);
+                            newest.remove(&tile);
                             errors.push(ReadError::Series { offset, error });
                             continue;
                         }
                     },
                     Err(error) => {
-                        newest.remove(&e.tile);
+                        newest.remove(&tile);
                         errors.push(match error {
                             // the index names another chunk than the one there: it is damaged
                             ReadError::Index(IndexError::BadEntries) => ReadError::Block {
@@ -1593,10 +1599,12 @@ impl<S: ByteSource> TapeReader<S> {
             };
             match timeline.push(e.first_item, count, grid) {
                 Ok(()) => {
-                    newest.insert(e.tile, (grid, e.end_item()));
+                    newest.insert(tile, (grid, e.end_item()));
+                    let l = last.entry(tile).or_default();
+                    *l = (*l).max(e.offset);
                 }
                 Err(error) => {
-                    newest.remove(&e.tile);
+                    newest.remove(&tile);
                     errors.push(ReadError::Series { offset, error });
                 }
             }

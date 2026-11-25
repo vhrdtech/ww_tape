@@ -495,6 +495,66 @@ fn a_callers_chunk_carries_the_mark_exactly_where_due() {
     }
 }
 
+/// The timeline of track `id` in piece 0 of `r` from every chunk head that reads, and how many don't.
+fn from_good_heads<S: ByteSource>(r: &TapeReader<S>, id: TrackId) -> (SeriesTimeline, usize) {
+    let mut buf = vec![];
+    let mut bad = 0;
+    let heads: Vec<ChunkHead> = entries(r, id)
+        .iter()
+        .filter_map(|e| {
+            let h = r.read_chunk_head(0, e, &mut buf).ok();
+            bad += usize::from(h.is_none());
+            h
+        })
+        .collect();
+    let (t, errors) = SeriesTimeline::from_chunks(period(), &heads);
+    assert!(errors.is_empty(), "{errors:?}");
+    (t, bad)
+}
+
+/// Write `order` of `chunks` into one piece and check it: verify holds, the marks are `marks` in sample order, and
+/// the timeline from the index is the one from every head.
+fn written_in(chunks: &[Planned], order: &[usize], marks: &[bool]) {
+    let (defs, track, id) = defs();
+    let mut w = crate::resume::begin(0);
+    let mut cache = BTreeMap::new();
+    for k in order {
+        let p = chunks[*k];
+        let col = column(&mut cache, p.count);
+        w.write_chunk(&defs, &p.head(track, id), &[col]).unwrap();
+    }
+    let tape = w.sink().tape();
+    w.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert!(r.verify(0).unwrap().holds);
+    let got: Vec<bool> = entries(&r, id).iter().map(|e| e.grid_start).collect();
+    assert_eq!(got, marks);
+    let (t, errors) = r.series_timeline(0, id, period()).unwrap();
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(t, from_every_head(&r, id));
+}
+
+/// Chunks written out of sample order: one out of order is marked, whatever its grid, and a chunk that comes in the
+/// file before its predecessor in samples has its head read, so the timeline from the index is the one from every
+/// head.
+#[test]
+fn chunks_out_of_sample_order_keep_their_grids() {
+    let g1 = SeriesGrid::start(0, 1_000, Magnitude::ONE);
+    let milli = g1.rescaled(Magnitude::pow10(-3));
+    let at = |first, grid| Planned {
+        first,
+        count: 8,
+        grid,
+    };
+    // 0..8 at scale 1, then 16..24 and 8..16 at milli: 8..16 fits the ticks of 0..8 but is marked
+    written_in(&[at(0, g1), at(8, milli), at(16, milli)], &[0, 2, 1], &[true, true, true]);
+    // 0..8 and 16..24 at scale 1, then 8..16 at milli: 16..24 comes before its predecessor in the file
+    written_in(&[at(0, g1), at(8, milli), at(16, g1)], &[0, 2, 1], &[true, true, false]);
+    // the same grid throughout, 8..16 last: marked as out of order, its neighbours not
+    written_in(&[at(0, g1), at(8, g1), at(16, g1)], &[0, 2, 1], &[true, true, false]);
+}
+
 /// A producer resends the chunk it sent last, one that starts a scale: the relay takes it in that chunk's place, its
 /// mark checked against the chunk before it, as write_block does.
 #[test]
@@ -521,4 +581,154 @@ fn a_relay_takes_a_resent_marked_chunk() {
         w.write_block(&defs, b).unwrap();
     }
     w.write_block(&defs, &blocks[k]).unwrap();
+}
+
+/// Nine chunks at three scales, the writer stopped after each chunk and resumed in the piece: verify holds, the
+/// marks are the grid starts, and the timeline from the index is the one from every head.
+#[test]
+fn a_resume_in_the_piece_keeps_the_marks() {
+    let (defs, track, id) = defs();
+    let planned = plan(3, 24, 8, &[]);
+    let want: Vec<bool> = planned.iter().map(|(_, s)| *s).collect();
+    let mut cache = BTreeMap::new();
+    for crash_after in 1..planned.len() {
+        let mut w = crate::resume::begin(0);
+        let tape = w.sink().tape();
+        for (p, _) in &planned[..crash_after] {
+            let col = column(&mut cache, p.count);
+            w.write_chunk(&defs, &p.head(track, id), &[col]).unwrap();
+        }
+        drop(w);
+        let mut sink = MemSink::new();
+        ww_tape::TapeSink::write_all(&mut sink, &tape.to_vec().unwrap()).unwrap();
+        let (mut w, _) = TapeWriter::resume_on(sink, crate::resume::options(0)).unwrap();
+        let tape = w.sink().tape();
+        for (p, _) in &planned[crash_after..] {
+            let col = column(&mut cache, p.count);
+            w.write_chunk(&defs, &p.head(track, id), &[col]).unwrap();
+        }
+        w.close().unwrap();
+        let bytes = tape.to_vec().unwrap();
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        assert!(r.verify(0).unwrap().holds, "crash after {crash_after}");
+        let marks: Vec<bool> = entries(&r, id).iter().map(|e| e.grid_start).collect();
+        assert_eq!(marks, want, "crash after {crash_after}");
+        let (t, errors) = r.series_timeline(0, id, period()).unwrap();
+        assert!(errors.is_empty(), "crash after {crash_after}: {errors:?}");
+        assert_eq!(t, from_every_head(&r, id), "crash after {crash_after}");
+    }
+}
+
+/// `mem` with the head of the last series chunk of its newest closed piece damaged, in a store of its own.
+fn last_head_damaged(mem: &MemPieces, id: TrackId) -> MemPieces {
+    let after = MemPieces::new();
+    let keys = mem.keys().unwrap();
+    let newest_closed = keys
+        .iter()
+        .copied()
+        .filter(|k| mem.closed(k).unwrap().is_some())
+        .max();
+    for key in keys {
+        let tape = mem.get(&key).unwrap().unwrap();
+        let mut bytes = tape.to_vec().unwrap();
+        if Some(key) == newest_closed {
+            let r = TapeReader::open(&bytes[..]).unwrap();
+            let start = r.pieces()[0].start;
+            if let Some(e) = r
+                .track_entries(0, id)
+                .unwrap()
+                .into_iter()
+                .filter(|e| e.kind == BlockKind::Series)
+                .max_by_key(|e| e.offset)
+            {
+                // a byte of its grid: the head CRC fails
+                bytes[(start + e.offset) as usize + 90] ^= 0x40;
+            }
+        }
+        let mut sink = after.create(&key).unwrap();
+        ww_tape::TapeSink::write_all(&mut sink, &bytes).unwrap();
+        if tape.is_closed() {
+            ww_tape::TapeSink::close(&mut sink).unwrap();
+        }
+    }
+    after
+}
+
+/// The same nine chunks in a chain cut every two chunks, the chain stopped after each chunk and resumed, the head of
+/// the last series chunk of the newest closed piece damaged or not: each piece verifies, a grid start in it is
+/// marked, and its timeline from the index is the one from every head that reads.
+#[test]
+fn a_chain_resume_keeps_the_marks() {
+    let (defs, track, id) = defs();
+    let planned = plan(3, 24, 8, &[]);
+    let mut cache = BTreeMap::new();
+    let options = ChainOptions {
+        cut: CutPolicy {
+            chunks: exact_units::Count::new(2),
+            ..CutPolicy::default()
+        },
+        ..ChainOptions::default()
+    };
+    let owner = OwnerId([0x9a; 32]);
+    for damaged in [false, true] {
+        for crash_after in 1..planned.len() {
+            let case = format!("crash after {crash_after}, damaged {damaged}");
+            let mut mem = MemPieces::new();
+            let mut chain =
+                PieceChain::create_on(mem.clone(), owner, 0, &[], options.clone()).unwrap();
+            for (p, _) in &planned[..crash_after] {
+                let col = column(&mut cache, p.count);
+                chain.write_chunk(&defs, &p.head(track, id), &[col]).unwrap();
+            }
+            drop(chain);
+            if damaged {
+                mem = last_head_damaged(&mem, id);
+            }
+            let (mut chain, _) = PieceChain::resume_on(mem.clone(), owner, 0, options.clone())
+                .unwrap_or_else(|e| panic!("{case}: {e:?}"));
+            for (p, _) in &planned[crash_after..] {
+                let col = column(&mut cache, p.count);
+                chain.write_chunk(&defs, &p.head(track, id), &[col]).unwrap();
+            }
+            chain.close().unwrap();
+            for key in mem.keys().unwrap() {
+                let bytes = mem.closed(&key).unwrap().unwrap().to_vec().unwrap();
+                let r = TapeReader::open(&bytes[..]).unwrap();
+                if entries(&r, id).is_empty() {
+                    continue;
+                }
+                let (t, errors) = r.series_timeline(0, id, period()).unwrap();
+                let (want, bad) = from_good_heads(&r, id);
+                // the damaged piece: the index alone doesn't see a damaged head it doesn't read
+                if bad > 0 {
+                    continue;
+                }
+                assert!(errors.is_empty(), "{case}: {errors:?}");
+                assert_eq!(t, want, "{case}");
+                assert!(r.verify(0).unwrap().holds, "{case}");
+                for e in entries(&r, id) {
+                    let start = planned.iter().any(|(p, s)| *s && p.first == e.first_item.get());
+                    assert!(!start || e.grid_start, "{case}: {}", e.first_item.get());
+                }
+            }
+        }
+    }
+}
+
+/// The ticks don't guard against a mark left out: at 48 kHz on a 1 ns clock, a grid restarted at sample 4 on its own
+/// tick gives a chunk of 8 samples the same first and last tick, and moves sample 6 one tick earlier.
+#[test]
+fn a_left_out_mark_may_keep_the_ticks() {
+    let g1 = SeriesGrid::start(0, 1_000, Magnitude::ONE);
+    let at = ItemNum::new(4);
+    let g2 = SeriesGrid::start(4, g1.tick(period(), at).unwrap(), Magnitude::ONE);
+    assert_eq!(
+        g1.chunk_ticks(period(), at, 8).unwrap(),
+        g2.chunk_ticks(period(), at, 8).unwrap()
+    );
+    let six = ItemNum::new(6);
+    assert_eq!(
+        g2.tick(period(), six).unwrap() - g1.tick(period(), six).unwrap(),
+        -1
+    );
 }

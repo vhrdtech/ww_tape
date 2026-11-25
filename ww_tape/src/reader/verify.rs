@@ -225,10 +225,10 @@ pub(super) struct Replay<L> {
     /// The first chunk whose monotone relation goes below the one before without a break: its offset, track id and
     /// relation (None: the range relation, from a damaged chunk's entry)
     order: Option<(u64, TrackId, Option<u16>)>,
-    /// The grid of each series track and tile's newest chunk of level 0 so far
-    grids: BTreeMap<(TrackId, crate::TileCoords), crate::SeriesGrid>,
-    /// The first series chunk marked a grid start where its grid is its track and tile's chunk's before, or unmarked
-    /// where it isn't: its offset and track id
+    /// Each series track and tile's newest chunk of level 0 so far in sample order
+    grids: BTreeMap<crate::series::marks::Key, crate::series::marks::Newest>,
+    /// The first series chunk marked a grid start where none is due, or unmarked where one is: its offset and track
+    /// id
     grid_mark: Option<(u64, TrackId)>,
     /// The piece is below [Integrity::Full](crate::Integrity::Full): its entries are unhashed, its tracks not hashed,
     /// each close row's hash absent (zero, incomplete)
@@ -287,18 +287,21 @@ impl<L: Listed> Replay<L> {
         self.grid_mark
     }
 
-    /// Take the grid of the counted series chunk `c` at `at`: marked a grid start exactly where its grid isn't the
-    /// one of its track and tile's chunk before it in the piece. The first chunk of a track and tile in the piece, or
-    /// the first after a damaged one, may go on from a grid this piece doesn't hold: unchecked.
+    /// Take the counted series chunk `c` at `at`: marked a grid start exactly where [marks](crate::series::marks)
+    /// says against its track and tile's newest chunk in the piece in sample order. The first chunk of a track and
+    /// tile in the piece, or the first after a damaged one, may go on from a grid this piece doesn't hold: unchecked.
     fn grid_of(&mut self, at: u64, c: &Chunk<'_>) {
         let head = c.head();
-        let (BlockKind::Series, 0, Some(grid)) = (head.kind, head.level, head.grid) else {
+        let Some((key, chunk)) = crate::series::marks::of(&head) else {
             return;
         };
-        let before = self.grids.insert((head.track_id, head.tile), grid);
-        if before.is_some_and(|b| (b != grid) != c.grid_start()) && self.grid_mark.is_none() {
+        let first = head.first_item;
+        let before = self.grids.get(&key).copied();
+        if before.is_some_and(|n| n.due(&chunk, first) != c.grid_start()) && self.grid_mark.is_none() {
             self.grid_mark = Some((at, head.track_id));
         }
+        self.grids
+            .insert(key, before.map_or(chunk, |n| n.then(chunk, first)));
     }
 
     /// Take relation `relation`'s values `lo..=hi` of the chunk of track `key` at `at`, after the track's chunks before.
