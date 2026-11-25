@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-25
+
 ### Breaking
 
 - Header bit 6 (`FLAG_KEYED`) marks keyed state blocks; older readers misread them: upgrade readers (TRACK-8).
