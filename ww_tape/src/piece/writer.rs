@@ -799,6 +799,10 @@ impl<T: PieceStore> PieceChain<T> {
     /// ([TapeWriter::carried_bytes]), not as its data: items a caller puts again in every piece, which
     /// [CutPolicy::bytes] then leaves out as it leaves out the definitions and state a cut carries. Nothing is counted
     /// when `call` cuts.
+    ///
+    /// The caller bounds what `call` writes: each piece grows by it past the budget. The writer's caps hold for it
+    /// as for any write ([IndexPolicy::state_entries_max](crate::index::IndexPolicy::state_entries_max)), but no cap
+    /// of its own. A `TapeMux` carries at most its `HELD_ITEMS_MAX` items of `HELD_ITEM_BYTES_MAX` bytes so.
     pub fn as_carry<R>(&mut self, call: impl FnOnce(&mut Self) -> R) -> R {
         let seq = self.seq;
         let before = self.writer.as_ref().map(TapeWriter::closed_bytes);

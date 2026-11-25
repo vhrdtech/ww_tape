@@ -2579,9 +2579,13 @@ its final index entries, then the close and the tail. A memory sink reserves the
 piece starts.
 
 `CutPolicy::bytes` counts the final index of what came before and leaves out the piece's carry
-(`TapeWriter::carried_bytes`), so a piece grows to its carry and the budget. A mux counts the definitions and items it
-puts again after a cut as carry. A resume finds the carry in the blocks after the head that belong with the next. A
-piece resumed after its close counts it as data.
+(`TapeWriter::carried_bytes`), so a piece grows to its carry and the budget. Caps bound the carry: its state records
+by `IndexPolicy::state_entries_max`, its state items and keys by `NearPolicy::kept_bytes_max` (`KEPT_BYTES_MAX`). A
+mux counts the definitions and items it puts again after a cut as carry, those items bounded by `HELD_ITEMS_MAX` and
+`HELD_ITEM_BYTES_MAX`.
+
+A resume finds the carry in the blocks after the head that belong with the next. It so counts
+the definitions the first call after the carry put as carry too. A piece resumed after its close counts it as data.
 
 A track's state policy (`StatePolicy`) is part of its definition, and track 0's is in the layout:
 
