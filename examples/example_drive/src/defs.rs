@@ -179,7 +179,7 @@ pub fn define(
     let segments = [segment];
     let mode = TrackRepeat::State(StatePolicy {
         near: Bytes::new(near),
-        copies: Count::new(1),
+        copies: Count::new(2),
     });
     let events = TrackKind::Events(EventsDef::INSTANTS);
     let [board, host] = clocks();
@@ -236,7 +236,7 @@ where
     let segments = [segment];
     let mode = TrackRepeat::State(StatePolicy {
         near: Bytes::new(near),
-        copies: Count::new(1),
+        copies: Count::new(2),
     });
     let events = TrackKind::Events(EventsDef::INSTANTS);
     let [board, host] = clocks();

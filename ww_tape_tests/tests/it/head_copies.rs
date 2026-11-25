@@ -16,8 +16,8 @@ use crate::definitions::{base_defs, on_tracks, record_blocks, writes_of};
 /// The producer the pieces name.
 const PRODUCER: &str = "head copies";
 
-/// A first piece of `blocks` record blocks of track 9 under `layout`, copies `copy_spacing` apart, checkpoints every
-/// 2 KiB; closed with `close`, else left as a crash leaves it, its last blocks after the newest checkpoint.
+/// A first piece of `blocks` record blocks of track 9 under `layout`, copies `copy_spacing` apart, the first too,
+/// checkpoints every 2 KiB; closed with `close`, else left as a crash leaves it, its last blocks after the newest checkpoint.
 fn piece(copy_spacing: u64, layout: Layout, blocks: i64, close: bool) -> Vec<u8> {
     piece_with(copy_spacing, layout, blocks, close, IndexPolicy::default())
 }
@@ -25,6 +25,23 @@ fn piece(copy_spacing: u64, layout: Layout, blocks: i64, close: bool) -> Vec<u8>
 /// [piece] under `index`'s caps.
 fn piece_with(
     copy_spacing: u64,
+    layout: Layout,
+    blocks: i64,
+    close: bool,
+    index: IndexPolicy,
+) -> Vec<u8> {
+    let spacing = exact_units::Bytes::new(copy_spacing);
+    let near = NearPolicy {
+        copy_first: spacing,
+        copy_spacing: spacing,
+        ..NearPolicy::default()
+    };
+    piece_near(near, layout, blocks, close, index)
+}
+
+/// [piece] under `near` and `index`'s caps.
+fn piece_near(
+    near: NearPolicy,
     layout: Layout,
     blocks: i64,
     close: bool,
@@ -38,10 +55,7 @@ fn piece_with(
         ..index
     })
     .unwrap();
-    w.set_near_policy(NearPolicy {
-        copy_spacing: exact_units::Bytes::new(copy_spacing),
-        ..NearPolicy::default()
-    });
+    w.set_near_policy(near);
     w.set_layout(layout).unwrap();
     w.set_producer(PRODUCER);
     let owner = OwnerId([0x4c; 32]);
@@ -92,8 +106,8 @@ fn head_lost(bytes: &[u8]) -> Vec<u8> {
     d
 }
 
-/// Every call that puts a record uses the layout and the producer: each gets a copy at least the copy spacing after
-/// its first record, as track 0's definitions do, and none with the spacing never reached.
+/// Every call that puts a record uses the layout and the producer: each gets its two copies, each at least the copy
+/// spacing after the record before it, as track 0's definitions do, and none with the spacing never reached.
 #[test]
 fn the_layout_and_the_producer_are_copied_past_the_spacing() {
     let bytes = piece(1024, Layout::UNALIGNED, 100, true);
@@ -101,10 +115,13 @@ fn the_layout_and_the_producer_are_copied_past_the_spacing() {
         let at = writes_of(&bytes, slot);
         assert_eq!(
             at.len(),
-            2,
-            "{slot:?}: the first record and one copy: {at:?}"
+            3,
+            "{slot:?}: the first record and two copies: {at:?}"
         );
-        assert!(at[1] - at[0] >= 1024, "{slot:?}: {at:?}");
+        assert!(
+            at[1] - at[0] >= 1024 && at[2] - at[1] >= 1024,
+            "{slot:?}: {at:?}"
+        );
     }
     let once = piece(u64::MAX, Layout::UNALIGNED, 100, true);
     for slot in [Slot::Layout, Slot::Producer] {
@@ -253,11 +270,11 @@ fn a_raw_walk_takes_the_gap_rules_at_the_copy() {
 }
 
 /// A piece whose state entries are full writes no copy: the call that would carry it is never refused for it, and the
-/// piece holds the layout and the producer once.
+/// piece holds the layout and the producer once, the clock and the track twice.
 #[test]
 fn a_full_piece_skips_the_copy_and_refuses_nothing() {
-    // the layout, the producer, the clock and track 9, and the copies of those two: no room for the copies of the
-    // layout and the producer
+    // the layout, the producer, the clock and track 9, and the first copies of those two: no room for the copies of
+    // the layout and the producer, nor for the second copies
     let full = IndexPolicy {
         state_entries_max: exact_units::Count::new(6),
         ..IndexPolicy::default()
@@ -266,6 +283,10 @@ fn a_full_piece_skips_the_copy_and_refuses_nothing() {
     for slot in [Slot::Layout, Slot::Producer] {
         assert_eq!(writes_of(&bytes, slot).len(), 1, "{slot:?}");
     }
+    let track = Slot::Track {
+        number: TrackNum::new(9),
+    };
+    assert_eq!(writes_of(&bytes, track).len(), 2);
     let r = TapeReader::open(&bytes[..]).unwrap();
     let data = record_blocks(&bytes).iter().filter(|b| !b.repeat).count();
     assert_eq!(data, 100, "every block of data written");
@@ -298,9 +319,57 @@ fn a_piece_written_before_head_copies_reads() {
     }
     let now = piece(1024, Layout::UNALIGNED, 100, true);
     assert_ne!(bytes, now);
+    // the puts differ only by the layout's policy, which now asks for two copies
+    let head = |b: &[u8]| u32::from_le_bytes(b[8..12].try_into().unwrap()) as usize;
     assert_eq!(
-        bytes[..first_data(&bytes)],
-        now[..first_data(&now)],
-        "the head and its puts are the same"
+        bytes[..head(&bytes)],
+        now[..head(&now)],
+        "the head is the same"
     );
+    assert_eq!(
+        first_data(&bytes),
+        first_data(&now),
+        "the puts take the same bytes"
+    );
+}
+
+/// Under the default policies a piece far under 1 MiB, its first 4 KiB lost, still names every definition, and a raw
+/// walk from past the loss with no gap rules of a medium layer takes them at the layout's first copy, 4 KiB on: a
+/// blank sector after it is a gap the data goes on after.
+#[test]
+fn the_first_4_kib_lost_leave_every_definition_and_the_gap_rules() {
+    let sd = Layout::UNALIGNED.on_sd_card();
+    let bytes = piece_near(NearPolicy::default(), sd, 100, true, IndexPolicy::default());
+    assert!(bytes.len() < 64 << 10, "{} bytes", bytes.len());
+    let copy = writes_of(&bytes, Slot::Layout)[1] as usize;
+    assert!(
+        copy >= 4096 && copy < 8192,
+        "the layout's first copy at {copy}"
+    );
+    let mut lost = bytes.clone();
+    lost[..4096].fill(0);
+    let whole = TapeReader::open(&bytes[..])
+        .unwrap()
+        .definitions_at(0, u64::MAX)
+        .unwrap();
+    let at = TapeReader::open(&lost[..])
+        .unwrap()
+        .definitions_at(0, u64::MAX)
+        .unwrap();
+    assert_eq!(at.items.len(), whole.items.len());
+    assert!(whole.items.keys().all(|s| at.items.contains_key(s)));
+    // the walk starts at the first block past the loss, as a medium layer's hint puts it
+    let from = record_blocks(&bytes)
+        .iter()
+        .find(|b| b.offset >= 4096)
+        .unwrap()
+        .offset as usize;
+    let (card, offset, len) = blank_before_last(&bytes, 2);
+    assert!(offset as usize > copy);
+    let mut card = card;
+    card[..4096].fill(0);
+    let (gaps, last) = raw_walk(&card, from, None);
+    assert_eq!(gaps, [(offset, len)]);
+    let end = record_blocks(&bytes).last().unwrap().offset;
+    assert!(last > end, "the walk reads on to the close");
 }

@@ -188,6 +188,10 @@ pub struct TapeWriter<S: TapeSink> {
     /// The layout and the producer as put ([Self::ensure_head]), copied at a use as track 0's definitions are; none
     /// before they are put
     head_items: Vec<Candidate<'static>>,
+    /// The first copies due where the call's run starts, found by [Self::find_first_copies], and the slots it looked
+    /// at: buffers a call reuses
+    sweep: Vec<Candidate<'static>>,
+    sweep_slots: Vec<Slot>,
     /// Seq of the next block placed by the writer: after the last block written
     next_seq: u64,
     /// Session of the blocks the writer makes: its own, or the session of the last counted block written
@@ -272,6 +276,8 @@ pub struct TapeWriter<S: TapeSink> {
     /// ([PieceChain::as_carry](crate::piece::PieceChain::as_carry)). A cut policy counts the bytes past it
     /// ([Self::data_bytes]).
     carried: u64,
+    /// The piece head's run of blocks goes on: each block placed so far after the head belongs with the next
+    head_run: bool,
     /// The tracks the piece's carry put first ([Self::want] of the call a cut was made for): a cut for them again,
     /// with nothing past the carry, would make the same piece
     carried_for: Vec<TrackNum>,
@@ -549,6 +555,12 @@ pub const DEFERRED_BYTES_MAX: usize = 1 << 20;
 /// would make a longer unit is refused ([InputError::UnitTooLong]).
 pub const UNIT_CHUNKS_MAX: usize = 17;
 
+/// Blocks of a run kept for a call's own puts and block when it adds first copies
+/// ([NearPolicy::copy_first](near::NearPolicy::copy_first)) to it: the copies take at most
+/// [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) less these and the run's blocks so far, and the rest wait for the next calls.
+/// A call whose run would pass the cap all the same writes no copy.
+pub const FIRST_COPY_RUN_RESERVE: usize = 64;
+
 /// Bytes a deferred block may wait for a gap, from where it was deferred: it is placed before a call would carry the
 /// piece past that.
 ///
@@ -577,6 +589,8 @@ impl<S: TapeSink> TapeWriter<S> {
             producer: String::new(),
             head_put: false,
             head_items: Vec::new(),
+            sweep: Vec::new(),
+            sweep_slots: Vec::new(),
             next_seq: 0,
             session: new_session(),
             deferred: Vec::new(),
@@ -618,6 +632,7 @@ impl<S: TapeSink> TapeWriter<S> {
             carried_due: false,
             keys_base: None,
             carried: 0,
+            head_run: false,
             carried_for: Vec::new(),
             wanted: Vec::new(),
             unlisted: None,
@@ -1183,20 +1198,30 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         // a call that needs a definition or puts an item uses the layout and the producer: a copy is due as for a
         // definition, where the piece has room for it
-        let copies = if cands.is_empty() {
-            0
+        // and the first copies due go into the call's run, the oldest first, with no use
+        let mut head: Vec<Candidate<'_>> = if cands.is_empty() {
+            Vec::new()
         } else {
-            self.head_items.len()
+            self.head_items.clone()
         };
-        let mut all: Vec<Candidate<'_>> = self.head_items.iter().take(copies).cloned().collect();
+        self.with_first_copies(&mut head);
+        head.retain(|h| !cands.iter().any(|c| c.slot == h.slot));
+        let copies = head.len();
+        let mut all = head;
         all.extend_from_slice(cands);
         let mut chosen = self.choose(&all)?;
-        if self.room(self.entries(&all, &chosen), false).is_err() {
+        // copies are skipped where the piece has no room for their state entries: they never refuse a call. Those of
+        // the layout, the producer and the first copies go first, then any other
+        if self.room(self.entries(&all, &chosen), false).is_err() || !self.run_fits(&all, &chosen)? {
             all.drain(..copies);
             chosen = self.choose(&all)?;
         }
+        if self.room(self.entries(&all, &chosen), false).is_err() {
+            self.choose_into(&all, &mut chosen, false)?;
+        }
         self.room(self.entries(&all, &chosen), false)?;
         self.write_chosen(&all, &chosen, end)?;
+        self.sweep.clear();
         let head = chosen.len().saturating_sub(cands.len());
         chosen.drain(..head);
         Ok(chosen)
@@ -1205,8 +1230,9 @@ impl<S: TapeSink> TapeWriter<S> {
     /// How a put of a record of a state track of `policy` decides.
     fn rule(&self, policy: crate::StatePolicy) -> Rule {
         Rule {
-            near: exact_units::Bytes::new(u64::from(policy.near.get())),
+            near: policy.near,
             copies: policy.copies,
+            first: self.near_policy.copy_first,
             spacing: self.near_policy.copy_spacing,
             twice: false,
         }
@@ -1297,15 +1323,17 @@ impl<S: TapeSink> TapeWriter<S> {
     /// more: repeated until nothing changes, at most once per candidate.
     fn choose(&self, cands: &[Candidate<'_>]) -> Result<Vec<bool>, WriteError<S::Error>> {
         let mut chosen = Vec::new();
-        self.choose_into(cands, &mut chosen)?;
+        self.choose_into(cands, &mut chosen, true)?;
         Ok(chosen)
     }
 
-    /// [Self::choose] into `chosen`, its flags set anew: a buffer the writer keeps allocates nothing.
+    /// [Self::choose] into `chosen`, its flags set anew: a buffer the writer keeps allocates nothing. Without
+    /// `copies`, none is chosen for a copy spaced apart ([near::Near::writes_new]).
     fn choose_into(
         &self,
         cands: &[Candidate<'_>],
         chosen: &mut Vec<bool>,
+        copies: bool,
     ) -> Result<(), WriteError<S::Error>> {
         chosen.clear();
         chosen.resize(cands.len(), false);
@@ -1315,7 +1343,13 @@ impl<S: TapeSink> TapeWriter<S> {
                 .saturating_add(wide(self.chosen_len(cands, chosen)?));
             let mut more = false;
             for (c, pick) in cands.iter().zip(chosen.iter_mut()) {
-                if !*pick && self.near.writes(&c.slot, c.hash, end, self.rule_now(c)) {
+                let rule = self.rule_now(c);
+                let writes = if copies {
+                    self.near.writes(&c.slot, c.hash, end, rule)
+                } else {
+                    self.near.writes_new(&c.slot, c.hash, end, rule)
+                };
+                if !*pick && writes {
                     *pick = true;
                     more = true;
                 }
@@ -1339,9 +1373,10 @@ impl<S: TapeSink> TapeWriter<S> {
         if !chosen.contains(&true) {
             return Ok(());
         }
-        let first = self.chosen_records(cands, chosen, true);
-        let rest = self.chosen_records(cands, chosen, false);
-        for (r, _) in first.iter().chain(&rest) {
+        let first = self.chosen_records(cands, chosen, Part::Twice);
+        let own = self.chosen_records(cands, chosen, Part::Own);
+        let rest = self.chosen_records(cands, chosen, Part::Rest);
+        for (r, _) in first.iter().chain(&own).chain(&rest) {
             self.work.copy(r.item.len());
         }
         let group = if end == PutsEnd::Group {
@@ -1351,6 +1386,7 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         // the blocks written twice at once open the run, a group's first among them: one check counts them all
         let mut blocks = self.encode_puts(&first, crate::FLAG_TWICE | group)?;
+        blocks.extend(self.encode_puts(&own, group)?);
         blocks.extend(self.encode_puts(&rest, group)?);
         self.write_put_blocks(blocks, end)
     }
@@ -1369,21 +1405,30 @@ impl<S: TapeSink> TapeWriter<S> {
         }
     }
 
-    /// The records of `cands` that `chosen` marks, as [chosen_records] gives them: those written twice at once that
-    /// are the first of their item in the piece ([Self::first_twice]) when `first`, else the others. None allocates
-    /// nothing.
+    /// The records of `cands` that `chosen` marks of `part`, as [chosen_records] gives them. None allocates nothing.
     fn chosen_records<'c>(
         &self,
         cands: &'c [Candidate<'_>],
         chosen: &[bool],
-        first: bool,
+        part: Part,
     ) -> Vec<PutRef<'c>> {
         cands
             .iter()
             .zip(chosen)
-            .filter(|(c, pick)| **pick && self.first_twice(c) == first)
+            .filter(|(c, pick)| **pick && self.part(c) == part)
             .map(|(c, _)| put_ref(c))
             .collect()
+    }
+
+    /// The blocks a record of `c` written now goes into ([Part]).
+    fn part(&self, c: &Candidate<'_>) -> Part {
+        if self.first_twice(c) {
+            Part::Twice
+        } else if matches!(c.slot, Slot::Own { .. }) {
+            Part::Own
+        } else {
+            Part::Rest
+        }
     }
 
     /// Whether a record of `c` written now is the first of a definition written twice at once ([Rule::twice]).
@@ -1401,9 +1446,32 @@ impl<S: TapeSink> TapeWriter<S> {
         if !chosen.contains(&true) {
             return Ok(0);
         }
-        let first = puts_len(&self.chosen_records(cands, chosen, true))?;
-        let rest = puts_len(&self.chosen_records(cands, chosen, false))?;
-        Ok(first.saturating_add(rest))
+        let first = puts_len(&self.chosen_records(cands, chosen, Part::Twice))?;
+        let rest = puts_len(&self.chosen_records(cands, chosen, Part::Rest))?;
+        let own = puts_len(&self.chosen_records(cands, chosen, Part::Own))?;
+        Ok(first.saturating_add(rest).saturating_add(own))
+    }
+
+    /// Whether the blocks of puts [Self::write_chosen] writes for `cands` that `chosen` marks, with one block after
+    /// them, fit the open run's [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX).
+    fn run_fits(&self, cands: &[Candidate<'_>], chosen: &[bool]) -> Result<bool, WriteError<S::Error>> {
+        // each record in blocks of its own, a definition written twice with its copy: when that fits, they do
+        let upper = cands
+            .iter()
+            .zip(chosen)
+            .filter(|(_, pick)| **pick)
+            .fold(0usize, |n, (c, _)| {
+                let one = c.item.bytes().len().div_ceil(DEFINITION_BLOCK_LEN / 2).max(1);
+                n.saturating_add(one.saturating_mul(if c.rule.twice { 2 } else { 1 }))
+            });
+        if self.run_blocks.saturating_add(upper).saturating_add(1) <= crate::RUN_BLOCKS_MAX {
+            return Ok(true);
+        }
+        let mut n = 0usize;
+        for part in [Part::Twice, Part::Own, Part::Rest] {
+            n = n.saturating_add(puts_blocks(&self.chosen_records(cands, chosen, part))?);
+        }
+        Ok(self.run_blocks.saturating_add(n).saturating_add(1) <= crate::RUN_BLOCKS_MAX)
     }
 
     /// The state entries the records of `cands` that `chosen` marks take: two of a first record written twice at
@@ -1732,11 +1800,82 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Those of rows marked [TrackStart::not_carried] are left out, and so are those past the state entries left.
     /// Then the groups that waited for a caller's unit to end ([Self::write_waiting]).
     fn ensure_carried(&mut self, defs: &Definitions) -> Result<(), WriteError<S::Error>> {
+        self.sweep.clear();
         self.carry_head(defs)?;
         if self.relay_groups.has_waiting() {
             self.write_waiting(Some(defs))?;
         }
+        self.find_first_copies(defs);
         Ok(())
+    }
+
+    /// Find the first copies due where the next block goes ([near::Near::first_copies]) as candidates, into
+    /// [Self::sweep]: each definition `defs` holds, the layout, the producer and each plain state item whose one
+    /// record lies [NearPolicy::copy_first] behind, still the newest of its slot. A call finds them right before its
+    /// run, so a resume after blocks the call placed first decides as the writer did.
+    fn find_first_copies(&mut self, defs: &Definitions) {
+        let pos = self.offset();
+        let mut slots = core::mem::take(&mut self.sweep_slots);
+        self.near
+            .first_copies(pos, self.near_policy.copy_first, &mut slots);
+        self.sweep.clear();
+        // as many as the open run has room for, by a bound on their blocks of puts: the rest wait for the next calls,
+        // the oldest first. The call's own puts and block take FIRST_COPY_RUN_RESERVE of the room
+        let room = crate::RUN_BLOCKS_MAX
+            .saturating_sub(self.run_blocks)
+            .saturating_sub(FIRST_COPY_RUN_RESERVE);
+        let mut bytes = 0usize;
+        for slot in &slots {
+            let Some(c) = self.copy_candidate(defs, slot) else {
+                continue;
+            };
+            if self.near.first_copy_due(slot, c.hash, pos, c.rule) != Some(true) {
+                continue;
+            }
+            bytes = bytes.saturating_add(c.item.bytes().len());
+            // a block of puts holds at least half of DEFINITION_BLOCK_LEN, but a block per part
+            if bytes.div_ceil(DEFINITION_BLOCK_LEN / 2).saturating_add(3) > room {
+                break;
+            }
+            self.sweep.push(c);
+        }
+        self.sweep_slots = slots;
+    }
+
+    /// The record a copy in `slot` writes: the layout or the producer as put, the definition `defs` holds, or the
+    /// newest item kept of a state track `defs` holds; None for any other.
+    fn copy_candidate(&self, defs: &Definitions, slot: &Slot) -> Option<Candidate<'static>> {
+        match slot {
+            Slot::Layout | Slot::Producer => {
+                self.head_items.iter().find(|c| c.slot == *slot).cloned()
+            }
+            Slot::State { track } => {
+                let policy = defs.track(*track)?.state?;
+                let (id, owner) = defs.track_identity(*track)?;
+                let state = self.kept.get(*track, (id, OwnerId(owner)))?;
+                Some(Candidate {
+                    slot: *slot,
+                    rule: self.rule(policy),
+                    track: RecordTrack::Data(*track),
+                    at: state.at,
+                    item: Item::Held(state.item.clone()),
+                    hash: state.hash,
+                })
+            }
+            Slot::Keyed { .. } => None,
+            _ => defs
+                .held(slot)
+                .map(|h| Candidate::held(*slot, self.definition_rule(defs, slot), h)),
+        }
+    }
+
+    /// `cands` with the first copies ([Self::sweep]) of slots none of them has.
+    fn with_first_copies<'c>(&self, cands: &mut Vec<Candidate<'c>>) {
+        for c in &self.sweep {
+            if !cands.iter().any(|o| o.slot == c.slot) {
+                cands.push(c.clone());
+            }
+        }
     }
 
     /// [Self::ensure_carried] without the groups waiting.
@@ -1942,6 +2081,7 @@ impl<S: TapeSink> TapeWriter<S> {
         buf.truncate(n);
         self.set_level(head.integrity);
         self.indexer.start(tracks);
+        self.head_run = true;
         self.write_own(&buf)?;
         self.head = Some((*head, tracks.to_vec()));
         self.unlisted = None;
@@ -2016,6 +2156,24 @@ impl<S: TapeSink> TapeWriter<S> {
     /// counts. 0 while the piece holds its carry alone, however large: a piece grows to its carry and the budget.
     pub fn data_bytes(&self) -> u64 {
         self.closed_bytes().saturating_sub(self.carried)
+    }
+
+    /// Count the block `block` of `kind` just placed as carry while the piece head's run goes on: the head and every
+    /// block after it that belongs with the next ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)), as a resume counts the
+    /// carry. The first call after the carry so counts its puts and the first copies they bring as carry too.
+    fn count_head_run(&mut self, kind: BlockKind, block: &[u8]) {
+        if !self.head_run {
+            return;
+        }
+        let flags = match (block.get(6), block.get(7)) {
+            (Some(lo), Some(hi)) => u16::from_le_bytes([*lo, *hi]),
+            _ => 0,
+        };
+        if kind != BlockKind::PieceHead && flags & crate::FLAG_WITH_NEXT == 0 {
+            self.head_run = false;
+        } else if !self.carried_due {
+            self.carried = self.carried.max(self.closed_bytes());
+        }
     }
 
     /// Count `n` more bytes of the piece as its carry.
@@ -2304,6 +2462,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let at = self.bytes;
         self.bytes = bytes;
         let tracks = self.learn(block, at, tally);
+        self.count_head_run(kind, block);
         // counts against thresholds: past u64::MAX they stay due
         self.blocks = self.blocks.saturating_add(1);
         let data = match kind {
@@ -2338,11 +2497,12 @@ impl<S: TapeSink> TapeWriter<S> {
         let begin = self.group_records.begin(marks);
         self.void_records(begin.voided);
         for h in begin.whole {
-            self.take_record(h.slot, h.at, &h.item, h.block_at);
+            self.take_record(h.slot, h.at, &h.item, h.block_at, true);
         }
-        let tracks = self.learn_records(block, at, tally, begin.take);
+        let grouped = marks.is_some_and(|m| m.group);
+        let tracks = self.learn_records(block, at, (tally, grouped), begin.take);
         for h in self.group_records.end() {
-            self.take_record(h.slot, h.at, &h.item, h.block_at);
+            self.take_record(h.slot, h.at, &h.item, h.block_at, true);
         }
         tracks
     }
@@ -2355,7 +2515,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         block: &[u8],
         at: u64,
-        tally: bool,
+        (tally, grouped): (bool, bool),
         take: group_records::Take,
     ) -> Vec<TrackNum> {
         // every block placed was made or checked whole before: its CRCs are not checked again
@@ -2404,7 +2564,7 @@ impl<S: TapeSink> TapeWriter<S> {
                     .define(t.number, &crate::open::TrackFacts::of(&t));
             }
             match take {
-                group_records::Take::Now => self.take_record(slot, r.at, r.item, at),
+                group_records::Take::Now => self.take_record(slot, r.at, r.item, at, grouped),
                 group_records::Take::Hold => self.group_records.hold(slot, r.at, r.item, at),
                 group_records::Take::Void => {
                     if let Slot::Keyed { track, .. } = slot {
@@ -2420,8 +2580,16 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Take the state record `item` in `slot` at `at`, of the block placed at `block_at`: noted as lying there
     /// ([near]), a state track's item as in force, a keyed one's key into the next cut's carry. A keyed record of a
-    /// track whose definition the writer never read leaves the keys of every track it doesn't know in doubt.
-    fn take_record(&mut self, slot: Slot, at: Option<ClockTime>, item: &[u8], block_at: u64) {
+    /// track whose definition the writer never read leaves the keys of every track it doesn't know in doubt. A
+    /// record of a group (`grouped`) gets no first copy without a use ([near::Near::wrote_in_group]).
+    fn take_record(
+        &mut self,
+        slot: Slot,
+        at: Option<ClockTime>,
+        item: &[u8],
+        block_at: u64,
+        grouped: bool,
+    ) {
         match slot {
             Slot::State { track } => {
                 if let Some(key) = self.indexer.key_of(track, None) {
@@ -2439,8 +2607,14 @@ impl<S: TapeSink> TapeWriter<S> {
             },
             _ => {}
         }
-        self.near
-            .wrote(slot, Some(ItemHash::of(item)), block_at, &self.near_policy);
+        let hash = ItemHash::of(item);
+        if grouped {
+            self.near
+                .wrote_in_group(slot, hash, block_at, &self.near_policy);
+        } else {
+            self.near
+                .wrote(slot, Some(hash), block_at, &self.near_policy);
+        }
     }
 
     /// A keyed record of track `track` not taken: the track's keys may miss it ([Self::take_record]).
@@ -3013,10 +3187,10 @@ impl<S: TapeSink> TapeWriter<S> {
         let chunk_max = self.check_chunk(defs, head, columns, &mut bufs.specs)?;
         let specs = &bufs.specs;
         self.needed_into(defs, &[head.track_number], &mut bufs.needs);
-        let needs = &bufs.needs;
         self.track_room(defs, &[head.track_number])?;
         self.room(0, !self.head_put)?;
         self.ensure_carried(defs)?;
+        let needed = bufs.needs.len();
         let payload = specs.iter().fold(0usize, |n, c| n.saturating_add(c.len));
         let head_len = crate::chunk::chunk_head_len(head, columns.len(), payload);
         // a deferred block of the chunk's track goes before it, as in an unaligned file: so do those before it
@@ -3038,7 +3212,7 @@ impl<S: TapeSink> TapeWriter<S> {
             let ahead = self
                 .deferred_bytes
                 .saturating_add(checkpoint)
-                .saturating_add(puts_len_upper(needs))
+                .saturating_add(puts_len_upper(&bufs.needs))
                 .saturating_add(chunk_max);
             self.place_overdue(ahead)?;
             loop {
@@ -3061,7 +3235,27 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         // right before the chunk, after every counted block this call places: a resume after one of them puts the
         // same
-        self.choose_into(needs, &mut bufs.chosen)?;
+        // the blocks placed above moved the run on: the first copies due where it starts
+        self.find_first_copies(defs);
+        let mut needs = core::mem::take(&mut bufs.needs);
+        self.with_first_copies(&mut needs);
+        bufs.needs = needs;
+        self.sweep.clear();
+        let needs = &mut bufs.needs;
+        self.choose_into(needs, &mut bufs.chosen, true)?;
+        // copies are skipped where the piece has no room for their state entries, the first copies first: they never
+        // refuse a call
+        if needs.len() > needed
+            && (self.room(self.entries(needs, &bufs.chosen), false).is_err()
+                || !self.run_fits(needs, &bufs.chosen)?)
+        {
+            needs.truncate(needed);
+            self.choose_into(needs, &mut bufs.chosen, true)?;
+        }
+        if self.room(self.entries(needs, &bufs.chosen), false).is_err() {
+            self.choose_into(needs, &mut bufs.chosen, false)?;
+        }
+        let needs = &*needs;
         let chosen = &bufs.chosen;
         self.room(self.entries(needs, chosen), false)?;
         let puts = self.chosen_len(needs, chosen)?;
@@ -4458,6 +4652,18 @@ impl Item<'_> {
     }
 }
 
+/// Which blocks of a call's puts a record goes into, in this order.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Part {
+    /// The first record of a definition written twice at once: blocks marked [FLAG_TWICE](crate::FLAG_TWICE)
+    Twice,
+    /// A bundle, a schema or another definition filling a slot by its hash: blocks of their own, before the tracks
+    /// that name them, so a reader of the tracks and clocks never reads their bytes
+    Own,
+    /// Any other record
+    Rest,
+}
+
 /// A record a put may write: its slot, the rule of its track, the record and its item's hash.
 #[derive(Clone, Debug)]
 struct Candidate<'a> {
@@ -4619,6 +4825,16 @@ fn entries_max(cands: &[Candidate<'_>]) -> usize {
         .iter()
         .map(|c| if c.rule.twice { 2 } else { 1 })
         .fold(0usize, usize::saturating_add)
+}
+
+/// Blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.
+fn puts_blocks<E>(records: &[PutRef<'_>]) -> Result<usize, WriteError<E>> {
+    let mut n = 0usize;
+    put_blocks(records, BlockId::new(SessionTag::NONE, 0), 0, |_| {
+        n = n.saturating_add(1);
+        Ok::<(), DescribeError>(())
+    })?;
+    Ok(n)
 }
 
 /// Bytes of the blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.

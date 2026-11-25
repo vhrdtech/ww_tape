@@ -502,7 +502,7 @@ chapter = "../definitions/"
 [[term]]
 name = "state copy"
 forms = ["state copies"]
-short = "An extra record of a state item at a later use, at least 1 MiB after the first, as a guard against damage around one place; a copy in this book is always a state copy."
+short = "An extra record of a state item: the first 4 KiB after its first record in a piece, later ones at a use at least 1 MiB apart, as a guard against damage around one place; a copy in this book is always a state copy."
 chapter = "../definitions/"
 
 [[term]]

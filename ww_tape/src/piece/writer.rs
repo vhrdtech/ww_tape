@@ -826,12 +826,21 @@ impl<T: PieceStore> PieceChain<T> {
     /// of its own. A `TapeMux` carries at most its `HELD_ITEMS_MAX` items of `HELD_ITEM_BYTES_MAX` bytes so.
     pub fn as_carry<R>(&mut self, call: impl FnOnce(&mut Self) -> R) -> R {
         let seq = self.seq;
-        let before = self.writer.as_ref().map(TapeWriter::closed_bytes);
+        let before = self
+            .writer
+            .as_ref()
+            .map(|w| (w.closed_bytes(), w.carried_bytes()));
         let r = call(self);
-        if let (Some(before), Some(w)) = (before, self.writer.as_mut())
+        if let (Some((before, carried)), Some(w)) = (before, self.writer.as_mut())
             && self.seq == seq
         {
-            w.add_carried(w.closed_bytes().saturating_sub(before));
+            // what the call wrote, less what the writer counted as carry already (the piece head's run)
+            let counted = w.carried_bytes().saturating_sub(carried);
+            w.add_carried(
+                w.closed_bytes()
+                    .saturating_sub(before)
+                    .saturating_sub(counted),
+            );
         }
         r
     }

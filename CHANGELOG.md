@@ -6,6 +6,17 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- Format: every definition and plain state item gets a first copy 4 KiB on without a use; goldens rewritten (TRACK-12).
+- `StatePolicy::DEFAULT.copies` is 2; a resume of a piece written with 1 copy needs that policy in its layout (TRACK-12).
+- `NearPolicy` gains `copy_first`: struct literals add it or take `..NearPolicy::default()` (TRACK-12).
+- A call's bundles and schemas go into blocks of puts of their own, before its other records (TRACK-12).
+
+### Features
+
+- Losing a piece's first 4 KiB loses no definition, layout or producer, so raw-media walks read past gaps (TRACK-12).
+
 ## [0.14.0] - 2026-11-25
 
 ### Breaking

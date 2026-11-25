@@ -59,8 +59,8 @@ the chain's policy:
     ```
 
 The board writes its hour as one tape of 116 MB, with about 13700 data blocks. It keeps near at 1 MiB, since a viewer
-may join its feed at any time, and so writes 702 blocks of puts, 85 kB. The relayed chain has 4 pieces, 116 MB, with 121
-blocks of puts, 11 kB. Its data blocks are the board's, byte for byte.
+may join its feed at any time, and so writes 705 blocks of puts, 86 kB. The relayed chain has 4 pieces, 116 MB, with 124
+blocks of puts, 13 kB. Its data blocks are the board's, byte for byte.
 
 ## Adopting blocks on raw media
 

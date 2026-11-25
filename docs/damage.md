@@ -167,19 +167,19 @@ reads from the newest checkpoint. Drawn by <code>ww_tape_figures</code> from the
 data, where 4 KiB is a larger share.</figcaption>
 </figure>
 
-At full scale, the piece holds 3446 blocks that its index lists. `cargo run -p example_drive` prints what each damage
+At full scale, the piece holds 3448 blocks that its index lists. `cargo run -p example_drive` prints what each damage
 leaves:
 
 | Damage | The reader finds the piece by | Content hash | Blocks that read | Definitions found |
 |---|---|---|---:|---:|
-| a flipped bit | its tail | does not hold | 3445 | 10 of 10 |
-| the first 4 KiB lost | its tail | does not hold | 3441 | 10 of 10 |
-| the last 4 KiB lost | its newest checkpoint, scanning 1.1 MB after it | no close to check | 3446 | 10 of 10 |
+| a flipped bit | its tail | does not hold | 3447 | 10 of 10 |
+| the first 4 KiB lost | its tail | does not hold | 3443 | 10 of 10 |
+| the last 4 KiB lost | its final index, with no byte to scan after it | no close to check | 3448 | 10 of 10 |
 
 ### The first 4 KiB lost
 
 These bytes hold the [[piece head]], the first [[definitions]] and the first blocks of data. The reader still opens the
-piece from its [[tail]]. By the [[final index]] it reads every block outside the lost bytes, 3441 of the 3446. Five
+piece from its [[tail]]. By the [[final index]] it reads every block outside the lost bytes, 3443 of the 3448. Five
 blocks are lost:
 
 - the [[puts]] of the layout and the producer;
@@ -188,31 +188,34 @@ blocks are lost:
 - the chunk of frames of that second;
 - the chunk of samples that the lost bytes reach into.
 
-Each definition comes from its newest record that reads. The writer copies a definition at a use 1 MiB or more after its
-first record. Every call that puts a definition or an item uses the [[layout]] and the producer's name too, so the
-writer copies them the same way. Every definition of the drive is thus found again, the layout and the producer among
-them. A [[reader]] scanning past the newest [[checkpoint]] takes its gap rules from the layout's copy.
+Each definition comes from its newest record that reads. The writer gives every definition and every plain state item
+a first [[state copy]] 4 KiB after its first record, without waiting for a use ([`NearPolicy::copy_first`]). The layout
+and the producer's name get theirs the same way. These copies lie past the lost bytes, so every definition of the drive
+is found again, the layout and the producer among them. A [[reader]] scanning past the newest [[checkpoint]] takes its
+gap rules from the layout's copy.
+
+The first copies cost one more record of each definition and item per piece. In the drive's hour, the 40 blocks of
+puts and copies of four pieces take 8.2 kB of 116 MB ([What the writer adds](writing.md#what-the-writer-adds)).
 
 The mode is a [[state track]], and a cut carries its newest item beside its definition. That item lay in the lost
-bytes. A reader thus finds no mode in force over the piece's first 35 seconds, 45:00 to 45:34. The mode's copy at 45:35
-gives it again from there.
+bytes. A reader thus finds no mode in force over the piece's first second, 45:00. The mode's first copy, written before
+the chunks of the next second, gives it again from there.
 
-A raw-media walk that starts past the lost bytes knows no gap rules until it reaches that copy. Over the first MiB or so
-of the piece, only the rules a medium layer gives ([`OpenOptions::layout`]) read past a gap. Without them a blank
-stretch there ends the data.
+A raw-media walk that starts past the lost bytes reads past a gap once it has passed the layout's first copy. Before
+that copy, only the rules a medium layer gives ([`OpenOptions::layout`]) read past a gap.
 
 The piece head named the piece before it, so the chain's link back from this piece can no longer be checked. The last
 piece of a chain names no next piece, so it has no link forward to lose.
 
 ### The last 4 KiB lost
 
-These bytes hold the [[tail]], the [[close]], the padding up to a multiple of 4 KiB and the end of the [[final
-index]]. The reader finds no tail and reads the piece as unclosed. The final index no longer reads, so the reader takes
-the newest [[checkpoint]] and scans the 1.1 MB after it. Every one of the 3446 blocks of data reads, and so does every
+These bytes hold the [[tail]], the [[close]] and the padding up to a multiple of 4 KiB. The reader finds no tail and
+reads the piece as unclosed. The [[final index]] ends before the lost bytes and reads whole. The reader takes it as the
+newest index block, with no byte to scan after it. Every one of the 3448 blocks of data reads, and so does every
 definition, but the piece loses its [[content hash]].
 
-Lost bytes that stop short of the final index leave it whole. The reader then takes it as the newest index block, with
-no byte to scan after it.
+Lost bytes that reach into the final index leave the reader the newest [[checkpoint]] before it. The reader then scans
+the blocks after that checkpoint, which costs the time of the scan but no block.
 
 A piece in the middle of a chain would also lose its close's link to the next piece.
 
@@ -253,13 +256,17 @@ The content hash needs a close, so an unclosed piece has no hash to check it by.
 A reader scans an unclosed piece without a checkpoint yet, under about 4 MiB, from its start. The scan stops at the
 first bad block, and only a Resync walk reads past it.
 
-An unclosed piece shorter than 1 MiB holds each definition once, so one bad sector can take a definition. Chunks then
+A piece that ends less than 4 KiB after its first blocks of data holds each definition once, so one bad sector can
+take a definition. The same holds for a definition first written less than 4 KiB before the piece ends. Chunks then
 still place themselves by track id, item number and tick. Without clock rates and item types, a reader cannot turn ticks
 into seconds or bytes into values.
 
-The layout and the producer have the same limit, and one more. Their copy takes two state entries of the piece's
-[index policy](carried_definitions.md#when-they-dont-fit). In a piece whose state entries are full, the writer skips the
-copy rather than refuse a call. Such a piece names the layout and the producer once, after its head.
+Some records get no first copy without a use. An item of a keyed track gets its copies only where the producer puts
+it again, and so does a record of a group of puts, whose copy would stand outside its group.
+
+First copies take state entries of the piece's [index policy](carried_definitions.md#when-they-dont-fit). In a
+piece whose state entries are full, the writer skips the copy rather than refuse a call. Such a piece may name a
+definition, the layout or the producer once, after its head.
 
 The state lookups go by index entries. A damaged block where a scan stopped has no known kind and no entries. The
 lookups therefore take the newest record before it and report the stretch after it as uncovered by the index.

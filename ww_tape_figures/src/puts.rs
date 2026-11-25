@@ -1,6 +1,6 @@
 //! `puts.svg`: a state track put before every block of data of a plain track, and the few puts that write. The
-//! writer runs with its near rule shrunk to fit the drawing: `near` 8 KiB and copies 2 KiB apart instead of 32 MiB and
-//! 1 MiB. What is written, and where, is read back from the bytes.
+//! writer runs with its near rule shrunk to fit the drawing: `near` 8 KiB and the first copy 2 KiB on instead of 32 MiB
+//! and 4 KiB. What is written, and where, is read back from the bytes.
 
 use anyhow::{Context, ensure};
 use exact_units::{Bytes, Count};
@@ -21,7 +21,7 @@ const DATA: u32 = 1;
 const STATE: u32 = 5;
 /// The shrunk near rule.
 const NEAR: u32 = 8 * 1024;
-const COPY_SPACING: Bytes<u64> = Bytes::new(2 * 1024);
+const COPY_FIRST: Bytes<u64> = Bytes::new(2 * 1024);
 /// Blocks of data written, and the bytes of each one's record.
 const BLOCKS: u32 = 26;
 const RECORD: usize = 900;
@@ -50,7 +50,7 @@ fn run() -> anyhow::Result<(u64, Vec<Placed>, usize)> {
     w.set_producer("figures");
     w.set_index_policy(IndexPolicy::NONE)?;
     w.set_near_policy(NearPolicy {
-        copy_spacing: COPY_SPACING,
+        copy_first: COPY_FIRST,
         ..NearPolicy::default()
     });
     let mut defs = Definitions::new();
@@ -157,7 +157,7 @@ pub fn puts() -> anyhow::Result<String> {
         axis + 86.0,
         &format!(
             "A state track put before every block of data: most puts write nothing; the first writes the item, a use {} KiB on writes one copy, and a use more than {} KiB after the newest record writes it again",
-            COPY_SPACING.get() / 1024,
+            COPY_FIRST.get() / 1024,
             NEAR / 1024
         ),
     );
@@ -208,8 +208,8 @@ pub fn puts() -> anyhow::Result<String> {
                     Some(prev) if p.at - prev < u64::from(NEAR) => {
                         ensure!(!copied, "one copy per cycle");
                         ensure!(
-                            p.at - cycle_first >= COPY_SPACING.get(),
-                            "a copy lies the copy spacing on"
+                            p.at - cycle_first >= COPY_FIRST.get(),
+                            "a copy lies the first copy's distance on"
                         );
                         copied = true;
                         "copy"

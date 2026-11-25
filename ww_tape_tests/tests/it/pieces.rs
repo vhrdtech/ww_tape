@@ -279,8 +279,9 @@ fn index_lists_every_block(r: &TapeReader<&[u8]>, bytes: &[u8]) -> Vec<ww_tape::
     let defs = r.track_entries(0, ww_tape::index::STATE_TRACK_ID).unwrap();
     assert_eq!(
         defs.len(),
-        7,
-        "an entry each: the layout, the producer, the clock and the four tracks with data, all close behind it"
+        14,
+        "two entries each, the first record and its copy 4 KiB on: the layout, the producer, the clock and the four \
+         tracks with data, all close behind it"
     );
     assert!(defs.iter().all(|e| e.repeat && e.state().is_some()));
     t1
@@ -1080,15 +1081,18 @@ fn a_damaged_block_of_definitions_reads_from_their_copies() {
             std::fs::read(dir.join("p.wwt")).unwrap()
         };
         assert!(definitions_at(&bytes).iter().all(|d| d.1), "all put");
-        // track 1's definition put before its first chunk, then copied on a use one copy spacing (1 MiB) on
+        // track 1's definition put before its first chunk, copied at the first chunk 4 KiB on, then again on a use one
+        // copy spacing (1 MiB) on
         let describe = crate::definitions::writes_of(
             &bytes,
             Slot::Track {
                 number: TrackNum::new(1),
             },
         );
-        assert!(describe.len() >= 2, "{describe:?}");
-        assert!((1 << 20..2 << 20).contains(&describe[1]), "{describe:?}");
+        assert!(describe.len() >= 3, "{describe:?}");
+        assert!(describe[1] - describe[0] >= 4096, "{describe:?}");
+        assert!(describe[1] < 1 << 20, "{describe:?}");
+        assert!(describe[2] - describe[1] >= 1 << 20, "{describe:?}");
 
         let mut damaged = bytes.clone();
         damaged[describe[0] as usize + 40] ^= 1;

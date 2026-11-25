@@ -140,16 +140,22 @@ A [[state track]]'s policy, a [`StatePolicy`] in [`TrackRepeat::State`], holds t
 
 - [[Near]] is how far behind a use the [[item]] must lie in the same [[piece]], 32 MiB by default.
 - `copies` is how many extra [[records]] an item gets after it is first written in a piece, as a guard against damage
-  around one place. The default is one [[state copy]], at least 1 MiB after the first record.
+  around one place. The default is two [[state copies]]: the first 4 KiB after the first record, the second
+  at least 1 MiB after the first copy.
 
 Each time the [[producer]] uses a [[state item]], it [[puts]] the item: it calls [`TapeWriter::put`] at that place. The
 [[writer]] compares the item, by its hash, with the newest record of its [[slot]]. When the same item lies less than
 `near` behind, the put writes nothing. Otherwise the put writes the item again, and a [[reader]] at this place finds it
 close behind.
 
+The first copy needs no use. Once an item's only record lies 4 KiB behind, the next call that writes a block of data
+first writes that copy ([`NearPolicy::copy_first`]). A track whose data has stopped thus still gets a copy of its item
+past the first sector of the piece. Each later copy comes at a use, [`NearPolicy::copy_spacing`] after the newest record.
+
 A put is idempotent, so the producer keeps no memory of what it put before. The drive's recorder puts the mode before
-each one-second [[block]], 900 times while it writes the first piece. Only four of those puts write, as `cargo run -p
-example_drive` prints. They are idle at the start, its copy at 40 seconds, run at minute 1 and its copy at 96 seconds.
+each one-second [[block]], 900 times while it writes the first piece. Only five of those puts write, as `cargo run -p
+example_drive` prints. They are idle at the start, its copies at 1 second and 41 seconds, run at minute 1 and its second
+copy at 97 seconds. The first copy of run needs no put: the writer writes it 4 KiB after run, before the next chunk.
 The piece ends at about 28 MiB, before the record of run lies 32 MiB behind, so no other put writes.
 
 The writer puts [[definitions]] the same way before every block of data, by the [[layout]]'s own policy. The drawing
@@ -159,8 +165,8 @@ shows the rule shrunk, so that a whole cycle fits on one line.
 --8<-- "docs/plots/puts.svg"
 <figcaption>A state track put before each of 26 blocks of data, of which only four puts write. They are the first, one
 copy 2 KiB on, and the item again each time the newest record lies more than <code>near</code> behind. Drawn by
-<code>ww_tape_figures</code> from the blocks <code>TapeWriter</code> wrote, with near shrunk to 8 KiB and the copy
-spacing to 2 KiB.</figcaption>
+<code>ww_tape_figures</code> from the blocks <code>TapeWriter</code> wrote, with near shrunk to 8 KiB and the first
+copy to 2 KiB.</figcaption>
 </figure>
 
 A record that a put or a copy writes goes into a block with the flag [`FLAG_REPEAT`] in its header. A reader that

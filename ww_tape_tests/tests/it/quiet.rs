@@ -452,6 +452,11 @@ fn a_damaged_carried_block_costs_only_its_own_tracks() {
     let defs = crate::definitions::held(&all);
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_session(SessionTag::writable(0x7175_6967)).unwrap();
+    // no first copies, which would stand in for the damaged block
+    w.set_near_policy(ww_tape::writer::NearPolicy {
+        copy_first: exact_units::Bytes::new(u64::MAX),
+        ..Default::default()
+    });
     let owner = OwnerId([0x56; 32]);
     let head = ww_tape::PieceHead {
         ident: ww_tape::PieceIdent {
@@ -476,9 +481,18 @@ fn a_damaged_carried_block_costs_only_its_own_tracks() {
     next.close().unwrap();
     let bytes = tape.to_vec().unwrap();
 
+    // the carried blocks: those of track 0 up to the first copies, a block with a track defined before
+    let mut seen = std::collections::BTreeSet::new();
     let carried: Vec<_> = crate::definitions::record_blocks(&bytes)
         .into_iter()
         .filter(|b| b.repeat && b.first_track == Some(0))
+        .take_while(|b| {
+            crate::definitions::puts(&b.bytes)
+                .iter()
+                .flat_map(|(_, slots)| slots)
+                .filter(|s| matches!(s, Slot::Track { .. }))
+                .all(|s| seen.insert(*s))
+        })
         .collect();
     // the layout and the producer, then the carried blocks: each but the first holds the clock
     let clock = Slot::Clock {
@@ -486,6 +500,7 @@ fn a_damaged_carried_block_costs_only_its_own_tracks() {
     };
     let with_clock: Vec<_> = crate::definitions::puts(&bytes)
         .into_iter()
+        .take(carried.len())
         .filter(|(_, slots)| slots.contains(&clock))
         .collect();
     assert!(with_clock.len() >= 4, "{} carried blocks", with_clock.len());
@@ -551,6 +566,11 @@ fn chain_options(max: u64, chunks: u64) -> ww_tape::ChainOptions {
     ww_tape::ChainOptions {
         writer: ww_tape::WriterOptions {
             sync: SyncPolicy::None,
+            // no first copies: they would take the room these tests count out
+            near: ww_tape::writer::NearPolicy {
+                copy_first: exact_units::Bytes::new(u64::MAX),
+                ..Default::default()
+            },
             index: IndexPolicy {
                 state_entries_max: exact_units::Count::new(max),
                 ..IndexPolicy::default()
@@ -1233,4 +1253,110 @@ fn a_new_piece_carries_a_quiet_state_and_its_definition() {
 fn carried_state_golden() {
     let pieces = state_chain(&defs_with_state());
     golden(&pieces[1], "v1-carried-state.hex");
+}
+
+/// A label long enough that a carried block holds one definition: a cut carrying 4000 tracks fills most of a run of
+/// [ww_tape::RUN_BLOCKS_MAX] blocks, and their first copies would not fit beside them.
+const LONG_LABEL: &str = concat!(
+    "a channel whose label is long enough that its definition takes most of a block of puts: ",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+    "................................................................................................",
+);
+
+/// A cut that carries the definitions of 4000 tracks, most of a run, writes the first copies its run has no room for in
+/// the next call's run, never past [ww_tape::RUN_BLOCKS_MAX] (TRACK-12): no call is refused with a run too long, and every
+/// carried definition reads twice in the piece.
+#[test]
+fn first_copies_of_a_carry_filling_its_run_come_in_the_next_run() {
+    let n = 4000u32;
+    let mut all = vec![crate::definitions::clock(CLOCK)];
+    let mut rows = Vec::new();
+    for k in 0..n {
+        let number = 100 + k;
+        let d = crate::definitions::labeled(number, CLOCK, LONG_LABEL);
+        let ww_tape::Describe::Track(t) = &d else {
+            unreachable!("labeled() gives a track")
+        };
+        rows.push(ww_tape::piece::TrackStart {
+            track_id: t.id(),
+            track_number: TrackNum::new(number),
+            next_item: ItemNum::new(1),
+            from_tick: 0,
+            owner: OwnerId(t.owner),
+            hash: ww_tape::TrackHash::START,
+            incomplete: false,
+            not_carried: false,
+            keys_carried: false,
+        });
+        all.push(d);
+    }
+    all.push(crate::definitions::track(1, CLOCK));
+    let defs = crate::definitions::held(&all);
+    let mem = MemPieces::new();
+    let mut chain = PieceChain::create_on(
+        mem.clone(),
+        OwnerId([0x77; 32]),
+        0,
+        &rows,
+        ww_tape::ChainOptions {
+            writer: ww_tape::WriterOptions {
+                sync: SyncPolicy::None,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    for k in 0..200 {
+        let (h, c) = chunk(0, k);
+        chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    }
+    let pieces = chain.close().unwrap();
+    assert_eq!(pieces.len(), 1);
+    let bytes = mem.get(&pieces[0].tape).unwrap().unwrap().to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let first_data = r.track_entries(0, crate::definitions::track_id(1)).unwrap()[0].offset;
+    // where each carried definition's records lie
+    let mut at: std::collections::BTreeMap<Slot, Vec<u64>> = Default::default();
+    let mut blocks = 0usize;
+    for b in crate::definitions::record_blocks(&bytes) {
+        let block = ww_tape::Block::read(&b.bytes).unwrap();
+        blocks += 1;
+        for rec in block.records() {
+            let rec = rec.unwrap();
+            if let Some(slot @ Slot::Track { number }) = Slot::of(rec.track, rec.item, false)
+                && number.get() >= 100
+            {
+                at.entry(slot).or_default().push(b.offset);
+            }
+        }
+    }
+    assert!(
+        blocks > ww_tape::RUN_BLOCKS_MAX,
+        "the carry and its copies fill more than one run: {blocks} blocks of puts"
+    );
+    assert_eq!(at.len(), n as usize, "every track carried");
+    for (slot, offsets) in &at {
+        assert_eq!(offsets.len(), 2, "{slot:?}: its record and its first copy");
+        assert!(offsets[0] < first_data, "{slot:?}: carried before the data");
+        assert!(offsets[1] > offsets[0], "{slot:?}: copied after its record");
+    }
 }

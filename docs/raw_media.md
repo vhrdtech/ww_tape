@@ -121,10 +121,10 @@ The [[layout]] says how far a writer may skip and where it goes on, at a multipl
 | an SD card or eMMC device ([`Layout::on_sd_card`]) | 4 MiB | 512 bytes, a sector |
 | raw NAND ([`Layout::on_raw_nand`]) | two erase blocks | one page |
 
-A reader learns these rules from the layout definition after the piece head. The writer copies that definition
-about 1 MiB on and puts it again past [[near]], as it does a track's definition. A medium layer that knows the medium
-can give them from the start ([`OpenOptions::layout`]). A walk that starts past lost first sectors needs them there,
-since until the copy nothing in the piece says them.
+A reader learns these rules from the layout definition after the piece head. The writer copies that definition 4 KiB
+on, past the first sector, again about 1 MiB later, and puts it again past [[near]], as it does a track's definition. A
+walk that starts past lost first sectors thus finds the rules at the first copy. A medium layer that knows the medium
+can give them from the start ([`OpenOptions::layout`]), for the stretch before that copy.
 
 Past a blank or bad stretch, a reader reads one block header at the first non-blank byte and one at each resume place
 within `gap_max`. A good block of the current session there goes on with the data. It makes the stretch a [[gap]], which

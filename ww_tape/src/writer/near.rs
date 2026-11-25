@@ -5,8 +5,11 @@
 //!   most `near` bytes behind ([StatePolicy::near](crate::StatePolicy)). The memory is per slot, not per hash: a slot
 //!   that went from item A to B and back to A needs A written again, though A lies close behind.
 //! - **Copies on use.** A put of the same item close behind still writes it, as a copy, while fewer than
-//!   1 + [StatePolicy::copies](crate::StatePolicy) records of it lie in the piece and the newest lies at least
-//!   [NearPolicy::copy_spacing] behind. Nothing is scheduled ahead: a copy is written only where the item is used.
+//!   1 + [StatePolicy::copies](crate::StatePolicy) records of it lie in the piece and the newest lies far enough
+//!   behind: [NearPolicy::copy_first] for the first copy, [NearPolicy::copy_spacing] for each one after it.
+//! - **First copies swept.** The first copy needs no use. A call that writes a run first writes the first copy of
+//!   each definition and plain state item whose one record lies [NearPolicy::copy_first] behind
+//!   ([Near::first_copies]): a quiet track's carried definition gets it too. A keyed record is copied on use only.
 //! - **Twice at once.** A definition a track asks to have written twice
 //!   ([TrackDef::defined_twice](crate::TrackDef::defined_twice)) is written while fewer than two records of it lie in
 //!   the piece. Its first record gets a copy after its run ([FLAG_TWICE](crate::FLAG_TWICE)); one written once before (a clock a track
@@ -26,9 +29,12 @@ use crate::state::{ItemHash, Slot};
 use exact_units::units::Item;
 use exact_units::{Bytes, Count};
 
-/// Bytes between records of an item before a use writes a copy ([NearPolicy::copy_spacing]): 1 MiB, past the damage
-/// around one place (a block or two).
+/// Bytes between records of an item before a use writes a copy after the first ([NearPolicy::copy_spacing]): 1 MiB,
+/// past the damage around one place (a block or two).
 pub const COPY_SPACING: Bytes<u64> = Bytes::new(1 << 20);
+/// Bytes from an item's first record in a piece to its first copy ([NearPolicy::copy_first]): 4 KiB, one sector of
+/// a disk or card, so the first 4 KiB of a piece lost leave a copy of each definition.
+pub const COPY_FIRST: Bytes<u64> = Bytes::new(4 << 10);
 /// Slots a writer remembers by default ([NearPolicy::memory_max]).
 pub const MEMORY_MAX: Count<Item, u64> = Count::new(1 << 18);
 
@@ -37,7 +43,9 @@ pub const MEMORY_MAX: Count<Item, u64> = Count::new(1 << 18);
 /// policy the piece was written with.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct NearPolicy {
-    /// Bytes from the newest record of an item to where a use writes a copy ([COPY_SPACING]).
+    /// Bytes from the first record of an item to where its first copy is written ([COPY_FIRST]).
+    pub copy_first: Bytes<u64>,
+    /// Bytes from the newest record of an item to where a use writes each copy after the first ([COPY_SPACING]).
     pub copy_spacing: Bytes<u64>,
     /// Slots remembered ([MEMORY_MAX]).
     pub memory_max: Count<Item, u64>,
@@ -48,6 +56,7 @@ pub struct NearPolicy {
 impl Default for NearPolicy {
     fn default() -> Self {
         Self {
+            copy_first: COPY_FIRST,
             copy_spacing: COPY_SPACING,
             memory_max: MEMORY_MAX,
             kept_bytes_max: super::KEPT_BYTES_MAX,
@@ -70,10 +79,12 @@ struct Written {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
     /// Bytes behind a use within which the newest record of the item serves ([StatePolicy::near](crate::StatePolicy)).
-    pub near: Bytes<u64>,
+    pub near: Bytes<u32>,
     /// Copies after the first record ([StatePolicy::copies](crate::StatePolicy)).
     pub copies: Count<Item, u8>,
-    /// Bytes from the newest record to where a use writes a copy ([NearPolicy::copy_spacing]).
+    /// Bytes from the first record to where the first copy is written ([NearPolicy::copy_first]).
+    pub first: Bytes<u64>,
+    /// Bytes from the newest record to where a use writes each copy after the first ([NearPolicy::copy_spacing]).
     pub spacing: Bytes<u64>,
     /// Whether the record is written twice at once ([TrackDef::defined_twice](crate::TrackDef::defined_twice)).
     pub twice: bool,
@@ -85,6 +96,21 @@ pub struct Near {
     slots: BTreeMap<Slot, Written>,
     /// The slots remembered by where their newest record lies, oldest first
     by_age: BTreeSet<(u64, Slot)>,
+    /// The slots of definitions and plain state items of at most two records, by where the newest lies: those whose
+    /// first copy may be due ([Self::first_copies])
+    unswept: BTreeSet<(u64, Slot)>,
+}
+
+/// Whether a record in `slot` gets its first copy without a use: a definition a writer holds, or a plain state item.
+fn swept(slot: &Slot) -> bool {
+    match slot {
+        Slot::Keyed { .. } => false,
+        Slot::Own { kind, .. } => matches!(
+            kind,
+            crate::DefinitionKind::Bundle | crate::DefinitionKind::Schema
+        ),
+        _ => true,
+    }
 }
 
 impl Near {
@@ -100,10 +126,71 @@ impl Near {
             return true;
         };
         let behind = pos.saturating_sub(w.at);
-        let copies = u32::from(rule.copies.get()).saturating_add(u32::from(rule.twice));
-        let copy = w.records <= copies && behind >= rule.spacing.get();
         let at_once = rule.twice && w.records < 2;
-        w.hash != Some(hash) || behind > rule.near.get() || copy || at_once
+        w.hash != Some(hash)
+            || behind > u64::from(rule.near.get())
+            || Self::copy(w, behind, rule)
+            || at_once
+    }
+
+    /// [Self::writes] but never for a copy spaced apart: the item written only where it isn't the newest record of
+    /// its slot within `rule.near`, or where it is to be written twice at once.
+    pub fn writes_new(&self, slot: &Slot, hash: ItemHash, pos: u64, rule: Rule) -> bool {
+        let Some(w) = self.slots.get(slot) else {
+            return true;
+        };
+        let behind = pos.saturating_sub(w.at);
+        w.hash != Some(hash) || behind > u64::from(rule.near.get()) || (rule.twice && w.records < 2)
+    }
+
+    /// Whether a copy of `w`'s item is due `behind` bytes after it: fewer records than the copies `rule` asks, and
+    /// the first copy [Rule::first] behind, each later one [Rule::spacing].
+    fn copy(w: &Written, behind: u64, rule: Rule) -> bool {
+        let twice = u32::from(rule.twice);
+        let copies = u32::from(rule.copies.get()).saturating_add(twice);
+        let spaced = w.records.saturating_sub(twice.saturating_add(1));
+        let spacing = if spaced == 0 {
+            rule.first
+        } else {
+            rule.spacing
+        };
+        w.records <= copies && behind >= spacing.get()
+    }
+
+    /// The slots whose newest record lies at least `first` bytes behind `pos` that may be due their first copy, the
+    /// oldest first, into `out` (cleared first). [Self::first_copy_due] decides each.
+    pub fn first_copies(&self, pos: u64, first: Bytes<u64>, out: &mut alloc::vec::Vec<Slot>) {
+        out.clear();
+        out.extend(
+            self.unswept
+                .iter()
+                .take_while(|(at, _)| at.saturating_add(first.get()) <= pos)
+                .map(|(_, s)| *s),
+        );
+    }
+
+    /// Whether the record of item `hash` in `slot` is due its first copy at `pos` under `rule`: Some(true) when it
+    /// is, Some(false) when the slot is past its first copy (it leaves [Self::first_copies]), None when the slot's
+    /// newest record is another item or not known.
+    pub fn first_copy_due(
+        &mut self,
+        slot: &Slot,
+        hash: ItemHash,
+        pos: u64,
+        rule: Rule,
+    ) -> Option<bool> {
+        let w = self.slots.get(slot)?;
+        if w.hash != Some(hash) {
+            return None;
+        }
+        let twice = u32::from(rule.twice);
+        let first = w.records <= twice.saturating_add(1) && rule.copies.get() > 0;
+        if !first {
+            let at = w.at;
+            self.unswept.remove(&(at, *slot));
+            return Some(false);
+        }
+        Some(Self::copy(w, pos.saturating_sub(w.at), rule))
     }
 
     /// Note a record of item `hash` in `slot` written in the block at `offset` (None: the block is damaged and the
@@ -123,16 +210,28 @@ impl Near {
         );
         if let Some(o) = old {
             self.by_age.remove(&(o.at, slot));
+            self.unswept.remove(&(o.at, slot));
         }
         if !matches!(slot, Slot::Layout | Slot::Producer) {
             self.by_age.insert((offset, slot));
         }
+        if hash.is_some() && records <= 2 && swept(&slot) {
+            self.unswept.insert((offset, slot));
+        }
         while self.by_age.len() > crate::cap_usize(policy.memory_max.get()).max(1) {
-            let Some((_, oldest)) = self.by_age.pop_first() else {
+            let Some((at, oldest)) = self.by_age.pop_first() else {
                 break;
             };
             self.slots.remove(&oldest);
+            self.unswept.remove(&(at, oldest));
         }
+    }
+
+    /// [Self::wrote] for a record of a group of puts: it gets no first copy without a use, which would stand
+    /// outside its group and outlive a damaged group's drop.
+    pub fn wrote_in_group(&mut self, slot: Slot, hash: ItemHash, offset: u64, policy: &NearPolicy) {
+        self.wrote(slot, Some(hash), offset, policy);
+        self.unswept.remove(&(offset, slot));
     }
 
     /// Records of the item `hash` in `slot` the piece holds, the newest of the slot among them; 0 when the slot's
@@ -163,6 +262,7 @@ mod tests {
     const RULE: Rule = Rule {
         near: Bytes::new(1000),
         copies: Count::new(0),
+        first: Bytes::new(10),
         spacing: Bytes::new(10),
         twice: false,
     };
@@ -207,6 +307,66 @@ mod tests {
         // three records lie in the piece: no more copies, only past near
         assert!(!n.writes(&s, a, 500, rule));
         assert!(n.writes(&s, a, 1021, rule));
+    }
+
+    #[test]
+    fn the_first_copy_comes_at_copy_first_and_later_ones_spaced() {
+        let p = NearPolicy::default();
+        let rule = Rule {
+            copies: Count::new(2),
+            first: Bytes::new(4),
+            spacing: Bytes::new(10),
+            ..RULE
+        };
+        let mut n = Near::default();
+        let s = Slot::Producer;
+        let a = ItemHash::of(b"A");
+        wrote(&mut n, s, b"A", 0, &p);
+        assert!(!n.writes(&s, a, 3, rule));
+        assert!(n.writes(&s, a, 4, rule));
+        wrote(&mut n, s, b"A", 4, &p);
+        assert!(!n.writes(&s, a, 13, rule));
+        assert!(n.writes(&s, a, 14, rule));
+    }
+
+    #[test]
+    fn a_single_record_is_swept_once_copy_first_lies_behind() {
+        let p = NearPolicy::default();
+        let rule = Rule {
+            copies: Count::new(2),
+            first: Bytes::new(4),
+            ..RULE
+        };
+        let mut n = Near::default();
+        let t = Slot::Track {
+            number: TrackNum::new(1),
+        };
+        let k = Slot::Keyed {
+            track: TrackNum::new(2),
+            key: crate::KeyId::of(b"k").unwrap(),
+        };
+        let g = Slot::State {
+            track: TrackNum::new(3),
+        };
+        wrote(&mut n, t, b"A", 0, &p);
+        wrote(&mut n, k, b"K", 0, &p);
+        n.wrote_in_group(g, ItemHash::of(b"G"), 0, &p);
+        let mut out = alloc::vec::Vec::new();
+        n.first_copies(3, Bytes::new(4), &mut out);
+        assert!(out.is_empty(), "not yet 4 bytes behind");
+        // the keyed record and the group's record are copied on use only
+        n.first_copies(4, Bytes::new(4), &mut out);
+        assert_eq!(out, [t]);
+        let a = ItemHash::of(b"A");
+        assert_eq!(n.first_copy_due(&t, a, 4, rule), Some(true));
+        assert_eq!(n.first_copy_due(&t, ItemHash::of(b"B"), 4, rule), None);
+        // once copied, the slot is past its first copy and leaves the sweep
+        wrote(&mut n, t, b"A", 4, &p);
+        n.first_copies(100, Bytes::new(4), &mut out);
+        assert_eq!(out, [t]);
+        assert_eq!(n.first_copy_due(&t, a, 100, rule), Some(false));
+        n.first_copies(100, Bytes::new(4), &mut out);
+        assert!(out.is_empty());
     }
 
     #[test]

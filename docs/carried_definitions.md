@@ -40,7 +40,7 @@ newest item, with its time, right after its definition in the same block. A read
 state in force with [`TapeReader::state_at`], as it finds the track.
 
 The carried item counts as a record of the item in the piece. A put of the same item close behind writes nothing. Its
-copy comes at a use 1 MiB on, as after any first record.
+first copy comes 4 KiB on, with the next block, and its second at a use 1 MiB after that, as after any first record.
 
 The writer keeps the newest item of each state track for this, learned from every state record it places. The items
 take at most `NearPolicy::kept_bytes_max` (64 MiB by default); past it, the item placed longest ago is forgotten. A
@@ -76,8 +76,9 @@ many tracks a cut carries whole, each with its own definition and no bundle:
 
 ### Refused calls and left-out tracks
 
-The copies of the layout and the producer, which every call that puts a record may write, take no part in this room.
-A copy that finds the state entries full is skipped, and the call goes on without it.
+[[State copies]] take no part in this room: the first copies a call writes, and the copies of the layout and the
+producer, which every call that puts a record may write. A copy that finds the state entries full is skipped, and the
+call goes on without it.
 
 A call is admitted only when its records fit an empty piece under the same policy. Those are the definitions its tracks
 need, its put, the layout, the producer and the keys every cut carries. Otherwise `InputError::CarriedEntries` refuses it: nothing written, no cut.

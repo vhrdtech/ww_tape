@@ -1,5 +1,5 @@
-<svg class="ww-svg" viewBox="0 0 688 360" width="688" height="360" role="img" aria-label="Resuming: the resume keeps 23.0 KiB of the 23.2 KiB on disk and cuts off the torn block and the puts that go with it; the producer gives the lost calls again, and the piece ends with the same 60.0 KiB as one written without the crash" xmlns="http://www.w3.org/2000/svg">
-<text x="664.0" y="14.0" text-anchor="end" class="soft small">the first 22.3 KiB are the same in all three rows, and so is the rest of the first and the last</text>
+<svg class="ww-svg" viewBox="0 0 688 360" width="688" height="360" role="img" aria-label="Resuming: the resume keeps 24.9 KiB of the 25.2 KiB on disk and cuts off the torn block and the puts that go with it; the producer gives the lost calls again, and the piece ends with the same 64.0 KiB as one written without the crash" xmlns="http://www.w3.org/2000/svg">
+<text x="664.0" y="14.0" text-anchor="end" class="soft small">the first 24.2 KiB are the same in all three rows, and so is the rest of the first and the last</text>
 <text x="24.0" y="34.0" text-anchor="start" class="strong">written without a crash</text>
 <rect x="24.0" y="44.0" width="34.0" height="30.0" rx="1" class="faint"/>
 <text x="41.0" y="63.5" text-anchor="middle" class="soft small">...</text>
@@ -20,7 +20,7 @@
 <rect x="201.0" y="140.0" width="49.2" height="30.0" rx="1" class="tint-accent"/>
 <text x="225.6" y="159.5" text-anchor="middle" class="small">torn</text>
 <path d="M24.0 138.0 v-4 H199.5 v4" class="thin"/>
-<text x="112.2" y="128.0" text-anchor="middle" class="small">kept: 23.0 KiB</text>
+<text x="112.2" y="128.0" text-anchor="middle" class="small">kept: 24.9 KiB</text>
 <path d="M201.5 172.0 v4 H250.7 v-4" class="thin"/>
 <text x="200.5" y="194.0" text-anchor="start" class="accent small">cut off: the puts that go with the torn block, and the torn block</text>
 <text x="24.0" y="230.0" text-anchor="start" class="strong">resumed, the lost calls given again</text>

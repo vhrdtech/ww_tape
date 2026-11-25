@@ -334,7 +334,7 @@ pub(crate) fn options(drive: &Drive) -> ChainOptions {
     // --8<-- [start:options]
     let definitions = StatePolicy {
         near: drive.near_bytes,
-        copies: exact_units::Count::new(1),
+        copies: exact_units::Count::new(2),
     };
     ChainOptions {
         writer: WriterOptions {
@@ -873,21 +873,39 @@ fn place_chunks(made: &mut [Made], pieces: &[Vec<u8>]) -> Result<(), Error> {
     Ok(())
 }
 
-/// Move the end of each act before the checkpoints and summaries the writer placed right after its blocks: they are no block
-/// of the act, so a crash that tears only them keeps the act: the resume writes the summaries it lost.
+/// Move the end of each act before the checkpoints and summaries the writer placed right after its blocks, with the
+/// puts a summary needs: they are no block of the act, so a crash that tears only them keeps the act: the resume
+/// writes the summaries it lost.
 fn settle(made: &mut [Made], pieces: &[Vec<u8>]) -> Result<(), Error> {
     for (seq, piece) in (0u64..).zip(pieces) {
         let mut checkpoints = BTreeMap::new();
         let mut walk = FileBlocks::with_recovery(&piece[..], Recovery::Prefix);
+        // where the blocks of puts that belong with the next block start, while they go on
+        let mut puts: Option<u64> = None;
         while let Some(block) = walk.next_block() {
-            let (kind, len) = {
+            let (kind, len, with_next) = {
                 let block = block?;
-                (block.kind, u64::try_from(block.bytes().len()).unwrap_or(0))
+                let with_next = block.is_repeat() && block.flags & ww_tape::FLAG_WITH_NEXT != 0;
+                (
+                    block.kind,
+                    u64::try_from(block.bytes().len()).unwrap_or(0),
+                    with_next,
+                )
             };
+            let start = walk.offset();
             if matches!(kind, BlockKind::Index | BlockKind::Summary) {
-                let start = walk.offset();
-                checkpoints.insert(start.saturating_add(len), start);
+                let from = if kind == BlockKind::Summary {
+                    puts.unwrap_or(start)
+                } else {
+                    start
+                };
+                checkpoints.insert(start.saturating_add(len), from);
             }
+            puts = if with_next {
+                puts.or(Some(start))
+            } else {
+                None
+            };
         }
         let before_checkpoints = |mut at: u64| {
             while let Some(&start) = checkpoints.get(&at) {

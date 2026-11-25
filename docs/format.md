@@ -806,10 +806,9 @@ The writer puts them after every piece head, before the first block of a file wi
 starts another session.
 
 A call that puts a definition or a state item also uses the producer and the layout. Each is put with the records of
-that call by track 0's policy, as a definition is. It is copied once the copy spacing is reached and put again past
-`near`.
-Such a copy is skipped when the piece's state entries are full: it never refuses a call. A reader takes the newest
-layout record, the copy included, for the gap rules.
+that call by track 0's policy, as a definition is. Each gets its copies as a definition does ([Puts and
+copies](#puts-and-copies)) and is put again past `near`. A copy is skipped when the piece's state entries are full: it
+never refuses a call. A reader takes the newest layout record, a copy included, for the gap rules.
 
 Definitions go in the order the writer puts them: the same input then gives the same bytes.
 
@@ -823,7 +822,7 @@ A state track's records fill one slot, the track's.
 A `StatePolicy` says how a writer keeps state records near their use. `near` (32 MiB by default) is how far behind a use
 the item must lie in the same piece.
 
-`copies` (1 by default) is how many more records an item gets after its first one in a piece. Track 0's policy is in the
+`copies` (2 by default) is how many more records an item gets after its first one in a piece. Track 0's policy is in the
 layout (`Layout::definitions`).
 
 A series track has no records and takes the plain policy, since its chunks are data and carry their own timing ([Series
@@ -836,8 +835,8 @@ distance is measured to where the data lands.
 
 For example, a writer puts a track's definition before every block of the track's data.
 
-With the default policy, the writer writes the definition at the first block. It writes it once more as a copy at a use
-at least 1 MiB later.
+With the default policy, the writer writes the definition at the first block. It writes a first copy once 4 KiB lie
+behind that record, and a second copy at a use at least 1 MiB after the first copy.
 
 After that, the writer writes the definition again whenever its newest record lies more than 32 MiB behind.
 
@@ -851,18 +850,36 @@ The writer puts definitions the same way before every block of data.
 A put of an item that lies near behind still writes it as a **copy** while two conditions hold:
 
 - fewer than `1 + copies` records of it lie in the piece;
-- the newest lies at least `NearPolicy::copy_spacing` (1 MiB) behind.
+- the newest lies far enough behind: `NearPolicy::copy_first` (4 KiB) for the first copy, `NearPolicy::copy_spacing`
+  (1 MiB) for each copy after it.
 
-The writer writes copies only at uses, never ahead of them.
+The first copy needs no use. A writer call that writes a run ([Marking blocks of puts](#marking-blocks-of-puts)) first
+writes the first copy of each definition and each plain state item that is due one: its slot holds one record of it in
+the piece, that record is the slot's newest, and it lies at least `copy_first` behind. `defer_block` writes no run and
+so no such copy. The copies go into the call's blocks of puts, ordered by where their record lies, then by slot. A
+call adds only as many as its run has room for under `RUN_BLOCKS_MAX`, keeping `FIRST_COPY_RUN_RESERVE` (64) blocks
+for its own puts and block; the rest come with the next calls. A cut that carries many definitions so writes their
+first copies in its head's run where they fit, and in the runs after it where they do not. A
+track whose data has stopped thus gets its first copy too, 4 KiB past the first sector of the piece. A resume writes
+the first copies that a crash cut off, so the calls given again produce the same bytes.
+
+Two kinds of record get their copies only at uses: an item of a keyed track ([Keyed state
+tracks](#keyed-state-tracks)), and a record of a group of puts ([Groups of puts](#groups-of-puts)), whose copy would
+stand outside its group. Every copy is skipped when the piece's state entries are full: a copy never refuses a call.
+
+A call's puts go into blocks in a fixed order. The first records of definitions written twice at once come first
+([below](#definitions-written-twice-at-once)). Bundles, schemas and other definitions that fill a slot by their hash
+follow, in blocks of their own, so a reader of the tracks and clocks never reads their bytes. Every other record comes
+last.
 
 The writer remembers at most `NearPolicy::memory_max` slots and forgets the one written longest ago first. A forgotten
 slot costs one more write, never a wrong read.
 
 #### 5.1.1 Definitions written twice at once {#definitions-written-twice-at-once}
 
-Copies spaced 1 MiB apart never come in a piece smaller than that, so such a piece holds each definition once. One
-damaged block then loses a track's definition, and with it the track. A track whose `defined_twice` is true avoids
-this. The writer writes every definition the track needs twice: its clock chain, its bundles and its own definition.
+A first copy comes 4 KiB after its record and the blocks of the same call, so a piece that ends sooner holds each
+definition once. One damaged block then loses a track's definition, and with it the track. A track whose
+`defined_twice` is true avoids this. The writer writes every definition the track needs twice: its clock chain, its bundles and its own definition.
 
 The first record of such a definition in a piece goes into a block of puts of its own, marked `FLAG_TWICE` (header
 bit 7) besides `FLAG_REPEAT`. That block belongs to its run of blocks like any block of puts, so it is marked
@@ -882,8 +899,8 @@ Take a track defined twice whose first block of records follows the head's layou
 | puts | `FLAG_REPEAT`, `FLAG_TWICE` | the clock, the track: the copy |
 
 Only the first record of a definition in a piece gets a copy. A clock may lie once in the piece already, put for a
-track that asked for nothing. The first use by a track that asked then writes it once more. The copies spaced apart
-come on top: `copies` counts past those two records, and each is written once.
+track that asked for nothing. The first use by a track that asked then writes it once more. The copies of `copies`
+come on top, counted past those two records, the first of them `copy_first` after the record written twice.
 
 Each record takes its own state entry. A cut carries such a definition twice too. Its block of carried definitions
 belongs to the run that the piece head's puts start, and its copy follows that run.
@@ -1501,7 +1518,7 @@ append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close 
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/tail.svg"
-<figcaption>The tail of the drive's first piece: the last 164 bytes of its 8,192. It names the close at byte 6,486 and its
+<figcaption>The tail of the drive's first piece: the last 164 bytes of its 8,192. It names the close at byte 5,460 and its
 length, the reason 1 (closed) and the flags 1 (the piece has a head). The content hash, the ids and the sequence
 number 0 follow. Drawn by <code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data.</figcaption>
 </figure>
@@ -2150,7 +2167,8 @@ checkpoints instead.
 **State near its use** keeps a piece readable when a block of definitions is damaged. A reader at any place finds what
 it needs within `near` behind.
 
-An item first written in a piece gets `copies` more records at later uses, at least 1 MiB apart. A lookup that meets a
+An item first written in a piece gets `copies` more records: the first 4 KiB on, the later ones at uses at least 1 MiB
+apart. A lookup that meets a
 damaged block lists it and takes the next older record of the slot ([Reading by position](#reading-by-position)).
 
 ## 12 Series tracks {#series-tracks}
@@ -2701,7 +2719,8 @@ The writer's policies (`WriterOptions`, `PieceChain`'s `ChainOptions`):
 | `IndexPolicy::bytes` | 4 MiB (`DEFAULT_CHECKPOINT_BYTES`) | the bytes of blocks after which the next checkpoint falls; 0: never |
 | `IndexPolicy::interval` | None | a checkpoint also once the one before is this long ago; the bytes then depend on the clock |
 | `IndexPolicy::state_entries_max` | 1 Mi entries (`STATE_ENTRIES_MAX`) | the state entries one piece lists ([State entries](#state-entries)) |
-| `NearPolicy::copy_spacing` | 1 MiB (`COPY_SPACING`) | the bytes from an item's newest record to where a use writes a copy |
+| `NearPolicy::copy_first` | 4 KiB (`COPY_FIRST`) | the bytes from an item's first record in a piece to its first copy, written without a use |
+| `NearPolicy::copy_spacing` | 1 MiB (`COPY_SPACING`) | the bytes from an item's newest record to where a use writes each copy after the first |
 | `NearPolicy::memory_max` | 262,144 slots (`MEMORY_MAX`) | the slots whose newest record the writer remembers |
 | `NearPolicy::kept_bytes_max` | 64 MiB (`KEPT_BYTES_MAX`) | the bytes of newest state items the writer keeps for a cut to carry |
 | `CutPolicy::bytes`, `chunks`, `interval` | none: 0 or None turns each off | when a chain cuts to a new piece: by size, chunk count or age |
@@ -2724,7 +2743,7 @@ A track's state policy (`StatePolicy`) is part of its definition, and track 0's 
 | Field | Default (`StatePolicy::DEFAULT`) | Sets |
 |---|---|---|
 | `near` | 32 MiB | how far behind a use an item lies at most, in the same piece |
-| `copies` | 1 | the records an item gets after its first one in a piece |
+| `copies` | 2 | the records an item gets after its first one in a piece |
 
 The reader's policies (`OpenOptions`):
 
@@ -2792,6 +2811,7 @@ would pass one:
 | `RESYNC_SEQS_MAX` | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
 | `DEFERRED_BYTES_MAX` | 1 MiB | the deferred blocks a writer keeps before it writes them out |
 | `UNIT_CHUNKS_MAX` | 17 | the chunks of one unit a writer writes or relays: a tile chunk and its overviews |
+| `FIRST_COPY_RUN_RESERVE` | 64 | the blocks of a run a call keeps for its own puts and block when it adds first copies; the copies that do not fit wait for the next calls |
 | `RUN_BLOCKS_MAX` | 4096 | the blocks of one run marked `FLAG_WITH_NEXT` and the block it belongs with, a writer writes or a follower holds |
 | `RELAY_GROUPS_MAX` | 16 | the producers whose groups of puts a relay holds at once |
 | `RELAY_HELD_BYTES_MAX` | 128 MiB | what the groups of puts a relay holds at once cost: each record's bytes and overhead |
