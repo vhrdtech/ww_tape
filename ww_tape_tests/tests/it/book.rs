@@ -467,6 +467,7 @@ fn format_page_kinds_are_block_kinds() {
         (12, Some(BlockKind::DICTIONARY), "dictionary"),
         (13, Some(BlockKind::AppendHead), "append head"),
         (14, Some(BlockKind::CloseSummary), "close summary"),
+        (15, Some(BlockKind::CodedRecords), "coded records"),
         (16, Some(BlockKind::KeyedPuts), "keyed puts"),
         (17, Some(BlockKind::TileSummary), "tile summary"),
     ];

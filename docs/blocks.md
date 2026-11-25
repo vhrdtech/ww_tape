@@ -49,7 +49,7 @@ Each kind of [[block]] has one job. They fall into four groups:
 | Group | Kinds | Holds |
 |---|---|---|
 | Description | records on track 0 | what the tape is: the producer, the clocks and maps, the tracks, the API bundles |
-| Data | records block, keyed puts, events chunk, series chunk | the items; keyed puts the keys and values of a keyed state track |
+| Data | records block, coded records, keyed puts, events chunk, series chunk | the items; keyed puts the keys and values of a keyed state track |
 | Overview | summary, tile summary | coarse views of long tracks and of each tile of a grid, rebuilt from the data when lost |
 | Structure | piece head, index, close, tail | where things are, how the file ends, how files chain |
 
@@ -63,8 +63,8 @@ table of the [[clocks]] its records count. Each [[record]] follows as its track 
 length and the item's bytes. The three numbers before the item take one byte each when they are small.
 
 The time delta counts from the previous record on the same clock in the same [[block]]. The first one counts from 0.
-Every block therefore reads alone, without the block before it. A [[writer]] may compress the whole body with lz4, and a
-flag in the header says so.
+Every block therefore reads alone, without the block before it. A [[writer]] may compress the whole body with lz4: the
+block is then a coded records block, a kind of its own.
 
 The drive writes its log lines and temperatures into one records block a second. This test writes such a block with
 [`BlockWriter`], reads it back with [`Block::read`], and changes one byte:

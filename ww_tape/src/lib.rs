@@ -17,7 +17,7 @@
 //!   0   4  magic "WWTP"
 //!   4  u8  version, 1
 //!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
-//!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
+//!   6 u16  flags: bit 0 retired (coded records are kind 15), bit 1 state records a writer put or
 //!          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
@@ -51,7 +51,8 @@
 //! (uvar, spans only), the flags (uvar, only with flags), then the payload; the record's time is the start. A track
 //! of plain instants carries the payload alone. A state record of an events track carries the same item.
 //!
-//! With [FLAG_BODY_CODED] that body is coded: a codec byte, its decoded length and the coded bytes ([body]).
+//! A coded records block (kind 15, [BlockKind::CodedRecords]) holds that body coded: a codec byte, its decoded length
+//! and the coded bytes ([body]).
 //!
 //! So time deltas are coded per clock, a block reads alone (its first time per clock is absolute) and one clock costs
 //! no bit in the head. No wall clock is in a block: wall time is a clock of its own, mapped to the others.
@@ -409,9 +410,6 @@ pub const FLAG_TWICE: u16 = 1 << 7;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.
 pub const RESERVED_KIND: u8 = 2;
-/// Header flag: the body of a records block is coded ([body]); on another kind the body is one this
-/// reader doesn't know. Off unless a writer codes the block with [code_body].
-pub const FLAG_BODY_CODED: u16 = 1 << 0;
 /// Bytes of the CRC at the end of a block.
 pub const CRC_LEN: usize = 4;
 /// Most clocks in one block's clock table; a producer writing on more starts another block.
@@ -449,6 +447,9 @@ pub enum BlockKind {
     /// A block of the caller's own a close names, placed right before its final index: its body is the caller's,
     /// opaque to the format ([piece::write_close_summary]).
     CloseSummary,
+    /// A records block whose body is coded ([body]): a codec byte, the decoded length and the coded bytes, which
+    /// decode to a [Records](Self::Records) block's body.
+    CodedRecords,
     /// A block of puts of keyed state records ([state]): a records body whose every record is a [KeyedItem], marked
     /// [FLAG_REPEAT].
     KeyedPuts,
@@ -480,15 +481,16 @@ impl BlockKind {
             10 => Self::PieceHead,
             13 => Self::AppendHead,
             14 => Self::CloseSummary,
+            15 => Self::CodedRecords,
             16 => Self::KeyedPuts,
             17 => Self::TileSummary,
             other => Self::Other(other),
         }
     }
 
-    /// Whether a block of this kind holds records ([Block::records]): records blocks and keyed puts.
+    /// Whether a block of this kind holds records ([Block::records]): records blocks, coded or not, and keyed puts.
     pub fn holds_records(self) -> bool {
-        matches!(self, Self::Records | Self::KeyedPuts)
+        matches!(self, Self::Records | Self::CodedRecords | Self::KeyedPuts)
     }
 
     /// Whether a block of this kind is a summary block ([summary]): of a series or events tree, or of a tile's.
@@ -509,6 +511,7 @@ impl BlockKind {
             Self::PieceHead => 10,
             Self::AppendHead => 13,
             Self::CloseSummary => 14,
+            Self::CodedRecords => 15,
             Self::KeyedPuts => 16,
             Self::TileSummary => 17,
             Self::Other(v) => v,
@@ -1428,8 +1431,7 @@ impl<'b> Block<'b> {
 
     /// The records parse to the end and are as many as the header says.
     fn check_records(&self) -> Result<(), BlockError> {
-        let records = self.kind == BlockKind::Records;
-        if self.version == VERSION && records && self.is_coded() && self.coded().is_none() {
+        if self.version == VERSION && self.is_coded() && self.coded().is_none() {
             return Err(BlockError::BadRecords);
         }
         if self.is_keyed() && !self.is_repeat() {
@@ -1576,13 +1578,12 @@ impl<'b> Block<'b> {
     }
 
     fn is_coded(&self) -> bool {
-        self.flags & FLAG_BODY_CODED != 0
+        self.kind == BlockKind::CodedRecords
     }
 
     /// The parts of a coded record body; None for any other block, or one that doesn't parse.
     fn coded(&self) -> Option<body::Coded<'b>> {
-        let records = self.kind == BlockKind::Records;
-        if !(self.is_coded() && records) {
+        if !self.is_coded() {
             return None;
         }
         body::coded(self.body)
@@ -1597,7 +1598,7 @@ impl<'b> Block<'b> {
             .map(|c| c.decoded_len.saturating_add(HEADER_LEN + CRC_LEN))
     }
 
-    /// The codec of a coded record body ([FLAG_BODY_CODED]); None for a plain body.
+    /// The codec of a coded record body ([BlockKind::CodedRecords]); None for a plain body.
     pub fn body_codec(&self) -> Option<BodyCodec> {
         self.coded().map(|c| c.codec)
     }

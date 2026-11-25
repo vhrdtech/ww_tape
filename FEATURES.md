@@ -103,7 +103,7 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
 - 🚧 **FMT-17 Header flags only mark**
 
-  A body read another way is a block kind of its own, never a header flag, so a reader that doesn't know it skips the block as good. Keyed puts are kind 16 and tile summaries kind 17; header bits 5 and 6 are retired. Still to do: coded records as a kind, and bit 3 into the block contract.
+  A body read another way is a block kind of its own, never a header flag, so a reader that doesn't know it skips the block as good. Coded records are kind 15, keyed puts kind 16 and tile summaries kind 17; header bits 0, 5 and 6 are retired. Still to do: bit 3 into the block contract.
 
   Read more: [Header flags](docs/format.md#header-flags). Tests `keyed.rs`, `grid_summaries.rs`; fuzz targets `tape-keyed`, `tape-keyed-hostile`, `tape-summary-hostile`.
 

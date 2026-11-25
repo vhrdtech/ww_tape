@@ -84,9 +84,7 @@ use crate::TrackNum;
 use crate::bytes::{file_u8, file_u32, le_i64, le_u8, le_u16, le_u32, le_u64};
 use crate::grid::{GRID_FIXED_AXES_MAX, GRID_OVERVIEW_LEVELS_MAX, TileCoords};
 use crate::series::{SCALE_LEN_MAX, SeriesGrid, read_scale, scale_bytes};
-use crate::{
-    BlockError, BlockKind, BoundError, CRC_LEN, FLAG_BODY_CODED, HEADER_LEN, MAX_BLOCK_LEN, VERSION,
-};
+use crate::{BlockError, BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN, VERSION};
 
 // The CRC of chunk blocks: the same CRC-32C as every block.
 use crate::CRC;
@@ -367,10 +365,8 @@ impl ChunkHead {
             });
         }
         let kind = le_u8(header, 5).map(BlockKind::from_u8);
-        let flags = le_u16(header, 6).ok_or(BlockError::NotChunk)?;
         if le_u8(header, 4) != Some(VERSION)
             || !matches!(kind, Some(BlockKind::Events | BlockKind::Series))
-            || flags & FLAG_BODY_CODED != 0
         {
             return Err(BlockError::NotChunk);
         }

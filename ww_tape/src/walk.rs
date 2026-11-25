@@ -212,7 +212,7 @@ pub(crate) fn is_free(b: &Block<'_>) -> bool {
 
 /// Whether `b` is a record block whose first record is on track 0: definitions, made or put.
 pub(crate) fn starts_with_definitions(b: &Block<'_>) -> bool {
-    if b.kind != BlockKind::Records {
+    if !matches!(b.kind, BlockKind::Records | BlockKind::CodedRecords) {
         return false;
     }
     let mut buf = alloc::vec::Vec::new();
@@ -221,7 +221,7 @@ pub(crate) fn starts_with_definitions(b: &Block<'_>) -> bool {
 
 /// The [Layout] the track-0 records of record block `b` say, the last one in it; None for any other block.
 pub(crate) fn layout_in(b: &Block<'_>) -> Option<Layout> {
-    if b.kind != BlockKind::Records {
+    if !matches!(b.kind, BlockKind::Records | BlockKind::CodedRecords) {
         return None;
     }
     let mut buf = alloc::vec::Vec::new();

@@ -393,7 +393,9 @@ impl IndexEntry {
                     e.latest_end = h.latest_end;
                 }
             }
-            BlockKind::Records | BlockKind::KeyedPuts => e.repeat = block.is_repeat(),
+            BlockKind::Records | BlockKind::CodedRecords | BlockKind::KeyedPuts => {
+                e.repeat = block.is_repeat();
+            }
             BlockKind::Other(_) => {}
         }
         Some(e)

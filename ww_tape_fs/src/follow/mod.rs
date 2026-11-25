@@ -519,7 +519,7 @@ impl ChainFollower {
     /// Take the definitions `block` carries.
     fn take_definitions(&mut self, block: &BlockBuf) -> Result<(), DescribeError> {
         let b = block.block();
-        if b.kind != BlockKind::Records {
+        if !matches!(b.kind, BlockKind::Records | BlockKind::CodedRecords) {
             return Ok(());
         }
         let mut buf = Vec::new();

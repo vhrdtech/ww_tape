@@ -554,7 +554,7 @@ impl<L: Listed> Replay<L> {
                     }
                 }
                 // the records of a damaged block of data: each track that may hold records leaves them out
-                BlockKind::Records if e.track_id != STATE_TRACK_ID => {
+                BlockKind::Records | BlockKind::CodedRecords if e.track_id != STATE_TRACK_ID => {
                     let takes = |n: &TrackNum| {
                         self.facts
                             .get(n)

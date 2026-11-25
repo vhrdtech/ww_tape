@@ -118,7 +118,7 @@ off size field
   0   4  magic "WWTP"
   4  u8  version, 1
   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
-  6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
+  6 u16  flags: bit 0 retired (coded records are kind 15), bit 1 state records a writer put or
          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
@@ -172,6 +172,7 @@ The header's kind byte says what the body holds (`BlockKind`):
 | 12 | dictionary of a relation, reserved: none are written |
 | 13 | append head |
 | 14 | close summary |
+| 15 | coded records ([Records blocks](#records-blocks)) |
 | 16 | keyed puts ([Keyed state tracks](#keyed-state-tracks)) |
 | 17 | tile summary ([Summaries of tiles](#summaries-of-tiles)) |
 
@@ -184,7 +185,7 @@ Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know.
 
 | Bit | Flag | Marks |
 |---:|---|---|
-| 0 | `FLAG_BODY_CODED` | a coded records body ([below](#records-blocks)) |
+| 0 | | retired: written 0, ignored, not reused in version 1 (coded records are kind 15) |
 | 1 | `FLAG_REPEAT` | a block of state records a writer put or copied ([State tracks](#state-tracks)) |
 | 2 | `FLAG_WITH_NEXT` | puts or a chunk that belong with the block after it ([State tracks](#state-tracks), [Space overviews](#space-overviews)) |
 | 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
@@ -225,8 +226,9 @@ only), the flags (only when the track has flags), then the payload.
 The record's time is the start. A track of plain instants carries the payload alone, and a state record of an events
 track carries the same item.
 
-With header flag `FLAG_BODY_CODED`, the body is coded
-([`body`](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/body.rs)).
+A **coded records block** (kind 15, `BlockKind::CodedRecords`) holds that body coded
+([`body`](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/body.rs)). Decoded, it is a records block (kind 1)
+of the same header flags. A reader that doesn't know kind 15 skips the block by its length.
 
 Coding is off unless a writer calls `ww_tape::code_body`, and a writer keeps the plain body when coding doesn't shrink
 it:

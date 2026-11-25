@@ -104,12 +104,11 @@ impl Default for SyncPolicy {
     }
 }
 
-/// The header flags a caller's block of `kind` may carry when written as it is, not as puts: a coded body
-/// ([FLAG_BODY_CODED](crate::FLAG_BODY_CODED)) on a records block; on a chunk the marks of a unit, a relation break
-/// or a grid start, each checked where due. The other bits are reserved or the writer's own.
+/// The header flags a caller's block of `kind` may carry when written as it is, not as puts: on a chunk the marks of
+/// a unit, a relation break or a grid start, each checked where due. The other bits are reserved, retired or the
+/// writer's own.
 fn caller_flags(kind: BlockKind) -> u16 {
     match kind {
-        BlockKind::Records => crate::FLAG_BODY_CODED,
         // a chunk of a unit as another writer made it ([TapeWriter::write_chunk_unit])
         BlockKind::Events => crate::FLAG_RELATION_BREAK | crate::FLAG_WITH_NEXT,
         BlockKind::Series => crate::FLAG_GRID_START | crate::FLAG_WITH_NEXT,
@@ -2195,6 +2194,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let ours = matches!(
             b.kind,
             BlockKind::Records
+                | BlockKind::CodedRecords
                 | BlockKind::Events
                 | BlockKind::Series
                 | BlockKind::Summary
@@ -2310,7 +2310,7 @@ impl<S: TapeSink> TapeWriter<S> {
         // counts against thresholds: past u64::MAX they stay due
         self.blocks = self.blocks.saturating_add(1);
         let data = match kind {
-            BlockKind::Records => !tracks.is_empty(),
+            BlockKind::Records | BlockKind::CodedRecords => !tracks.is_empty(),
             BlockKind::Events | BlockKind::Series => true,
             _ => false,
         };
