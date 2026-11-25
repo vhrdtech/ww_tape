@@ -47,6 +47,29 @@ fn piece_near(
     close: bool,
     index: IndexPolicy,
 ) -> Vec<u8> {
+    let (mut w, tape) = begin(near, layout, index);
+    for k in 0..blocks {
+        if !close && k + 5 == blocks {
+            w.set_index_policy(IndexPolicy::NONE).unwrap();
+        }
+        w.write_block(
+            base_defs(),
+            &on_tracks(w.next_id(), &[(9, k, &[k as u8; 40])]),
+        )
+        .unwrap();
+    }
+    if close {
+        w.close().unwrap();
+    }
+    tape.to_vec().unwrap()
+}
+
+/// A writer on a first piece under `near`, `layout` and `index`'s caps, checkpoints every 2 KiB, and its tape.
+fn begin(
+    near: NearPolicy,
+    layout: Layout,
+    index: IndexPolicy,
+) -> (TapeWriter<MemSink>, ww_tape::MemPiece) {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     w.set_index_policy(IndexPolicy {
@@ -74,20 +97,7 @@ fn piece_near(
         &[],
     )
     .unwrap();
-    for k in 0..blocks {
-        if !close && k + 5 == blocks {
-            w.set_index_policy(IndexPolicy::NONE).unwrap();
-        }
-        w.write_block(
-            base_defs(),
-            &on_tracks(w.next_id(), &[(9, k, &[k as u8; 40])]),
-        )
-        .unwrap();
-    }
-    if close {
-        w.close().unwrap();
-    }
-    tape.to_vec().unwrap()
+    (w, tape)
 }
 
 /// Where the first record block of data starts: what lies before it is the piece head and its puts.
@@ -372,4 +382,47 @@ fn the_first_4_kib_lost_leave_every_definition_and_the_gap_rules() {
     assert_eq!(gaps, [(offset, len)]);
     let end = record_blocks(&bytes).last().unwrap().offset;
     assert!(last > end, "the walk reads on to the close");
+}
+
+/// A deferred block writes no run, so no first copy without a use (format.md, "Puts and copies"): track 8, defined
+/// by the first block and used by no deferred one, keeps its one record however far the deferred blocks of track 9
+/// run past `copy_first`, past [DEFERRED_BYTES_MAX](ww_tape::writer::DEFERRED_BYTES_MAX) too, so that an aligned
+/// writer places some at once; the next block written at once brings its copy.
+#[test]
+fn deferred_blocks_write_no_first_copies() {
+    let track = Slot::Track {
+        number: TrackNum::new(8),
+    };
+    for layout in [Layout::UNALIGNED, Layout::ALIGNED] {
+        let (mut w, tape) = begin(NearPolicy::default(), layout, IndexPolicy::default());
+        w.write_block(
+            base_defs(),
+            &on_tracks(w.next_id(), &[(8, 0, &[0; 40]), (9, 0, &[0; 40])]),
+        )
+        .unwrap();
+        for k in 1..400 {
+            w.defer_block(
+                base_defs(),
+                on_tracks(w.next_id(), &[(9, k, &[k as u8; 4000])]),
+            )
+            .unwrap();
+        }
+        w.flush_deferred().unwrap();
+        let bytes = tape.to_vec().unwrap();
+        assert!(
+            bytes.len() > 16 << 10,
+            "{layout:?}: the case: {} bytes past the first block",
+            bytes.len()
+        );
+        assert_eq!(writes_of(&bytes, track).len(), 1, "{layout:?}");
+        w.write_block(base_defs(), &on_tracks(w.next_id(), &[(9, 400, &[0; 40])]))
+            .unwrap();
+        w.close().unwrap();
+        let bytes = tape.to_vec().unwrap();
+        assert_eq!(
+            writes_of(&bytes, track).len(),
+            2,
+            "{layout:?}: the copy comes with the block"
+        );
+    }
 }

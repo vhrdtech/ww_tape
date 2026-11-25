@@ -70,7 +70,7 @@ example_drive` prints these numbers, and [`examples/example_drive/src/damage.rs`
 
 A [[reader]] meets the flip in two places. [`TapeReader::verify`] checks the piece against its [[content hash]] and
 finds that it no longer holds. Reading by the [[final index]], [`TapeReader::read_block`] fails for that one chunk and
-succeeds for the other 3445 blocks the index lists. The reader thus knows which track and which items it lost, since the
+succeeds for the other 3448 blocks the index lists. The reader thus knows which track and which items it lost, since the
 index entry names them, while the bytes themselves do not read.
 
 A chunk longer than one segment loses less. The sample codecs code samples in groups that decode alone, and
@@ -167,19 +167,19 @@ reads from the newest checkpoint. Drawn by <code>ww_tape_figures</code> from the
 data, where 4 KiB is a larger share.</figcaption>
 </figure>
 
-At full scale, the piece holds 3448 blocks that its index lists. `cargo run -p example_drive` prints what each damage
+At full scale, the piece holds 3449 blocks that its index lists. `cargo run -p example_drive` prints what each damage
 leaves:
 
 | Damage | The reader finds the piece by | Content hash | Blocks that read | Definitions found |
 |---|---|---|---:|---:|
-| a flipped bit | its tail | does not hold | 3447 | 10 of 10 |
-| the first 4 KiB lost | its tail | does not hold | 3443 | 10 of 10 |
-| the last 4 KiB lost | its final index, with no byte to scan after it | no close to check | 3448 | 10 of 10 |
+| a flipped bit | its tail | does not hold | 3448 | 10 of 10 |
+| the first 4 KiB lost | its tail | does not hold | 3444 | 10 of 10 |
+| the last 4 KiB lost | its final index, with no byte to scan after it | no close to check | 3449 | 10 of 10 |
 
 ### The first 4 KiB lost
 
 These bytes hold the [[piece head]], the first [[definitions]] and the first blocks of data. The reader still opens the
-piece from its [[tail]]. By the [[final index]] it reads every block outside the lost bytes, 3443 of the 3448. Five
+piece from its [[tail]]. By the [[final index]] it reads every block outside the lost bytes, 3444 of the 3449. Five
 blocks are lost:
 
 - the [[puts]] of the [[layout]] and the producer;
@@ -194,7 +194,7 @@ layout and the producer's name get theirs the same way. These copies lie past th
 drive is found again, the layout and the producer among them. A [[reader]] scanning past the newest [[checkpoint]] takes
 its gap rules from the layout's copy.
 
-The drive's hour spends 8.2 kB of its 116 MB on all its puts and copies ([What the writer
+The drive's hour spends 8.3 kB of its 116 MB on all its puts and copies ([What the writer
 adds](writing.md#what-the-writer-adds)).
 
 The mode is a [[state track]], and a cut carries its newest item beside its definition. That item lay in the lost
@@ -211,7 +211,7 @@ piece of a chain names no next piece, so it has no link forward to lose.
 
 These bytes hold the [[tail]], the [[close]] and the padding up to a multiple of 4 KiB. The reader finds no tail and
 reads the piece as unclosed. The [[final index]] ends before the lost bytes and reads whole. The reader takes it as the
-newest index block, with no byte to scan after it. Every one of the 3448 blocks of data reads, and so does every
+newest index block, with no byte to scan after it. Every one of the 3449 blocks of data reads, and so does every
 definition, but the piece loses its [[content hash]].
 
 Lost bytes that reach into the final index leave the reader the newest [[checkpoint]]. The scan of the blocks after it

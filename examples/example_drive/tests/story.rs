@@ -46,11 +46,10 @@ fn the_full_hour_is_the_same_every_run_and_tells_the_story() -> Result<(), Error
     );
 
     // the mode is put before each one-second block: the first piece's 900; the next block's put starts the next piece
-    // by the cut policy; five puts write: idle, its two copies, run at minute 1, its second copy; run's first copy
-    // the writer writes 4 KiB on without a put, before a chunk
+    // by the cut policy; six puts write: idle, its two copies, run at minute 1, its two copies
     let (puts, wrote) = whole.mode_puts(0);
     assert_eq!(puts, 900, "one put of the mode a block");
-    assert_eq!(wrote, [0, 1_000_000, 41_000_000, 60_000_000, 97_000_000]);
+    assert_eq!(wrote, [0, 1_000_000, 41_000_000, 60_000_000, 61_000_000, 97_000_000]);
 
     let story = whole.story()?;
     rounded_on_the_pages(&whole, &story, puts, &wrote)?;
@@ -148,11 +147,12 @@ fn rounded_on_the_pages(
         (
             "definitions.md",
             format!(
-                "idle at the start, its copies at {} second and {} seconds, run at minute {} and its second copy at {} seconds",
+                "idle at the start, its copies at {} second and {} seconds, run at minute {} and its copies at {} and {} seconds",
                 s(wrote[1]),
                 s(wrote[2]),
                 s(wrote[3]) / 60,
-                s(wrote[4])
+                s(wrote[4]),
+                s(wrote[5])
             ),
         ),
         (

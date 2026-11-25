@@ -633,12 +633,12 @@ fn aligned_file_puts_payloads_on_pages_and_fills_gaps() {
     );
     let kinds: Vec<BlockKind> = blocks.iter().map(|b| b.2).collect();
     use BlockKind::*;
-    // the events chunk's puts hold the first copies of the definitions and fill the gap before its payload; the
-    // deferred blocks 1, 2 and 3 fill that before the second series chunk; 4 has no chunk after it and goes at the
-    // end, then the writer's final index, close and tail. Between them, the puts of the layout, the producer and the
-    // definitions each block needs.
+    // the deferred block 1 fills the gap before the events chunk, whose puts hold the first copies of the
+    // definitions (a deferred block writes none); 2 and 3 fill that before the second series chunk; 4 has no chunk
+    // after it and goes at the end, then the writer's final index, close and tail. Between them, the puts of the
+    // layout, the producer and the definitions each block needs.
     let want = [
-        Series, Events, Records, Records, Records, Series, Records, Index, Close, Tail,
+        Series, Records, Events, Records, Records, Series, Records, Index, Close, Tail,
     ];
     assert_eq!(kinds, want);
     assert_eq!(repeats(&file)[0], 0, "the layout and the producer first");

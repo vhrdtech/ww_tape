@@ -144,9 +144,9 @@ The four pieces of the hour end on 4 KiB:
 | Piece | Bytes | Close padding |
 |---|---:|---:|
 | 0 | 29401088 | 2423 |
-| 1 | 29618176 | 2348 |
-| 2 | 29609984 | 2214 |
-| 3 | 26894336 | 3151 |
+| 1 | 29618176 | 2310 |
+| 2 | 29609984 | 2177 |
+| 3 | 26894336 | 3114 |
 
 A [`TapeWriter`] without a chain cuts the same way. [`TapeWriter::cut_on`] takes a sink the caller made, and
 [`writer::cut`] the path of the next file. Only a piece of a chain can be cut: such a piece starts with a piece head,

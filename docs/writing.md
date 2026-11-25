@@ -63,7 +63,7 @@ current. The mux turns each into one call of the writer, and adds the [[summary]
 
 | Handle call | Writer call | Count |
 |---|---|---:|
-| [`StateHandle::put`], the mode | [`TapeWriter::put`] | 3600 (13 wrote) |
+| [`StateHandle::put`], the mode | [`TapeWriter::put`] | 3600 (18 wrote) |
 | [`RecordsHandle::send`], log lines and temperatures | [`TapeWriter::write_block`] | 3600 |
 | [`ChunkSender::send`], `can0` | [`TapeWriter::write_chunk`] | 3600 |
 | [`GridHandle::push`], `phase_a` | [`TapeWriter::write_chunk_hashed`] | 3600 |
@@ -138,19 +138,19 @@ The writer's own blocks hold what a [[reader]] needs to find and understand the 
 | Blocks | Made by | Count | Bytes |
 |---|---|---:|---:|
 | piece head | the writer | 4 | 2064 |
-| records blocks of puts and copies | the writer | 40 | 8194 |
+| records blocks of puts and copies | the writer | 43 | 8306 |
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
 | summary blocks | the mux | 2948 | 3301304 |
 | checkpoints | the writer | 24 | 1590400 |
 | final index | the writer | 4 | 1778048 |
-| close | the writer | 4 | 13640 |
+| close | the writer | 4 | 13528 |
 | tail | the writer | 4 | 656 |
 
 The writer's own blocks take 3.4 MB of the hour's 116 MB, 2.9 %. Most of that is index: the checkpoints while the pieces
-grow, and each piece's final index. The 40 blocks of puts hold every definition and mode change of four pieces, with
-their copies, in 8.2 kB.
+grow, and each piece's final index. The 43 blocks of puts hold every definition and mode change of four pieces, with
+their copies, in 8.3 kB.
 
 ### What the writer checks
 

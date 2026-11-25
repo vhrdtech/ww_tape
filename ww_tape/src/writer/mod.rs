@@ -2781,13 +2781,16 @@ impl<S: TapeSink> TapeWriter<S> {
         let needs = self.defer_needs(defs, &b)?;
         self.check_caller_relations(defs, &b, false)?;
         self.check_caller_grid(&b, false)?;
+        // a deferred block writes no run of its own, so no first copy: the next call that writes one brings them
         if self.alignment() == 0 {
             self.ensure_carried(defs)?;
+            self.sweep.clear();
             self.put_needed(&needs)?;
             return self.place(block);
         }
         self.place_overdue(puts_len_upper(&needs))?;
         self.ensure_carried(defs)?;
+        self.sweep.clear();
         self.put_chosen(&needs, PutsEnd::Last)?;
         // placed before any later block of its track: a chunk after it goes on from its values, filed under its
         // track's key once the definition naming the track's owner is placed
