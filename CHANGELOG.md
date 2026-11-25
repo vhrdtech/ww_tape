@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-25
+
 ### Breaking
 
 - Series chunks carry `FLAG_GRID_START` and entry bit 3 where a grid starts or order breaks; upgrade readers (FMT-16).
