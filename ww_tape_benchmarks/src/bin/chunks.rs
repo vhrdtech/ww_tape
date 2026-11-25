@@ -368,13 +368,41 @@ fn long_timeline(
         );
         best = (best.0.min(ns), src.reads.get() - from);
     }
+    // the timeline from every chunk's head, as a reader built it before the index marked grid starts
+    let mut every = (f64::INFINITY, 0u64);
+    for _ in 0..args.rounds {
+        let from = src.reads.get();
+        let t = Instant::now();
+        let re = |e| anyhow::anyhow!("{e:?}");
+        let mut entries = r.track_entries(0, track_id).map_err(re)?;
+        entries.retain(|e| e.kind == ww_tape::BlockKind::Series && e.level == 0);
+        entries.sort_by_key(|e| e.first_item);
+        let mut buf = Vec::new();
+        let heads = entries
+            .iter()
+            .map(|e| r.read_chunk_head(0, e, &mut buf))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(re)?;
+        let (tl, errors) = SeriesTimeline::from_chunks(period(), &heads);
+        let ns = t.elapsed().as_nanos() as f64;
+        anyhow::ensure!(
+            errors.is_empty() && tl.stretches().len() as u32 == args.long_chunks.div_ceil(per),
+            "{errors:?}"
+        );
+        every = (every.0.min(ns), src.reads.get() - from);
+    }
     _ = std::fs::remove_dir_all(&dir);
-    table.row(vec![
-        Cell::text("`TapeReader::series_timeline`"),
-        Cell::count(best.1),
-        Cell::num(best.0 / 1e6, 2),
-        Cell::num(best.0 / f64::from(args.long_chunks), 0),
-    ]);
+    for (what, (ns, reads)) in [
+        ("`TapeReader::series_timeline`", best),
+        ("every chunk head (`TapeReader::read_chunk_head`)", every),
+    ] {
+        table.row(vec![
+            Cell::text(what),
+            Cell::count(reads),
+            Cell::num(ns / 1e6, 2),
+            Cell::num(ns / f64::from(args.long_chunks), 0),
+        ]);
+    }
     Ok(table)
 }
 
