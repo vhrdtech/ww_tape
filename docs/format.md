@@ -124,10 +124,9 @@ off size field
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
          the start of a grid or scale (FLAG_GRID_START, the same bit), bit 5 on a summary block
          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-         without it refuses the block), bit 6 on a records block marked FLAG_REPEAT its records keyed state
-         (FLAG_KEYED: each item a key and a value, so a reader without it misreads them as plain state), bit 7 on a
-         block of puts definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group
-         (FLAG_GROUP), bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
+         without it refuses the block), bit 6 retired (keyed puts are kind 16), bit 7 on a block of puts
+         definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP),
+         bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -174,15 +173,15 @@ The header's kind byte says what the body holds (`BlockKind`):
 | 12 | dictionary of a relation, reserved: none are written |
 | 13 | append head |
 | 14 | close summary |
+| 16 | keyed puts ([Keyed state tracks](#keyed-state-tracks)) |
 
 A reader reads a block of kind 2, or of a kind not in this table, as a block whose body it doesn't know. It skips such a
 block by its length, and the block is not damage.
 
 ### 3.2 Header flags {#header-flags}
 
-Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know, except bit 5 on a summary block and bit 6 on a
-records block. Bit 5 moves the block's body behind the tile: a reader without it refuses the block. Bit 6 makes each
-item a key and a value: a reader without it misreads the block, its keyed items as plain state.
+Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know, except bit 5 on a summary block. Bit 5 moves
+the block's body behind the tile: a reader without it refuses the block.
 
 | Bit | Flag | Marks |
 |---:|---|---|
@@ -192,7 +191,7 @@ item a key and a value: a reader without it misreads the block, its keyed items 
 | 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
 | 4 | `FLAG_RELATION_BREAK`, `FLAG_GRID_START` | by kind: an events chunk where a track's monotone relations start again ([below](#relation-breaks)); a series chunk of level 0 where a grid or scale starts ([Grid starts](#grid-starts)) |
 | 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
-| 6 | `FLAG_KEYED` | a block of puts whose records are keyed state ([Keyed state tracks](#keyed-state-tracks)) |
+| 6 | | retired: written 0, ignored, not reused in version 1 (keyed puts are kind 16) |
 | 7 | `FLAG_TWICE` | a block of puts of definitions written twice at once, or its copy ([below](#definitions-written-twice-at-once)) |
 | 8 | `FLAG_GROUP` | a block of puts of a group, taken whole or not at all ([Groups of puts](#groups-of-puts)); it only marks, and a reader that doesn't know it reads the block as any block of puts |
 | 9 | `FLAG_GROUP_START` | the first block of a group, with `FLAG_GROUP`; it only marks, as bit 8 |
@@ -955,7 +954,7 @@ A put of a group is an item (`GroupItem::State`) or a key's value or deletion on
 [Keyed state tracks](#keyed-state-tracks)).
 
 Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close behind.
-A group's keyed records go into blocks of their own, marked `FLAG_KEYED`, among its other blocks. The records it writes
+A group's keyed records go into blocks of keyed puts of their own (kind 16), among its other blocks. The records it writes
 and the definitions they need go into blocks of puts one after the other, every block but the last marked
 `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of puts, each block of a
 group marked `FLAG_GROUP` (bit 8) and its first block `FLAG_GROUP_START` (bit 9).
@@ -1048,8 +1047,10 @@ other state tracks, all or none.
 The writer keeps each key near its use and copies it as `StatePolicy` says, per key, as for any slot. A plain `put`
 on a keyed track is refused, and so is `put_key` on a plain one.
 
-The records of a keyed track go in blocks of puts of their own, marked `FLAG_KEYED` (header bit 6). The index then
-lists each record by its key without the definitions. Each item is the key, then the value
+The records of a keyed track go in blocks of **keyed puts** (kind 16, `BlockKind::KeyedPuts`), marked `FLAG_REPEAT`
+as every block of puts. The body is a records block's. The index then lists each record by its key without the
+definitions. A reader that doesn't know kind 16 skips such a block by its length, so it never takes a key and its value
+for a plain state item. Each item is the key, then the value
 ([`state` module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs)):
 
 ```text
@@ -1058,8 +1059,8 @@ key bytes
 value bytes, the rest of the item: none in a deletion
 ```
 
-A records block marked `FLAG_KEYED` but not `FLAG_REPEAT` is refused. So is one that holds a record of track 0 or an
-item that doesn't read this way.
+A block of keyed puts not marked `FLAG_REPEAT` is refused. So is one that holds a record of track 0 or an item that
+doesn't read this way.
 
 The index knows a key by its **key id** (`KeyId`): its first 8 bytes, its length and a 64-bit BLAKE3 hash ([State
 entries](#state-entries)). The head is zero past the key's end. Key ids sort by those bytes first, so a key range is one
@@ -1073,7 +1074,7 @@ Whether a key lives is the record's to say: the index's deletion mark lists slot
 #### 5.4.1 Keys carried at a cut {#keys-carried-at-a-cut}
 
 A cut carries every live key into the new piece, after the track's definition. Each key gets one record with the
-value of its last put, in key order. The records go in blocks of puts marked `FLAG_KEYED`, each at most
+value of its last put, in key order. The records go in blocks of keyed puts, each at most
 `CARRIED_BLOCK_LEN` (4 KiB). A deleted key is not carried. The carry belongs with the first block of data
 (`FLAG_WITH_NEXT`): a crash keeps all of it or none, and the next call puts it again.
 
@@ -1286,7 +1287,7 @@ Beside the block's offset, length and kind, a state entry holds:
 
 ```text
  13 u8  the record's slot: 0 a state track's record, else what it defines (DefinitionKind)
- 15 u8  bit 0: the block is marked FLAG_REPEAT; bit 5: a keyed state record (its block marked FLAG_KEYED);
+ 15 u8  bit 0: the block is marked FLAG_REPEAT; bit 5: a keyed state record (its block of keyed puts, kind 16);
         bit 6: that record is a deletion
  24 u32 the state track, or the number the definition defines (a track's, a clock's, a map's from clock)
  28 u32 a map's to clock, a keyed record's key length (at most STATE_KEY_LEN_MAX), else 0
@@ -1304,7 +1305,8 @@ The slot codes (`DefinitionKind`) are:
 
 A record of a keyed state track has slot code 0 and entry flag bit 5. Bytes 28..32 hold its key length. Bytes 72..80
 hold the key's first 8 bytes and 80..88 its hash ([Keyed state tracks](#keyed-state-tracks)). Flag bit 6 marks a deletion, so a
-reader lists the live keys of a range from the index alone. A keyed entry without flag bit 0 (repeat) is refused.
+reader lists the live keys of a range from the index alone. A keyed entry without flag bit 0 (repeat) is refused, and
+so is an entry whose flag bit 5 and kind disagree: bit 5 is set on the entries of kind 16 and on no other.
 
 A code is a `Describe` variant's discriminant plus 1. A newer writer therefore lists a definition under the code an
 older reader computes for it. The older reader's content check then agrees with the entries.

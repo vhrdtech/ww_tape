@@ -23,10 +23,9 @@
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
 //!          the start of a grid or scale (FLAG_GRID_START, the same bit), bit 5 on a summary block
 //!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-//!          without it refuses the block), bit 6 on a records block marked FLAG_REPEAT its records keyed state
-//!          (FLAG_KEYED: each item a key and a value, so a reader without it misreads them as plain state), bit 7 on a
-//!          block of puts definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group
-//!          (FLAG_GROUP), bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
+//!          without it refuses the block), bit 6 retired (keyed puts are kind 16), bit 7 on a block of puts
+//!          definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP),
+//!          bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -407,13 +406,6 @@ const _: () = assert!(
 ///
 /// Its index entry carries the tile number, as the tile's chunks' entries do.
 pub const FLAG_TILE: u16 = 1 << 5;
-/// Header flag on records blocks marked [FLAG_REPEAT]: every record is a keyed state record, its item a
-/// [KeyedItem] ([state]).
-///
-/// A keyed state track's records sit in blocks of their own, so the index lists each record by its key without the
-/// definitions. A records block with the flag and without [FLAG_REPEAT], or with a record of track 0 or an item that
-/// doesn't read as a [KeyedItem], is refused ([BlockError::BadRecords]).
-pub const FLAG_KEYED: u16 = 1 << 6;
 /// Header flag on blocks of puts ([FLAG_REPEAT]): definitions written twice at once.
 ///
 /// Such definitions are those of [TrackDef::defined_twice](crate::TrackDef::defined_twice). A block linked into a run
@@ -463,6 +455,9 @@ pub enum BlockKind {
     /// A block of the caller's own a close names, placed right before its final index: its body is the caller's,
     /// opaque to the format ([piece::write_close_summary]).
     CloseSummary,
+    /// A block of puts of keyed state records ([state]): a records body whose every record is a [KeyedItem], marked
+    /// [FLAG_REPEAT].
+    KeyedPuts,
     /// A kind this reader doesn't know: its body isn't read.
     Other(u8),
 }
@@ -488,8 +483,14 @@ impl BlockKind {
             10 => Self::PieceHead,
             13 => Self::AppendHead,
             14 => Self::CloseSummary,
+            16 => Self::KeyedPuts,
             other => Self::Other(other),
         }
+    }
+
+    /// Whether a block of this kind holds records ([Block::records]): records blocks and keyed puts.
+    pub fn holds_records(self) -> bool {
+        matches!(self, Self::Records | Self::KeyedPuts)
     }
 
     pub fn to_u8(self) -> u8 {
@@ -505,6 +506,7 @@ impl BlockKind {
             Self::PieceHead => 10,
             Self::AppendHead => 13,
             Self::CloseSummary => 14,
+            Self::KeyedPuts => 16,
             Self::Other(v) => v,
         }
     }
@@ -1456,9 +1458,13 @@ impl<'b> Block<'b> {
         self.flags & FLAG_REPEAT != 0
     }
 
-    /// Whether the block is a records block of keyed state records ([FLAG_KEYED]).
+    /// Whether the block is a block of keyed puts ([BlockKind::KeyedPuts]).
+    ///
+    /// A keyed state track's records sit in blocks of their own, so the index lists each record by its key without
+    /// the definitions. Such a block without [FLAG_REPEAT], or with a record of track 0 or an item that doesn't read
+    /// as a [KeyedItem], is refused ([BlockError::BadRecords]).
     pub fn is_keyed(&self) -> bool {
-        self.kind == BlockKind::Records && self.flags & FLAG_KEYED != 0
+        self.kind == BlockKind::KeyedPuts
     }
 
     /// Whether the block is an events chunk whose track's monotone relations start again ([FLAG_RELATION_BREAK]).
@@ -1510,7 +1516,7 @@ impl<'b> Block<'b> {
     }
 
     fn has_records(&self) -> bool {
-        self.body_known() && self.kind == BlockKind::Records
+        self.body_known() && self.kind.holds_records()
     }
 
     /// The chunk of an events or series block whose body this reader knows.

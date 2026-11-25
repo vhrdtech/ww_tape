@@ -285,7 +285,7 @@ pub fn attacked(data: &[u8]) -> Attacked {
     let states: Vec<_> = all
         .iter()
         .filter(|(at, len, kind)| {
-            *kind == BlockKind::Records
+            kind.holds_records()
                 && ww_tape::Block::read(&f[*at..at + len]).is_ok_and(|b| {
                     b.is_repeat() || b.first_track() == Some(ww_tape::RecordTrack::Definitions)
                 })

@@ -2282,7 +2282,11 @@ impl RangeHash {
 fn unfolded(kind: BlockKind) -> bool {
     !matches!(
         kind,
-        BlockKind::Events | BlockKind::Series | BlockKind::Records | BlockKind::Summary
+        BlockKind::Events
+            | BlockKind::Series
+            | BlockKind::Records
+            | BlockKind::KeyedPuts
+            | BlockKind::Summary
     )
 }
 

@@ -123,6 +123,7 @@ fn spans() -> anyhow::Result<(u64, Vec<Span>)> {
         let n = u64::try_from(b.len())?;
         let part = match b.kind {
             BlockKind::Records if b.flags & FLAG_REPEAT != 0 => Part::Puts,
+            BlockKind::KeyedPuts => Part::Puts,
             BlockKind::Records => Part::Records,
             BlockKind::Events => {
                 let head = b.chunk().context("a chunk's head")?.head();

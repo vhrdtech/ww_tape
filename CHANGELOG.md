@@ -6,6 +6,10 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- Format: keyed puts are block kind 16, `BlockKind::KeyedPuts`; header bit 6 and `FLAG_KEYED` are retired (FMT-17).
+
 ## [0.14.0] - 2026-11-25
 
 ### Breaking

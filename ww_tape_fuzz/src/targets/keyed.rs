@@ -7,7 +7,7 @@ use ww_tape::index::{
     IndexBlock, IndexEntry, IndexHead, IndexKind, STATE_TRACK_ID, index_len, write_index,
 };
 use ww_tape::{
-    Block, BlockId, BlockKind, BlockWriter, ClockNum, ClockTime, FLAG_KEYED, FLAG_REPEAT, ItemNum,
+    Block, BlockId, BlockKind, BlockWriter, ClockNum, ClockTime, FLAG_REPEAT, ItemNum,
     KEY_HEAD_LEN, KeyId, KeyedItem, Medium, MemSink, OpenOptions, ReadError, ResumeError,
     STATE_KEY_LEN_MAX, SessionTag, TapeReader, TapeSink, TapeWriter, TrackId, TrackNum, WriteError,
 };
@@ -152,12 +152,12 @@ fn block(data: &[u8]) {
     let mut buf = vec![0u8; 4096];
     let id = BlockId::new(SessionTag::writable(1), 0);
     let mut w =
-        BlockWriter::new(&mut buf, BlockKind::Records, id, &[clock]).expect("a block starts");
+        BlockWriter::new(&mut buf, BlockKind::KeyedPuts, id, &[clock]).expect("a block starts");
     for (k, it) in items.iter().enumerate() {
         w.push(TrackNum::new(5), ClockTime::new(clock, k as i64), &[*it])
             .expect("a small item fits");
     }
-    w.set_flags(FLAG_REPEAT | FLAG_KEYED);
+    w.set_flags(FLAG_REPEAT);
     let len = w.finish();
     let bytes = &buf[..len];
     let all_read = items.iter().all(|i| KeyedItem::read(i).is_ok());
@@ -166,7 +166,7 @@ fn block(data: &[u8]) {
         return;
     };
     assert!(all_read, "a keyed block reads only when each item does");
-    assert!(b.is_keyed(), "the block keeps its keyed flag");
+    assert!(b.is_keyed(), "the block keeps its kind");
     let listed = IndexEntry::all_of_block(0, &b);
     assert_eq!(listed.len(), items.len(), "an entry per record");
     for (e, it) in listed.iter().zip(&items) {
@@ -207,6 +207,8 @@ fn entries(data: &[u8]) {
                 len: 40,
                 kind: if c[0] & 0x80 != 0 {
                     BlockKind::Events
+                } else if c[0] & 0x40 != 0 {
+                    BlockKind::KeyedPuts
                 } else {
                     BlockKind::Records
                 },
@@ -241,10 +243,14 @@ fn entries(data: &[u8]) {
         })
         .collect();
     let valid = entries.iter().all(|e| match e.key {
-        None => !(e.deleted || (e.kind == BlockKind::Events && e.level != 0)),
+        None => {
+            !(e.deleted
+                || e.kind == BlockKind::KeyedPuts
+                || (e.kind == BlockKind::Events && e.level != 0))
+        }
         Some(key) => {
             e.track_id == STATE_TRACK_ID
-                && e.kind == BlockKind::Records
+                && e.kind == BlockKind::KeyedPuts
                 && e.level == 0
                 && key.len == e.second
                 && key.is_valid()

@@ -432,7 +432,10 @@ impl ChainFollower {
                 break;
             };
             let flags = block.block().flags;
-            let marks = (block.block().kind == BlockKind::Records)
+            let marks = block
+                .block()
+                .kind
+                .holds_records()
                 .then(|| Marks::of_puts(flags))
                 .flatten();
             // marks that break a group drop it as damage does

@@ -66,6 +66,7 @@ pub(crate) fn spans(bytes: &[u8]) -> anyhow::Result<Vec<Span>> {
         let (len, flags) = (u64::try_from(b.len())?, b.flags);
         let (part, prev) = match b.kind {
             BlockKind::Records if flags & FLAG_REPEAT != 0 => (Part::Puts, None),
+            BlockKind::KeyedPuts => (Part::Puts, None),
             BlockKind::Records => (Part::Log, None),
             BlockKind::Events => (Part::Frames, None),
             BlockKind::Series => (Part::Samples, None),

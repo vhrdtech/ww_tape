@@ -176,7 +176,7 @@ impl SessionState {
         };
         if h.session != session {
             return match self.medium {
-                Medium::File => matches!(h.kind, BlockKind::Records | BlockKind::PieceHead),
+                Medium::File => h.kind.holds_records() || h.kind == BlockKind::PieceHead,
                 Medium::Raw => h.kind == BlockKind::PieceHead,
             };
         }

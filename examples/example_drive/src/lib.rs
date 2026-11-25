@@ -92,6 +92,7 @@ pub fn parts(piece: &[u8]) -> Result<Vec<Part>, Error> {
         let name = match b.kind {
             BlockKind::PieceHead => "piece head",
             BlockKind::Records if b.flags & FLAG_REPEAT != 0 => "records blocks of puts and copies",
+            BlockKind::KeyedPuts => "keyed puts",
             BlockKind::Records => "records blocks",
             BlockKind::Events => "events chunks",
             BlockKind::Series => "series chunks",

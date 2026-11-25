@@ -49,7 +49,7 @@ Each kind of [[block]] has one job. They fall into four groups:
 | Group | Kinds | Holds |
 |---|---|---|
 | Description | records on track 0 | what the tape is: the producer, the clocks and maps, the tracks, the API bundles |
-| Data | records block, events chunk, series chunk | the items |
+| Data | records block, keyed puts, events chunk, series chunk | the items; keyed puts the keys and values of a keyed state track |
 | Overview | summary | coarse views of long tracks, rebuilt from the data when lost |
 | Structure | piece head, index, close, tail | where things are, how the file ends, how files chain |
 

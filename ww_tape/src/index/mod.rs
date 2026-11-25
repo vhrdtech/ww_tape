@@ -48,7 +48,7 @@
 //!
 //! ```text
 //!  13 u8  the record's slot: 0 a state track's record, else what it defines (DefinitionKind)
-//!  15 u8  bit 0: the block is marked FLAG_REPEAT; bit 5: a keyed state record (its block marked FLAG_KEYED);
+//!  15 u8  bit 0: the block is marked FLAG_REPEAT; bit 5: a keyed state record (its block of keyed puts, kind 16);
 //!         bit 6: that record is a deletion
 //!  24 u32 the state track, or the number the definition defines (a track's, a clock's, a map's from clock)
 //!  28 u32 a map's to clock, a keyed record's key length (at most STATE_KEY_LEN_MAX), else 0
@@ -58,7 +58,8 @@
 //!  80 u64 a keyed record's key hash: BLAKE3 of the key, its first 8 bytes, else 0
 //! ```
 //!
-//! A keyed entry is a state record's of level 0, marked repeated, without a range or a tile; a deletion is keyed.
+//! A keyed entry is a state record's of a block of keyed puts (kind 16), of level 0, marked repeated, without a range or a
+//! tile, and every entry of kind 16 is keyed; a deletion is keyed.
 //! Its key head holds zero past the key's length. An entry that breaks one of these is refused
 //! ([IndexError::BadEntries]).
 //!
@@ -237,7 +238,7 @@ impl IndexEntry {
         let Some(e) = Self::of_block(offset, block) else {
             return alloc::vec::Vec::new();
         };
-        if block.kind != BlockKind::Records || !block.body_known() {
+        if !block.kind.holds_records() || !block.body_known() {
             return alloc::vec![e];
         }
         let keyed = block.is_keyed();
@@ -310,7 +311,7 @@ impl IndexEntry {
 
     /// The state record this entry lists, None for an entry of a block.
     pub fn state(&self) -> Option<StateEntry> {
-        if self.track_id != STATE_TRACK_ID || self.kind != BlockKind::Records {
+        if self.track_id != STATE_TRACK_ID || !self.kind.holds_records() {
             return None;
         }
         let mut hash = [0u8; crate::state::ITEM_HASH_LEN];
@@ -392,7 +393,7 @@ impl IndexEntry {
                     e.latest_end = h.latest_end;
                 }
             }
-            BlockKind::Records => e.repeat = block.is_repeat(),
+            BlockKind::Records | BlockKind::KeyedPuts => e.repeat = block.is_repeat(),
             BlockKind::Other(_) => {}
         }
         Some(e)
@@ -623,15 +624,15 @@ impl IndexEntry {
         range && tile && mark && unit && level && self.is_keyed_valid() && self.is_in_range()
     }
 
-    /// Whether a key and a deletion are where they may be: a key on a state record's entry, marked repeated, of level
-    /// 0 without a range or a tile, its head zero past its length and the length within the cap; a deletion only with
-    /// a key.
+    /// Whether a key and a deletion are where they may be: a key on a state record's entry of a block of keyed puts
+    /// and on no other, marked repeated, of level 0 without a range or a tile, its head zero past its length and the
+    /// length within the cap; a deletion only with a key.
     fn is_keyed_valid(&self) -> bool {
         let Some(key) = self.key else {
-            return !self.deleted;
+            return !self.deleted && self.kind != BlockKind::KeyedPuts;
         };
         self.track_id == STATE_TRACK_ID
-            && self.kind == BlockKind::Records
+            && self.kind == BlockKind::KeyedPuts
             && self.repeat
             && self.level == 0
             && self.range.is_none()

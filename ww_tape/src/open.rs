@@ -1343,9 +1343,29 @@ pub fn write_records<E: From<DescribeError>>(
     records: &[RecordRef<'_>],
     block_len_max: usize,
     flags: u16,
+    next_id: impl FnMut() -> BlockId,
+    out: impl FnMut(&[u8]) -> Result<(), E>,
+) -> Result<(), E> {
+    write_blocks_of(
+        BlockKind::Records,
+        records,
+        block_len_max,
+        flags,
+        next_id,
+        out,
+    )
+}
+
+/// Write `records` as [write_records] does, in blocks of `kind`, one that [holds records](BlockKind::holds_records).
+pub(crate) fn write_blocks_of<E: From<DescribeError>>(
+    kind: BlockKind,
+    records: &[RecordRef<'_>],
+    block_len_max: usize,
+    flags: u16,
     mut next_id: impl FnMut() -> BlockId,
     mut out: impl FnMut(&[u8]) -> Result<(), E>,
 ) -> Result<(), E> {
+    debug_assert!(kind.holds_records(), "records go in a kind that holds them");
     let mut rest = records;
     let mut buf = Vec::new();
     while !rest.is_empty() {
@@ -1353,7 +1373,7 @@ pub fn write_records<E: From<DescribeError>>(
         let (now, later) = rest.split_at_checked(taken).unwrap_or((rest, &[]));
         buf.clear();
         buf.resize(size, 0);
-        let mut w = BlockWriter::new(&mut buf, BlockKind::Records, next_id(), clocks.as_slice())
+        let mut w = BlockWriter::new(&mut buf, kind, next_id(), clocks.as_slice())
             .map_err(DescribeError::Start)?;
         for e in now {
             let pushed = match (e.track, e.at) {
