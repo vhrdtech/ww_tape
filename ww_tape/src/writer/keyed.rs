@@ -40,6 +40,9 @@ fn keyed_tracks(kept: &Kept, defs: &Definitions) -> BTreeSet<TrackNum> {
 /// definitions of both, each once, and a record per live key.
 pub(crate) fn carry_entries(kept: &Kept, defs: &Definitions, tracks: &[TrackNum]) -> usize {
     let keyed = keyed_tracks(kept, defs);
+    if keyed.is_empty() {
+        return carried::entries(defs, tracks);
+    }
     let live = kept
         .keyed_tracks()
         .filter(|(n, _)| keyed.contains(n))

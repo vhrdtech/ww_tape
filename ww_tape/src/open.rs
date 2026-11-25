@@ -898,6 +898,43 @@ impl Definitions {
         out
     }
 
+    /// Call `f` on each slot [Self::needs] gives, each once, in its order. Allocates only for a clock that maps to
+    /// others: what a writer looks at for each chunk and put.
+    pub(crate) fn each_need(&self, number: TrackNum, mut f: impl FnMut(Slot)) {
+        let Some(t) = self.tracks.get(&number) else {
+            return;
+        };
+        let clock = t.facts.clock;
+        if self.maps_from(clock).next().is_some() {
+            let mut seen = BTreeSet::new();
+            self.needs(number)
+                .into_iter()
+                .filter(|s| seen.insert(*s))
+                .for_each(f);
+            return;
+        }
+        let held = |s: &Slot| self.defs.contains_key(s);
+        let clock = Slot::Clock { number: clock };
+        if held(&clock) {
+            f(clock);
+        }
+        // a track names a few bundles, two of them maybe the same
+        let bundle = |h: &Named| self.bundles.get(h).copied();
+        for (i, h) in t.bundles.iter().enumerate() {
+            let Some(slot) = bundle(h) else {
+                continue;
+            };
+            let earlier = t.bundles.get(..i).unwrap_or_default();
+            if held(&slot) && !earlier.iter().any(|e| bundle(e) == Some(slot)) {
+                f(slot);
+            }
+        }
+        let track = Slot::Track { number };
+        if held(&track) {
+            f(track);
+        }
+    }
+
     /// Whether the definition in `slot` is written twice at once: a track held as
     /// [defined_twice](crate::TrackDef::defined_twice) needs it ([Self::needs]).
     pub(crate) fn defined_twice(&self, slot: &Slot) -> bool {

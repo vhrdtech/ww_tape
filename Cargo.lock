@@ -1617,6 +1617,7 @@ dependencies = [
  "ww_tape_fs",
  "ww_tape_mux",
  "ww_tape_summary",
+ "ww_tape_testalloc",
 ]
 
 [[package]]

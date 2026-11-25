@@ -26,6 +26,8 @@ ww_tape = { workspace = true, features = ["std"] }
 ww_tape_fs = { workspace = true, features = ["parallel"] }
 ww_tape_mux.workspace = true
 ww_tape_summary = { workspace = true, features = ["std"] }
+# tests/writer_allocations: the allocations of a writer, counted by the global allocator
+ww_tape_testalloc.workspace = true
 
 # The workspace lints with unsafe code at deny (a lock test runs a closure between fork and exec); keep in step with [workspace.lints]
 [lints.rust]

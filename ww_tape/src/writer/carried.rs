@@ -153,6 +153,12 @@ fn key_entries(from: Source<'_>, numbers: &[TrackNum]) -> usize {
 /// The state entries the definitions data on `tracks` needs take together ([Definitions::needs], each slot once):
 /// what a piece holding only them lists past its layout and producer.
 pub(crate) fn entries(defs: &Definitions, tracks: &[TrackNum]) -> usize {
+    // one track's needs are each once: no set to build
+    if let [track] = tracks {
+        let mut n = 0usize;
+        defs.each_need(*track, |s| n = n.saturating_add(weight(defs, &s)));
+        return n;
+    }
     let mut seen = BTreeSet::new();
     for t in tracks {
         seen.extend(defs.needs(*t));

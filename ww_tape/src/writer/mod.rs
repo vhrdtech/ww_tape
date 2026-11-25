@@ -196,6 +196,10 @@ pub struct TapeWriter<S: TapeSink> {
     deferred_bytes: usize,
     /// Reused for encoding chunk blocks
     chunk_buf: Vec<u8>,
+    /// Reused for a chunk's column specs, the definitions it needs and those chosen: a chunk allocates none of them
+    chunk_specs: Vec<crate::ColumnSpec>,
+    chunk_needs: Vec<Candidate<'static>>,
+    chunk_chosen: Vec<bool>,
     /// What is placed in the piece, for its checkpoints, final index and close
     indexer: Indexer,
     /// A checkpoint waits for the gap before the next aligned chunk
@@ -412,6 +416,13 @@ const _: () = {
     );
 };
 
+/// The buffers a chunk is written through ([TapeWriter::write_chunk]), kept by the writer between calls.
+struct ChunkBufs {
+    specs: Vec<crate::ColumnSpec>,
+    needs: Vec<Candidate<'static>>,
+    chosen: Vec<bool>,
+}
+
 /// How the blocks of puts a call writes end ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum PutsEnd {
@@ -568,6 +579,9 @@ impl<S: TapeSink> TapeWriter<S> {
             deferred: Vec::new(),
             deferred_bytes: 0,
             chunk_buf: Vec::new(),
+            chunk_specs: Vec::new(),
+            chunk_needs: Vec::new(),
+            chunk_chosen: Vec::new(),
             indexer: Indexer::new(IndexPolicy::default()),
             index_due: false,
             unit_open: false,
@@ -1220,12 +1234,35 @@ impl<S: TapeSink> TapeWriter<S> {
     /// The definitions data of `tracks` needs ([Definitions::needs]), each once, as candidates to put: shared with
     /// `defs`, nothing copied or hashed.
     fn needed(&self, defs: &Definitions, tracks: &[TrackNum]) -> Vec<Candidate<'static>> {
-        let mut seen = BTreeSet::new();
         let mut out = Vec::new();
-        for t in tracks {
-            self.push_needs(defs, defs.needs(*t), &mut seen, &mut out);
-        }
+        self.needed_into(defs, tracks, &mut out);
         out
+    }
+
+    /// [Self::needed] into `out`, cleared first: a buffer the writer keeps allocates nothing for one track.
+    fn needed_into(
+        &self,
+        defs: &Definitions,
+        tracks: &[TrackNum],
+        out: &mut Vec<Candidate<'static>>,
+    ) {
+        out.clear();
+        if let [track] = tracks {
+            defs.each_need(*track, |slot| {
+                if let Some(held) = defs.held(&slot) {
+                    out.push(Candidate::held(
+                        slot,
+                        self.definition_rule(defs, &slot),
+                        held,
+                    ));
+                }
+            });
+            return;
+        }
+        let mut seen = BTreeSet::new();
+        for t in tracks {
+            self.push_needs(defs, defs.needs(*t), &mut seen, out);
+        }
     }
 
     /// Push the definitions held in `slots` not `seen` yet onto `out`, as candidates.
@@ -1254,11 +1291,23 @@ impl<S: TapeSink> TapeWriter<S> {
     /// skipped lies within `near` of the data or item that follows. Choosing one moves that place on and may choose
     /// more: repeated until nothing changes, at most once per candidate.
     fn choose(&self, cands: &[Candidate<'_>]) -> Result<Vec<bool>, WriteError<S::Error>> {
-        let mut chosen = vec![false; cands.len()];
+        let mut chosen = Vec::new();
+        self.choose_into(cands, &mut chosen)?;
+        Ok(chosen)
+    }
+
+    /// [Self::choose] into `chosen`, its flags set anew: a buffer the writer keeps allocates nothing.
+    fn choose_into(
+        &self,
+        cands: &[Candidate<'_>],
+        chosen: &mut Vec<bool>,
+    ) -> Result<(), WriteError<S::Error>> {
+        chosen.clear();
+        chosen.resize(cands.len(), false);
         loop {
             let end = self
                 .offset()
-                .saturating_add(wide(self.chosen_len(cands, &chosen)?));
+                .saturating_add(wide(self.chosen_len(cands, chosen)?));
             let mut more = false;
             for (c, pick) in cands.iter().zip(chosen.iter_mut()) {
                 if !*pick && self.near.writes(&c.slot, c.hash, end, self.rule_now(c)) {
@@ -1267,7 +1316,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 }
             }
             if !more {
-                return Ok(chosen);
+                return Ok(());
             }
         }
     }
@@ -1281,6 +1330,10 @@ impl<S: TapeSink> TapeWriter<S> {
         chosen: &[bool],
         end: PutsEnd,
     ) -> Result<(), WriteError<S::Error>> {
+        // nothing chosen writes no block
+        if !chosen.contains(&true) {
+            return Ok(());
+        }
         let (first, rest) = self.split_twice(cands, chosen);
         let first = chosen_records(cands, &first);
         let rest = chosen_records(cands, &rest);
@@ -1319,10 +1372,15 @@ impl<S: TapeSink> TapeWriter<S> {
             .iter()
             .zip(chosen)
             .map(|(c, pick)| {
-                let first = *pick && c.rule.twice && self.near.records_of(&c.slot, c.hash) == 0;
+                let first = *pick && self.first_twice(c);
                 (first, *pick && !first)
             })
             .unzip()
+    }
+
+    /// Whether a record of `c` written now is the first of a definition written twice at once ([Rule::twice]).
+    fn first_twice(&self, c: &Candidate<'_>) -> bool {
+        c.rule.twice && self.near.records_of(&c.slot, c.hash) == 0
     }
 
     /// Bytes of the blocks of puts [Self::write_chosen] writes for the records of `cands` that `chosen` marks: the
@@ -1332,6 +1390,9 @@ impl<S: TapeSink> TapeWriter<S> {
         cands: &[Candidate<'_>],
         chosen: &[bool],
     ) -> Result<usize, WriteError<S::Error>> {
+        if !chosen.contains(&true) {
+            return Ok(0);
+        }
         let (first, rest) = self.split_twice(cands, chosen);
         let first = puts_len(&chosen_records(cands, &first))?;
         let rest = puts_len(&chosen_records(cands, &rest))?;
@@ -1341,9 +1402,12 @@ impl<S: TapeSink> TapeWriter<S> {
     /// The state entries the records of `cands` that `chosen` marks take: two of a first record written twice at
     /// once, its copy's included.
     fn entries(&self, cands: &[Candidate<'_>], chosen: &[bool]) -> usize {
-        let (first, rest) = self.split_twice(cands, chosen);
-        let count = |m: &[bool]| m.iter().filter(|p| **p).count();
-        count(&first).saturating_mul(2).saturating_add(count(&rest))
+        cands
+            .iter()
+            .zip(chosen)
+            .filter(|(_, pick)| **pick)
+            .map(|(c, _)| if self.first_twice(c) { 2 } else { 1 })
+            .fold(0usize, usize::saturating_add)
     }
 
     /// Write the copies due ([twice]), each as the block of puts it copies, belonging with no other block.
@@ -2745,7 +2809,7 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         // each chunk is checked before the first is written: a refused one leaves no unit open
         for c in chunks {
-            self.check_chunk(defs, c.head, c.columns)?;
+            self.check_chunk(defs, c.head, c.columns, &mut Vec::new())?;
         }
         let last = chunks.len().saturating_sub(1);
         let mut placed = Vec::with_capacity(chunks.len());
@@ -2824,17 +2888,19 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Check a chunk's head and column table against `defs`, and its longest length: refused before anything is
     /// allocated or put. The head and the column table are checked again as the chunk is encoded: the payload is the
-    /// caller's columns, copied, not read back. The column specs, and the longest the block can be.
+    /// caller's columns, copied, not read back. The column specs into `specs`, and the longest the block can be.
     fn check_chunk(
         &self,
         defs: &Definitions,
         head: &crate::ChunkHead,
         columns: &[(crate::ColumnSpec, &[u8])],
-    ) -> Result<(Vec<crate::ColumnSpec>, usize), WriteError<S::Error>> {
+        specs: &mut Vec<crate::ColumnSpec>,
+    ) -> Result<usize, WriteError<S::Error>> {
         defs.check_chunk_head(head).map_err(WriteError::Describe)?;
-        let specs: Vec<crate::ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
+        specs.clear();
+        specs.extend(columns.iter().map(|(c, _)| *c));
         if head.kind == crate::BlockKind::Events {
-            defs.check_relation_columns(head.track_number, &specs)
+            defs.check_relation_columns(head.track_number, specs)
                 .map_err(WriteError::Describe)?;
         }
         if defs.track(head.track_number).is_some_and(|t| t.bytes) {
@@ -2859,7 +2925,7 @@ impl<S: TapeSink> TapeWriter<S> {
         // the longest the block can be, its padding at most the alignment
         let chunk_max = crate::chunk::chunk_len(
             head,
-            &specs,
+            specs,
             crate::from_file::u32_to_usize(self.alignment()),
         );
         if chunk_max > crate::MAX_BLOCK_LEN {
@@ -2867,9 +2933,10 @@ impl<S: TapeSink> TapeWriter<S> {
                 len: chunk_max,
             }));
         }
-        Ok((specs, chunk_max))
+        Ok(chunk_max)
     }
 
+    /// [Self::write_chunk] and its kin, through the buffers the writer keeps for a chunk, given back after.
     fn write_chunk_as(
         &mut self,
         defs: &Definitions,
@@ -2878,11 +2945,35 @@ impl<S: TapeSink> TapeWriter<S> {
         payload_hash: Option<[u8; 32]>,
         with_next: bool,
     ) -> Result<Placed, WriteError<S::Error>> {
+        let mut bufs = ChunkBufs {
+            specs: core::mem::take(&mut self.chunk_specs),
+            needs: core::mem::take(&mut self.chunk_needs),
+            chosen: core::mem::take(&mut self.chunk_chosen),
+        };
+        let r = self.write_chunk_in(defs, head, columns, (payload_hash, with_next), &mut bufs);
+        // the definitions held go back to `defs`: nothing kept past the call
+        bufs.needs.clear();
+        self.chunk_specs = bufs.specs;
+        self.chunk_needs = bufs.needs;
+        self.chunk_chosen = bufs.chosen;
+        r
+    }
+
+    fn write_chunk_in(
+        &mut self,
+        defs: &Definitions,
+        head: &crate::ChunkHead,
+        columns: &[(crate::ColumnSpec, &[u8])],
+        (payload_hash, with_next): (Option<[u8; 32]>, bool),
+        bufs: &mut ChunkBufs,
+    ) -> Result<Placed, WriteError<S::Error>> {
         self.check()?;
         self.check_unit(head.kind, with_next)?;
         self.want(&[head.track_number]);
-        let (specs, chunk_max) = self.check_chunk(defs, head, columns)?;
-        let needs = self.needed(defs, &[head.track_number]);
+        let chunk_max = self.check_chunk(defs, head, columns, &mut bufs.specs)?;
+        let specs = &bufs.specs;
+        self.needed_into(defs, &[head.track_number], &mut bufs.needs);
+        let needs = &bufs.needs;
         self.track_room(defs, &[head.track_number])?;
         self.room(0, !self.head_put)?;
         self.ensure_carried(defs)?;
@@ -2907,7 +2998,7 @@ impl<S: TapeSink> TapeWriter<S> {
             let ahead = self
                 .deferred_bytes
                 .saturating_add(checkpoint)
-                .saturating_add(puts_len_upper(&needs))
+                .saturating_add(puts_len_upper(needs))
                 .saturating_add(chunk_max);
             self.place_overdue(ahead)?;
             loop {
@@ -2930,13 +3021,14 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         // right before the chunk, after every counted block this call places: a resume after one of them puts the
         // same
-        let chosen = self.choose(&needs)?;
-        self.room(self.entries(&needs, &chosen), false)?;
-        let puts = self.chosen_len(&needs, &chosen)?;
+        self.choose_into(needs, &mut bufs.chosen)?;
+        let chosen = &bufs.chosen;
+        self.room(self.entries(needs, chosen), false)?;
+        let puts = self.chosen_len(needs, chosen)?;
         let at = self.at()?.saturating_add(wide(puts));
         let padding = crate::chunk::chunk_padding(at, head_len, self.alignment())
             .ok_or(WriteError::Input(InputError::Alignment(self.alignment())))?;
-        let len = crate::chunk::chunk_len(head, &specs, padding);
+        let len = crate::chunk::chunk_len(head, specs, padding);
         let mut buf = core::mem::take(&mut self.chunk_buf);
         buf.resize(len, 0);
         let crcs = self.level != Integrity::None;
@@ -2956,7 +3048,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 if with_next {
                     crate::mark_with_next_trusted(&mut buf).map_err(WriteError::Block)?;
                 }
-                self.write_chosen(&needs, &chosen, PutsEnd::WithNext)?;
+                self.write_chosen(needs, chosen, PutsEnd::WithNext)?;
                 if self.at()? != at {
                     return Err(WriteError::Index(IndexError::Invalid(
                         "the puts before a chunk took other bytes than chosen",
