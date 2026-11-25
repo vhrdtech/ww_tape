@@ -46,6 +46,11 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ("tape-index", "empty-index-reads-back", "0a"),
     (
         "tape-index",
+        "key-on-a-records-entry",
+        "229f762a2a2a2a2a2a2a",
+    ),
+    (
+        "tape-index",
         "final-index-overlapping-blocks",
         "ff050100000000000007050500000000000000000a02020202002e00000000000000000000020200000000070505000007050500000000000000000a020202020000000000000000000000020000000000b7000000022f02020202",
     ),
