@@ -198,5 +198,11 @@ fn a_mux_whose_carry_passes_the_budget_cuts_by_its_data() {
     mux.close().unwrap();
     let p = pieces(&mem);
     carry_past_budget(&p);
-    assert!(p.len() <= 6, "{} pieces for 64 small puts", p.len());
+    // the data: each definition and item once, the puts, a record head each; the carries come on top
+    let data = defs(TRACKS, 20).bytes() as u64 + u64::from(TRACKS + 64) * 32;
+    assert!(
+        p.len() as u64 <= 2 + data / BUDGET,
+        "{} pieces for {data} bytes of data",
+        p.len()
+    );
 }
