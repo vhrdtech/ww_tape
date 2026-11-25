@@ -1,0 +1,55 @@
+<svg class="ww-svg" viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="One chain's memory window. The mux writes the newest piece and cuts a new one every 64 MiB. The triage thread opens each piece as it closes and reads it in place. A piece with a reset is kept, together with one piece before it and one after it, and is copied whole into the chain's directory of piece files. Older pieces that no verdict can keep leave memory unwritten. The window has a size; when the triage falls behind and the window is full, the oldest pieces leave unread and are counted as overrun" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="20" class="soft small">oldest</text>
+  <text x="660" y="20" text-anchor="end" class="soft small">newest</text>
+  <path d="M60 16 H600" class="thin"/>
+  <path d="M606 16 l-8 -4 v8 Z" class="thin head"/>
+  <!-- removed pieces -->
+  <rect x="20.5" y="56" width="66" height="44" rx="3" class="faint"/>
+  <rect x="20.5" y="56" width="66" height="44" rx="3" class="hatch" fill="none"/>
+  <rect x="92.5" y="56" width="66" height="44" rx="3" class="faint"/>
+  <rect x="92.5" y="56" width="66" height="44" rx="3" class="hatch" fill="none"/>
+  <text x="89" y="120" text-anchor="middle" class="small soft">left memory unwritten</text>
+  <!-- window -->
+  <path d="M166 36 H660" class="thin"/>
+  <path d="M166 31 V41" class="thin"/>
+  <path d="M660 31 V41" class="thin"/>
+  <text x="413" y="32" text-anchor="middle" class="small">the memory window, <tspan class="mono">Window::bytes_max</tspan></text>
+  <rect x="166.5" y="56" width="66" height="44" rx="3" class="tint-blue"/>
+  <text x="199.5" y="83" text-anchor="middle" class="small">read</text>
+  <rect x="238.5" y="56" width="66" height="44" rx="3" class="tint-green"/>
+  <text x="271.5" y="76" text-anchor="middle" class="small">before</text>
+  <text x="271.5" y="92" text-anchor="middle" class="small soft">kept</text>
+  <rect x="310.5" y="56" width="66" height="44" rx="3" class="tint-accent"/>
+  <text x="343.5" y="76" text-anchor="middle" class="small strong">reset</text>
+  <text x="343.5" y="92" text-anchor="middle" class="small soft">kept</text>
+  <rect x="382.5" y="56" width="66" height="44" rx="3" class="tint-green"/>
+  <text x="415.5" y="76" text-anchor="middle" class="small">after</text>
+  <text x="415.5" y="92" text-anchor="middle" class="small soft">kept</text>
+  <rect x="454.5" y="56" width="66" height="44" rx="3" class="tint-blue"/>
+  <text x="487.5" y="83" text-anchor="middle" class="small">read</text>
+  <rect x="526.5" y="56" width="66" height="44" rx="3" class="tint-blue"/>
+  <text x="559.5" y="83" text-anchor="middle" class="small">closed</text>
+  <rect x="598.5" y="56" width="62" height="44" rx="3" class="hollow"/>
+  <text x="629.5" y="83" text-anchor="middle" class="small">open</text>
+  <!-- triage -->
+  <rect x="456.5" y="140" width="138" height="40" rx="4" class="tint-amber"/>
+  <text x="525.5" y="157" text-anchor="middle" class="small strong">triage thread</text>
+  <text x="525.5" y="172" text-anchor="middle" class="small soft">reads in place, decides</text>
+  <path d="M559 138 V108" class="line"/>
+  <path d="M559 102 l-4 8 h8 Z" class="line head"/>
+  <!-- mux -->
+  <rect x="604.5" y="140" width="56" height="40" rx="4" class="tint-teal"/>
+  <text x="632.5" y="164" text-anchor="middle" class="small strong">mux</text>
+  <path d="M632 138 V108" class="line"/>
+  <path d="M632 102 l-4 8 h8 Z" class="line head"/>
+  <!-- kept copy -->
+  <path d="M271 102 C271 150 300 170 316 196" class="line"/>
+  <path d="M343 102 V192" class="line"/>
+  <path d="M415 102 C415 150 386 170 370 196" class="line"/>
+  <path d="M343 198 l-4 -8 h8 Z" class="line head"/>
+  <rect x="246.5" y="200" width="194" height="34" rx="4" class="tint-green"/>
+  <text x="343.5" y="221" text-anchor="middle" class="small">copied whole to piece files</text>
+  <text x="20" y="160" class="small soft">full and behind: the oldest</text>
+  <text x="20" y="176" class="small soft">leave unread, counted in</text>
+  <text x="20" y="192" class="small mono soft">Triaged::overrun</text>
+</svg>
