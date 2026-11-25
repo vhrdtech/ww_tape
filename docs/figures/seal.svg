@@ -1,0 +1,43 @@
+<svg class="ww-svg" viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="A piece written at integrity level None: its piece head names None, its chunks carry zero payload CRCs, and its index and close carry zero hashes. The seal computes what was skipped and writes each block in its place: the same offsets and length, the head naming Full, written last." xmlns="http://www.w3.org/2000/svg">
+  <!-- written at None -->
+  <text x="20" y="28" class="strong small">written at <tspan class="mono">None</tspan></text>
+  <rect x="20.5" y="38" width="90" height="40" rx="2" class="tint-teal"/>
+  <text x="65" y="56" text-anchor="middle" class="small">piece head</text>
+  <text x="65" y="71" text-anchor="middle" class="mono small">None</text>
+  <rect x="110.5" y="38" width="130" height="40" rx="2" class="tint-blue"/>
+  <text x="175" y="56" text-anchor="middle" class="small">chunk</text>
+  <text x="175" y="71" text-anchor="middle" class="mono small">payload CRC 0</text>
+  <rect x="240.5" y="38" width="130" height="40" rx="2" class="tint-blue"/>
+  <text x="305" y="56" text-anchor="middle" class="small">chunk</text>
+  <text x="305" y="71" text-anchor="middle" class="mono small">payload CRC 0</text>
+  <rect x="370.5" y="38" width="150" height="40" rx="2" class="tint-ink"/>
+  <text x="445" y="56" text-anchor="middle" class="small">final index</text>
+  <text x="445" y="71" text-anchor="middle" class="mono small">unit hashes 0</text>
+  <rect x="520.5" y="38" width="140" height="40" rx="2" class="tint-ink"/>
+  <text x="590" y="56" text-anchor="middle" class="small">close, tail</text>
+  <text x="590" y="71" text-anchor="middle" class="mono small">content hash 0</text>
+  <text x="20" y="98" class="soft small">a reader still checks the block and head CRCs and every structure block</text>
+  <!-- seal -->
+  <path d="M340 108 V146" class="line"/>
+  <path d="M340 152 l-4 -8 h8 Z" class="line head"/>
+  <text x="350" y="126" class="mono small">seal</text>
+  <text x="350" y="141" class="soft small">reads, checks and hashes the piece, then writes each block in its place</text>
+  <!-- sealed -->
+  <text x="20" y="172" class="strong small">sealed, <tspan class="mono">Full</tspan></text>
+  <rect x="20.5" y="182" width="90" height="40" rx="2" class="tint-green"/>
+  <text x="65" y="200" text-anchor="middle" class="small">piece head</text>
+  <text x="65" y="215" text-anchor="middle" class="mono small">Full, last</text>
+  <rect x="110.5" y="182" width="130" height="40" rx="2" class="tint-blue"/>
+  <text x="175" y="200" text-anchor="middle" class="small">chunk</text>
+  <text x="175" y="215" text-anchor="middle" class="mono small">payload CRC</text>
+  <rect x="240.5" y="182" width="130" height="40" rx="2" class="tint-blue"/>
+  <text x="305" y="200" text-anchor="middle" class="small">chunk</text>
+  <text x="305" y="215" text-anchor="middle" class="mono small">payload CRC</text>
+  <rect x="370.5" y="182" width="150" height="40" rx="2" class="tint-ink"/>
+  <text x="445" y="200" text-anchor="middle" class="small">final index</text>
+  <text x="445" y="215" text-anchor="middle" class="mono small">unit hashes</text>
+  <rect x="520.5" y="182" width="140" height="40" rx="2" class="tint-ink"/>
+  <text x="590" y="200" text-anchor="middle" class="small">close, tail</text>
+  <text x="590" y="215" text-anchor="middle" class="mono small">content hash</text>
+  <text x="20" y="242" class="soft small">the same offsets and the same length: the bytes a writer at Full writes from the same calls</text>
+</svg>
