@@ -142,7 +142,10 @@ mod tests {
         assert!(!grids.due(&head(g, 0, 8), false));
         let milli = g.rescaled(Magnitude::pow10(-3));
         assert!(grids.due(&head(milli, 0, 8), false));
-        assert!(grids.due(&head(SeriesGrid::start(9, 900, Magnitude::ONE), 0, 9), false));
+        assert!(grids.due(
+            &head(SeriesGrid::start(9, 900, Magnitude::ONE), 0, 9),
+            false
+        ));
         grids.placed(Some(&head(milli, 0, 8)), false);
         assert!(grids.due(&head(g, 0, 16), false));
         assert!(!grids.due(&head(g, 0, 8), true));

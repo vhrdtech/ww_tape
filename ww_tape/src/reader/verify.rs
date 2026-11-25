@@ -297,7 +297,9 @@ impl<L: Listed> Replay<L> {
         };
         let first = head.first_item;
         let before = self.grids.get(&key).copied();
-        if before.is_some_and(|n| n.due(&chunk, first) != c.grid_start()) && self.grid_mark.is_none() {
+        if before.is_some_and(|n| n.due(&chunk, first) != c.grid_start())
+            && self.grid_mark.is_none()
+        {
             self.grid_mark = Some((at, head.track_id));
         }
         self.grids

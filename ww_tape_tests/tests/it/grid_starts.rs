@@ -548,11 +548,23 @@ fn chunks_out_of_sample_order_keep_their_grids() {
         grid,
     };
     // 0..8 at scale 1, then 16..24 and 8..16 at milli: 8..16 fits the ticks of 0..8 but is marked
-    written_in(&[at(0, g1), at(8, milli), at(16, milli)], &[0, 2, 1], &[true, true, true]);
+    written_in(
+        &[at(0, g1), at(8, milli), at(16, milli)],
+        &[0, 2, 1],
+        &[true, true, true],
+    );
     // 0..8 and 16..24 at scale 1, then 8..16 at milli: 16..24 comes before its predecessor in the file
-    written_in(&[at(0, g1), at(8, milli), at(16, g1)], &[0, 2, 1], &[true, true, false]);
+    written_in(
+        &[at(0, g1), at(8, milli), at(16, g1)],
+        &[0, 2, 1],
+        &[true, true, false],
+    );
     // the same grid throughout, 8..16 last: marked as out of order, its neighbours not
-    written_in(&[at(0, g1), at(8, g1), at(16, g1)], &[0, 2, 1], &[true, true, false]);
+    written_in(
+        &[at(0, g1), at(8, g1), at(16, g1)],
+        &[0, 2, 1],
+        &[true, true, false],
+    );
 }
 
 /// A producer resends the chunk it sent last, one that starts a scale: the relay takes it in that chunk's place, its
@@ -678,7 +690,9 @@ fn a_chain_resume_keeps_the_marks() {
                 PieceChain::create_on(mem.clone(), owner, 0, &[], options.clone()).unwrap();
             for (p, _) in &planned[..crash_after] {
                 let col = column(&mut cache, p.count);
-                chain.write_chunk(&defs, &p.head(track, id), &[col]).unwrap();
+                chain
+                    .write_chunk(&defs, &p.head(track, id), &[col])
+                    .unwrap();
             }
             drop(chain);
             if damaged {
@@ -688,7 +702,9 @@ fn a_chain_resume_keeps_the_marks() {
                 .unwrap_or_else(|e| panic!("{case}: {e:?}"));
             for (p, _) in &planned[crash_after..] {
                 let col = column(&mut cache, p.count);
-                chain.write_chunk(&defs, &p.head(track, id), &[col]).unwrap();
+                chain
+                    .write_chunk(&defs, &p.head(track, id), &[col])
+                    .unwrap();
             }
             chain.close().unwrap();
             for key in mem.keys().unwrap() {
@@ -707,7 +723,9 @@ fn a_chain_resume_keeps_the_marks() {
                 assert_eq!(t, want, "{case}");
                 assert!(r.verify(0).unwrap().holds, "{case}");
                 for e in entries(&r, id) {
-                    let start = planned.iter().any(|(p, s)| *s && p.first == e.first_item.get());
+                    let start = planned
+                        .iter()
+                        .any(|(p, s)| *s && p.first == e.first_item.get());
                     assert!(!start || e.grid_start, "{case}: {}", e.first_item.get());
                 }
             }

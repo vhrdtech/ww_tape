@@ -384,8 +384,10 @@ pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
 /// so a reader takes no order across its start. Its index entry carries the mark too
 /// ([IndexEntry::relation_break](crate::index::IndexEntry::relation_break)).
 pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
-/// Header flag on series chunk blocks of level 0: the chunk's grid or scale ([SeriesGrid]) isn't the one of its track
-/// (and tile)'s newest chunk before it in the piece, or it comes out of sample order (`series::marks`).
+/// Header flag on series chunk blocks of level 0: the chunk starts a grid or scale ([SeriesGrid]).
+///
+/// It is due where the grid or scale isn't the one of its track (and tile)'s newest chunk before it in the piece, in
+/// sample order, or where the chunk comes out of sample order.
 ///
 /// The bit of [FLAG_RELATION_BREAK], which only events chunks carry: what it means goes by the kind. A writer marks
 /// the chunks it encodes, refuses a caller's chunk marked otherwise than due, and restamps a relayed one

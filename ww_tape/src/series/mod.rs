@@ -93,9 +93,9 @@
 //! The batch's time column (`Series<Timed<T>>`) is not stored: the grid gives every sample's tick. A host checks it
 //! against the grid and starts a new grid where the device's samples left it (a gap, a restart).
 
+pub(crate) mod marks;
 #[cfg(test)]
 mod tests;
-pub(crate) mod marks;
 #[cfg(feature = "alloc")]
 mod timeline;
 #[cfg(feature = "alloc")]

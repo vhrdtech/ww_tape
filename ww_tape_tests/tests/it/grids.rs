@@ -938,7 +938,12 @@ fn a_scanned_grid_keeps_its_tiles_apart() {
     let r = TapeReader::open(&closed[..]).unwrap();
     let (want, want_errors) = r.series_timeline(0, id, period()).unwrap();
     let r = TapeReader::open(&open[..]).unwrap();
-    assert!(r.track_entries(0, id).unwrap().iter().all(|e| e.tile.is_none()));
+    assert!(
+        r.track_entries(0, id)
+            .unwrap()
+            .iter()
+            .all(|e| e.tile.is_none())
+    );
     let (got, errors) = r.series_timeline(0, id, period()).unwrap();
     assert_eq!(got, want);
     assert_eq!(format!("{errors:?}"), format!("{want_errors:?}"));
