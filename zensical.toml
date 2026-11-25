@@ -37,6 +37,7 @@ nav = [
                     "writing_thread.md",
                     "files.md",
                     "pieces.md",
+                    "old_pieces.md",
                     "crashes.md",
                     "resume_cases.md"
                 ]

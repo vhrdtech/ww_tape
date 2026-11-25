@@ -253,13 +253,13 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   A close can name pieces of its chain that were removed on purpose, by sequence number, id and close hash. `TapeWriter::record_removed` appends these rows to the chain's last piece, and every later close of that piece names them again. The chain check links over the hole (`ChainLink::Removed`) when both ends match the rows. Removing the piece that holds the rows means naming them again.
 
-  Read more: [Pieces removed on purpose](docs/pieces.md#pieces-removed-on-purpose). Golden file `v1-removed.hex`.
+  Read more: [Pieces removed on purpose](docs/old_pieces.md#pieces-removed-on-purpose). Golden file `v1-removed.hex`.
 
 - ✅ **WRITE-16 Resume after removed pieces**
 
   A chain resumes from its lowest piece at hand, so retention and a writer that restarts work together. A hole in the middle is walked over when the closes at hand name its pieces as removed on purpose. Any other hole is refused. `PieceChain::remove` removes closed pieces in one call. It names them in the piece written, closes and syncs it (`TapeWriter::close_and_go_on`), then takes the pieces out of the store.
 
-  Read more: [Removing pieces while the chain is written](docs/pieces.md#removing-pieces-while-the-chain-is-written). Tests `ww_tape_tests/tests/it/chain_removal.rs`.
+  Read more: [Removing pieces while the chain is written](docs/old_pieces.md#removing-pieces-while-the-chain-is-written). Tests `ww_tape_tests/tests/it/chain_removal.rs`.
 
 - ✅ **WRITE-17 Groups of puts taken whole**
 

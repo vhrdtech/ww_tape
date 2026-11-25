@@ -1679,7 +1679,7 @@ piece has no tail is open: it is being written, or a crash cut it off.
 
 A close record may name pieces of its chain that were removed on purpose. Each takes 56 bytes after the track rows:
 its sequence number, id and content hash. `check_chain` links over such pieces. A chain whose first pieces are named so
-reads as removed, not head cut ([Pieces removed on purpose](pieces.md#pieces-removed-on-purpose)).
+reads as removed, not head cut ([Pieces removed on purpose](old_pieces.md#pieces-removed-on-purpose)).
 
 ### 8.1 The chain report {#the-chain-report}
 
