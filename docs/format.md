@@ -922,9 +922,9 @@ No cut falls inside a group, nor a checkpoint or a deferred block. A group's las
 relayed while a caller's unit is open waits whole. The writer writes it right after the unit's last chunk. Such
 groups count toward `RELAY_GROUPS_MAX` and `RELAY_HELD_BYTES_MAX`, and a cut carries them.
 
-A put, typed item or definition put behind a waiting group waits too, so the two keep their order
-(`TapeWriter::puts_waiting` counts what waits). A close while the unit is still open writes none of them: it is
-refused with `InputError::Waiting`, which names the slots of each.
+A put, typed item or definition put behind a waiting group waits too, so the two keep their order.
+`TapeWriter::puts_waiting` counts what waits. A close while the unit is still open tears the unit as a crash does.
+The writer cuts its blocks off, as a resume would, and writes what waits in their place.
 
 A group on a track defined twice ([above](#definitions-written-twice-at-once)) opens with its block marked
 `FLAG_TWICE`. That block is one of the group: it carries `FLAG_GROUP` and `FLAG_GROUP_START` and counts toward

@@ -3284,22 +3284,33 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok(())
     }
 
-    /// Before a close: write the groups and puts waiting when no caller's unit is open; refuse the close, writing
-    /// nothing, with [InputError::Waiting] naming the slots of each one a unit left open would drop.
-    fn close_waiting(&mut self) -> Result<(), WriteError<S::Error>> {
-        if !self.caller_run {
-            self.write_waiting(None)?;
+    /// Before a close: write the groups and puts waiting, in order. A caller's unit still open is torn first, as a
+    /// crash tears it ([Self::without_torn_run]), so the puts follow its blocks' place unmarked.
+    fn close_waiting(mut self) -> Result<Self, WriteError<S::Error>> {
+        if self.caller_run {
+            self = self.without_torn_run()?;
         }
-        if !self.relay_groups.has_waiting() {
-            return Ok(());
-        }
-        let dropped = self
-            .relay_groups
-            .waiting()
-            .iter()
-            .map(|w| w.cands.iter().map(|c| c.slot).collect())
-            .collect();
-        Err(WriteError::Input(InputError::Waiting { dropped }))
+        self.write_waiting(None)?;
+        Ok(self)
+    }
+
+    /// This writer with the caller's open run cut off the piece, as a resume cuts off a run a crash tore
+    /// ([Self::resume_on]): readers never see it. What waits for the run's end, the deferred blocks and the pieces
+    /// named removed go on in the writer resumed.
+    fn without_torn_run(mut self) -> Result<Self, WriteError<S::Error>> {
+        let options = self.options();
+        let relay_groups = core::mem::take(&mut self.relay_groups);
+        let deferred = core::mem::take(&mut self.deferred);
+        let deferred_bytes = self.deferred_bytes;
+        let removed = core::mem::take(&mut self.removed);
+        let removed_added = self.removed_added;
+        let (mut w, _) = Self::resume_on(self.sink, options)?;
+        w.relay_groups = relay_groups;
+        w.deferred = deferred;
+        w.deferred_bytes = deferred_bytes;
+        w.removed = removed;
+        w.removed_added = removed_added;
+        Ok(w)
     }
 
     /// [Self::write_waiting] right after the block that ends a caller's unit: a group the piece has no room for
@@ -3868,7 +3879,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// naming blocks that didn't.
     fn end(mut self, how: End, summary: Option<&[u8]>) -> Result<Ended<S>, WriteError<S::Error>> {
         if matches!(how, End::Close(_)) && self.relay_groups.has_waiting() {
-            self.close_waiting()?;
+            self = self.close_waiting()?;
         }
         let summary = summary
             .map(|body| {

@@ -438,21 +438,100 @@ fn a_put_behind_a_waiting_group_keeps_its_order() {
     assert_eq!(in_force(&bytes, STATE).as_deref(), Some(&b"new"[..]));
 }
 
-/// A close while a unit is open and a group waits for it: refused, naming the group's slots, never closed without it.
+/// No series chunk lies in `bytes` by a scan, nor by the index of the piece they hold.
+fn no_chunk(bytes: &[u8]) {
+    let blocks = kinds(bytes);
+    assert!(
+        blocks.iter().all(|(k, _)| *k != BlockKind::Series),
+        "the torn unit dropped by a scan: {blocks:x?}"
+    );
+    let r = ww_tape::TapeReader::open(bytes).unwrap();
+    assert!(
+        r.entries(0)
+            .unwrap()
+            .iter()
+            .all(|e| e.kind != BlockKind::Series),
+        "the torn unit in no index entry"
+    );
+}
+
+/// A producer dies inside its unit while a group and a put wait for the unit's end: the close tears the unit as a
+/// crash would and writes them after its place, in order.
 #[test]
-fn a_close_inside_an_open_unit_names_the_groups_it_would_drop() {
+fn a_close_inside_an_open_unit_tears_it_and_writes_what_waits() {
     let (defs, units) = relayed_units(false, 1);
     let mut w = crate::resume::begin(0);
+    let tape = w.sink().tape();
     w.write_block(&defs, &units[0][0]).unwrap();
     w.put_group(&defs, &group_of(STATE, b"old")).unwrap();
-    let r = w.close();
-    let Err(ww_tape::WriteError::Input(ww_tape::InputError::Waiting { dropped })) = r else {
-        panic!("{r:?}")
+    w.put(&defs, TrackNum::new(OTHER), 1, b"later").unwrap();
+    w.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    no_chunk(&bytes);
+    assert_eq!(crate::put_definitions::groups(&kinds(&bytes)), 1);
+    assert_eq!(in_force(&bytes, STATE).as_deref(), Some(&b"old"[..]));
+    assert_eq!(in_force(&bytes, OTHER).as_deref(), Some(&b"later"[..]));
+}
+
+/// Through the mux on files: a relay's producer dies mid-unit with a group waiting; the mux closes, and a scan,
+/// the index and a follower each see the group and the put after it, and none of the torn unit.
+#[test]
+fn the_mux_closes_after_a_relayed_unit_that_never_ends() {
+    let (_, units) = relayed_units(false, 1);
+    let dir = std::env::temp_dir().join(format!("ww_tape_unit_puts_torn_{}", std::process::id()));
+    _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mux = ww_tape_fs::mux::create(
+        &dir,
+        crate::follow::OWNER,
+        0,
+        &[],
+        crate::follow::options(0),
+        ww_tape_mux::MuxOptions::default(),
+    )
+    .unwrap();
+    let ww_tape::Describe::Clock(c) = crate::definitions::clock(CLOCK) else {
+        unreachable!("clock() gives a clock")
     };
-    assert_eq!(dropped.len(), 1, "{dropped:?}");
-    assert!(dropped[0].contains(&ww_tape::Slot::State {
-        track: TrackNum::new(STATE)
-    }));
+    mux.define_clock(c.spec()).unwrap();
+    let axes = crate::grids::axes(&crate::grids::EXTENTS);
+    mux.define_track(crate::grids::grid_track(&axes).spec())
+        .unwrap();
+    for d in [empty_track(false), state(STATE), state(OTHER)] {
+        let ww_tape::Describe::Track(t) = d else {
+            unreachable!("a track")
+        };
+        mux.define_track(t.spec()).unwrap();
+    }
+    let relay = mux.relay(ww_tape_mux::RelayMode::Relay);
+    let group = mux.group(&[TrackNum::new(STATE)]).unwrap();
+    let other = mux.state(TrackNum::new(OTHER)).unwrap();
+    relay.send(units[0][0].clone()).unwrap();
+    relay.flush().unwrap();
+    group.put_group(&group_of(STATE, b"old")).unwrap();
+    other.put(1, b"later").unwrap();
+    other.flush().unwrap();
+    // the producer dies: its unit's last chunk never comes
+    drop((relay, group, other));
+    mux.close().unwrap();
+    let bytes = std::fs::read(dir.join(ww_tape_fs::chain::piece_name(0))).unwrap();
+    no_chunk(&bytes);
+    assert_eq!(crate::put_definitions::groups(&kinds(&bytes)), 1);
+    assert_eq!(in_force(&bytes, STATE).as_deref(), Some(&b"old"[..]));
+    assert_eq!(in_force(&bytes, OTHER).as_deref(), Some(&b"later"[..]));
+    let mut f =
+        ww_tape_fs::follow::ChainFollower::new(&dir, ww_tape_fs::follow::FollowOptions::default())
+            .unwrap();
+    let mut followed = Vec::new();
+    while let Some(b) = f.try_next().unwrap() {
+        followed.push(b.block.block().kind);
+    }
+    assert!(f.is_closed(), "the follower reads to the close");
+    assert!(
+        !followed.contains(&BlockKind::Series),
+        "the follower hands out none of the torn unit: {followed:?}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Through the mux: a state put behind a group put while a relayed unit is open is in force after the unit.
