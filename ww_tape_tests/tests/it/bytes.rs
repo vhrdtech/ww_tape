@@ -647,23 +647,22 @@ fn bytes_golden() {
     crate::quiet::golden(&file, "v1-bytes.hex");
 }
 
-/// Through a mux: a value's parts go through the queue as chunks, a cut falls inside the value, another handle's
-/// events interleave, and the value reads back whole across the pieces.
+/// Through a mux: a value's parts go through the queue as chunks, a cut falls inside the value, and the value reads
+/// back whole across the pieces. A bytes track takes one handle at a time; the next one numbers its parts on.
 #[test]
 fn a_value_through_the_mux() {
     let defs = defs();
     let (mem, c) = chain(options(PieceTapes::Each, Integrity::Full, 3));
     let mux = ww_tape_mux::TapeMux::start(c, defs, ww_tape_mux::MuxOptions::default()).unwrap();
-    let mut h = mux
-        .bytes(
-            BYTES,
-            ItemNum::new(0),
-            BytesOptions {
-                part_len: PART,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+    let small = BytesOptions {
+        part_len: PART,
+        ..Default::default()
+    };
+    let mut h = mux.bytes(BYTES, small).unwrap();
+    assert!(matches!(
+        mux.bytes(BYTES, small),
+        Err(ww_tape_mux::MuxError::Call(ww_tape_mux::CallError::BytesHeld { track })) if track == BYTES
+    ));
     let v = value(21, 7300);
     let id = h.begin(4).unwrap();
     for (k, piece) in v.chunks(1100).enumerate() {
@@ -677,13 +676,22 @@ fn a_value_through_the_mux() {
     assert_eq!(seal.id, id);
     assert_eq!(seal.parts, 9);
     assert_eq!(h.next_part(), ItemNum::new(9));
-    let refused = mux.bytes(TrackNum::new(3), ItemNum::new(0), BytesOptions::default());
+    let refused = mux.bytes(TrackNum::new(3), BytesOptions::default());
     assert!(matches!(refused, Err(ww_tape_mux::MuxError::Bytes(_))));
+    // a refusal holds nothing: track 3 is not a bytes track, BYTES is still h's
+    assert!(mux.bytes(BYTES, small).is_err());
     drop(h);
+    let mut next = mux.bytes(BYTES, small).unwrap();
+    assert_eq!(next.next_part(), ItemNum::new(9));
+    let second = next.begin(5).unwrap();
+    next.write(&value(22, 1500)).unwrap();
+    next.finish().unwrap();
+    drop(next);
     mux.close().unwrap();
     let files = pieces(&mem);
     assert!(files.len() >= 3, "{} pieces", files.len());
     let (bytes, read) = read_from(&files, id).unwrap();
     assert_eq!(bytes, v);
     assert_eq!(read, seal);
+    assert_eq!(read_from(&files, second).unwrap().0, value(22, 1500));
 }

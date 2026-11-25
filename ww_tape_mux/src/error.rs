@@ -93,6 +93,9 @@ pub enum CallError {
     /// [HELD_ITEMS_MAX]: crate::HELD_ITEMS_MAX
     /// [HELD_ITEM_BYTES_MAX]: crate::HELD_ITEM_BYTES_MAX
     HeldItems { items: usize, bytes: Bytes<u64> },
+    /// A bytes track another [BytesHandle](crate::BytesHandle) of the mux writes: a track takes one at a time, so its
+    /// parts keep their numbers.
+    BytesHeld { track: TrackNum },
 }
 
 /// Why a typed handle refuses an item.
@@ -215,6 +218,11 @@ impl core::fmt::Display for CallError {
             Self::Keyed { track, keyed: false } => write!(
                 f,
                 "track {} is not keyed state: nothing of it is put by key",
+                track.get()
+            ),
+            Self::BytesHeld { track } => write!(
+                f,
+                "bytes track {} is written by another handle",
                 track.get()
             ),
             Self::KeyTooLong { len } => write!(

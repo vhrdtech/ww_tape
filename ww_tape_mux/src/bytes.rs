@@ -1,6 +1,13 @@
 //! Values of a bytes track written from a producer's thread: each part goes through the queue as a chunk.
 
+use std::sync::Arc;
+
+use crate::error::CallError;
 use crate::handle::{ChunkSender, Sent};
+use crate::queue::lock;
+use crate::reply::reply;
+use crate::shared::{Shared, Work};
+use crate::wait::block_on;
 use crate::{MuxError, TapeMux};
 use ww_tape::bytes_track::{BytesError, BytesOptions, BytesPart, BytesWriter, ValueId, ValueSeal};
 use ww_tape::{ItemNum, PieceStore, TrackNum};
@@ -11,9 +18,12 @@ use ww_tape::{ItemNum, PieceStore, TrackNum};
 /// Each part goes through the mux's byte-bounded queue as a chunk, so a large value interleaves with other handles'
 /// units and the handle holds one part's bytes at a time. It waits for room in the queue, so no part is dropped. A
 /// call that fails leaves the open value torn and gives it up: it reads as absent.
+///
+/// A bytes track takes one handle at a time: the track is the handle's until it is dropped.
 pub struct BytesHandle<T: PieceStore> {
     chunks: ChunkSender<T>,
     writer: BytesWriter,
+    shared: Arc<Shared<T>>,
 }
 
 impl<T> TapeMux<T>
@@ -23,18 +33,38 @@ where
     T::Key: Send,
     T::Error: Send + Sync,
 {
-    /// A handle that writes the values of bytes track `track`, its next part numbered `next_part`: 0 on a new track,
-    /// else the item number after the track's last part (a resumed chain's).
+    /// A handle that writes the values of bytes track `track`, its first part numbered as the chain says
+    /// ([ww_tape::PieceChain::next_item]): after every part sent before, a resumed chain's too. Refused with
+    /// [CallError::BytesHeld] while another handle writes the track.
     pub fn bytes(
         &self,
         track: TrackNum,
-        next_part: ItemNum,
         options: BytesOptions,
     ) -> Result<BytesHandle<T>, MuxError<T::Error>> {
+        if !lock(&self.shared.bytes_held).insert(track) {
+            return Err(CallError::BytesHeld { track }.into());
+        }
+        // held from here: a refusal below lets the track go again
+        let held = Held {
+            shared: self.shared.clone(),
+            track,
+            kept: false,
+        };
         let defs = self.definitions()?;
-        let writer = BytesWriter::new(&defs, track, next_part, options).map_err(MuxError::Bytes)?;
+        let (tx, rx) = reply();
+        let next = block_on(
+            self.shared
+                .control_async(Work::NextItem { track, reply: tx }, rx),
+        )?
+        .ok_or_else(|| self.shared.ended())?;
+        let writer = BytesWriter::new(&defs, track, next, options).map_err(MuxError::Bytes)?;
         let chunks = self.chunks(track)?;
-        Ok(BytesHandle { chunks, writer })
+        let shared = held.keep();
+        Ok(BytesHandle {
+            chunks,
+            writer,
+            shared,
+        })
     }
 }
 
@@ -91,6 +121,35 @@ impl<T: PieceStore> BytesHandle<T> {
             self.writer.abandon();
         }
         r
+    }
+}
+
+impl<T: PieceStore> Drop for BytesHandle<T> {
+    fn drop(&mut self) {
+        lock(&self.shared.bytes_held).remove(&self.writer.track());
+    }
+}
+
+/// A bytes track held while a handle of it is made: let go unless kept.
+struct Held<T: PieceStore> {
+    shared: Arc<Shared<T>>,
+    track: TrackNum,
+    kept: bool,
+}
+
+impl<T: PieceStore> Held<T> {
+    /// Keep the track held: the handle lets it go when dropped.
+    fn keep(mut self) -> Arc<Shared<T>> {
+        self.kept = true;
+        self.shared.clone()
+    }
+}
+
+impl<T: PieceStore> Drop for Held<T> {
+    fn drop(&mut self) {
+        if !self.kept {
+            lock(&self.shared.bytes_held).remove(&self.track);
+        }
     }
 }
 
