@@ -1,0 +1,1099 @@
+// ww_tape 0.13.0 traits and types, saved by `ww api save`.
+// Do not edit, bump the crate version and save a new snapshot instead.
+// shrink_wrap sha256: 92fc4e271a8bbef3fb209175d672f2ed1d113a198087e9f2913d0e2dcb43f8d8
+(magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
+    "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
+    "",
+    "A tape is the recording unit whatever it is recorded on: blocks handed over live, appended to a file, replayed.",
+    "",
+    "A **record** is an item (any ShrinkWrap type, or plain bytes) on a **track**, at a time: signed i64 ticks of the",
+    "track\'s **clock**. Clocks are described by a [ClockDef] (number, stable key, exact rate and resolution, origin),",
+    "tracks by a [TrackDef]: a small number used in records, a stable key, the clock, dimensions that are part of its",
+    "identity, the track\'s resource path in the producer\'s API (`ww_trait` ids, array indices included) and the item",
+    "type, so a reader knows from the API bundle what the items are. How clocks relate (the wall clock to a device\'s) is",
+    "said by [ClockMap]s. Nothing here knows any producer: a link tap, a device log or a simulator all write the same",
+    "blocks.",
+    "",
+    "A **block** is a header, a body and a CRC-32C (`CRC_32_ISCSI`):",
+    "",
+    "```text",
+    "off size field",
+    "  0   4  magic \"WWTP\"",
+    "  4  u8  version, 1",
+    "  5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)",
+    "  6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or",
+    "         copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a",
+    "         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an",
+    "         events chunk a break in its track\'s monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block",
+    "         a grid tile\'s tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader",
+    "         without it refuses the block), bit 6 on a records block marked FLAG_REPEAT its records keyed state",
+    "         (FLAG_KEYED: each item a key and a value, so a reader without it misreads them as plain state), bit 7 on a",
+    "         block of puts definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group",
+    "         (FLAG_GROUP), bit 9 on a group\'s first block (FLAG_GROUP_START); others 0, and a reader ignores them",
+    "  8 u32  len: the whole block, header and CRC included",
+    " 12 u32  records in the block",
+    " 16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and",
+    "         piece head blocks, and blocks marked FLAG_REPEAT, carry the seq of the block before them and are",
+    "         not counted (index::is_structural)",
+    " 24 u32  session tag (SessionTag): the same in every block of one writer\'s unbroken append, never 0 nor FFFFFFFFh",
+    " 28 u32  head CRC in chunk and index blocks (their own docs), else 0",
+    " 32 ...  body",
+    "len-4 u32 crc over bytes 0..len-4",
+    "```",
+    "",
+    "The body of a records block is a clock table, then records back to back:",
+    "",
+    "```text",
+    "uvar n, n × uvar clock number (ascending, 1 and up): the clocks of the block\'s records; slot i is the i-th",
+    "per record:",
+    "  uvar head: track << bits | slot, bits the fewest that hold n - 1 (0 for one clock)",
+    "  ivar time delta in ticks, against the previous record of the same slot in the block (the first against 0);",
+    "       absent for track 0",
+    "  uvar item length, the item\'s bytes",
+    "```",
+    "",
+    "The item of a record on an events track whose [EventsDef] has spans or flags is an [EventRecord]: the duration",
+    "(uvar, spans only), the flags (uvar, only with flags), then the payload; the record\'s time is the start. A track",
+    "of plain instants carries the payload alone. A state record of an events track carries the same item.",
+    "",
+    "With [FLAG_BODY_CODED] that body is coded: a codec byte, its decoded length and the coded bytes ([body]).",
+    "",
+    "So time deltas are coded per clock, a block reads alone (its first time per clock is absolute) and one clock costs",
+    "no bit in the head. No wall clock is in a block: wall time is a clock of its own, mapped to the others.",
+    "",
+    "A record\'s clock is always its track\'s ([TrackDef::clock]). The slot repeats it on purpose, so a block\'s times read",
+    "without the definitions; a writer keeps the two in agreement, and a reader may take a record whose slot names",
+    "another clock than its track\'s for damage.",
+    "",
+    "The header and the CRC at the end are the same in every version, so any reader can check a block and skip it by its",
+    "length. A later version bumps the version byte and changes only the body; new block kinds and flag bits are added",
+    "the same way. A block of another version that goes on with the data ends the piece the reader is in and starts a",
+    "piece of that version, which the reader lists with its version and refuses to read ([reader::ReadError::Version]).",
+    "A block of an unknown kind reads as it is ([Block::body_known] false, no records), not as damage. [Describe] is an",
+    "evolvable enum, so a describe record of a variant a reader doesn\'t know reads as [Describe::Unknown] and is",
+    "skipped.",
+    "",
+    "Numbers are little endian; `uvar` is LEB128 (7 bits per byte, low bits first, at most 10 bytes), `ivar` zigzag",
+    "then `uvar`, as in the logring format. Blocks are as long as their records, never padded, except a piece\'s close",
+    "block, which ends the piece on 4 KiB ([piece]): a file is blocks appended back to back, a live feed sends one block",
+    "per message.",
+    "",
+    "**Track 0** holds the definitions: one [Describe] per record, its item\'s whole bytes: the [Producer], the",
+    "[Layout], the API bundles, the [ClockDef]s, [ClockMap]s and [TrackDef]s in use and typed items ([TypedItem]: a run",
+    "record, a media reference). Two facts about it are built in: its item type is [Describe], and its records have no",
+    "time (clocks are defined on it). Definitions sit in records blocks of their own (no other track in them).",
+    "",
+    "**State.** Track 0 and every track whose policy is [TrackRepeat::State] hold state, not events: a reader at any",
+    "place takes the nearest record of each slot behind it ([state]). A writer keeps that record close behind every use",
+    "([StatePolicy::near]): before a block of data of a track it puts the track\'s definition and the clock, maps and",
+    "bundles it names, and the application puts a state track\'s item where it is used ([TapeWriter::put]); either is",
+    "written again only when the same item doesn\'t lie close behind in the same piece. Such writes are records in",
+    "blocks marked [FLAG_REPEAT], with the seq of the block before them; an item first written in a piece gets spaced",
+    "copies too ([StatePolicy::copies]). The index lists every state record by its slot and hash, so a reader finds",
+    "the item in force at a place without a scan, and a piece read alone, a file whose head is cut off and a consumer",
+    "joining a live feed all find what they need close behind the data.",
+    "",
+    "**Gaps.** A [Layout] says how far a writer may leave a blank or bad stretch and go on after it ([Layout::gap_max])",
+    "and where it resumes ([Layout::resume_align]). A reader\'s cost per gap is bounded by the format: `gap_max` is at",
+    "most [GAP_MAX_MAX] (64 MiB) with at most [GAP_PROBES_MAX] (8192) resume places in it, else the layout record",
+    "doesn\'t decode; a reader reads the first non-blank byte\'s and each resume place\'s header one at a time, and checks",
+    "at most [GAP_CHECKS_MAX] (4) whole blocks whose header says they go on with the data. On a raw medium ([Medium])",
+    "blank space longer than `gap_max` is the end of data; a piece there is one session (`TapeWriter::adopt_block`).",
+    "",
+    "**Limits.** Every count, length, offset or layout value a reader takes from the bytes is bounded before it sizes",
+    "an allocation, a slice or a loop ([FromFile]): by a length already in hand (the block\'s, a table\'s) or by one of",
+    "these caps. A value past its cap is damage, refused with an error; no file a writer of this crate writes is.",
+    "",
+    "| Cap | Value | Bounds |",
+    "|---|---|---|",
+    "| [MAX_BLOCK_LEN] | 64 MiB | a block\'s length |",
+    "| [DECODED_BODY_MAX](body::DECODED_BODY_MAX) | 64 MiB - 36 | a coded body\'s decoded length |",
+    "| [LZ4_DECODED_MAX](lz4::LZ4_DECODED_MAX) | 64 MiB | an lz4 column\'s decoded length |",
+    "| [RUN_BLOCKS_MAX] | 4096 | the blocks of one run marked FLAG_WITH_NEXT and the block it belongs with |",
+    "| [RELAY_GROUPS_MAX] | 16 | the producers whose groups of puts a relay holds at once |",
+    "| [RELAY_HELD_BYTES_MAX] | 128 MiB | what the groups of puts a relay holds at once cost: each record\'s bytes and overhead |",
+    "| [RELAY_RECORD_OVERHEAD] | 512 | what a record of a group a relay holds costs besides its bytes |",
+    "| [MAX_BLOCK_CLOCKS] | 16 | the clocks of one block\'s clock table |",
+    "| [MAX_RECORD_HEAD] | 25 | a record head\'s bytes |",
+    "| [MAX_CLOCK_TABLE] | 81 | a clock table\'s bytes |",
+    "| [MAX_COLUMNS](chunk::MAX_COLUMNS) | 255 | a chunk\'s columns |",
+    "| [SEGMENT_SHIFT_MAX](chunk::SEGMENT_SHIFT_MAX) | 24 | a chunk\'s segment shift (16 MiB segments) |",
+    "| [MAX_SEGMENTS](chunk::MAX_SEGMENTS) | 16384 | a chunk\'s segments |",
+    "| [SERIES_ITEMS_MAX](chunk::SERIES_ITEMS_MAX) | 65535 | the items of a chunk with a series payloads column |",
+    "| [FLAG_RUNS_MAX](flag_runs::FLAG_RUNS_MAX) | 4096 | the flag runs of a series chunk |",
+    "| [WIDTH_MAX](bitpack::WIDTH_MAX) | 64 | a bit width ([bitpack::Width]) |",
+    "| [KERNEL_WIDTH_MAX](bitpack::KERNEL_WIDTH_MAX) | 32 | a bit width the 32-bit kernels unpack |",
+    "| [SLOPE_MAX](times::SLOPE_MAX) | 2^55 | a start group\'s slope (Q16 ticks per item) |",
+    "| [ITEMS_MAX](times::ITEMS_MAX) | 16 Mi | the items of an events chunk |",
+    "| [CLOSE_SUMMARY_MAX](piece::CLOSE_SUMMARY_MAX) | 1 MiB | the body of the summary block a close names |",
+    "| [REMOVED_PIECES_MAX] | 65536 | the removed pieces one close names |",
+    "| [INDEX_LEN_MAX](index::INDEX_LEN_MAX) | 1 MiB | an index block a writer makes, and a reader looks for from the end |",
+    "| [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 8191 | entries a writer puts in a checkpoint index block |",
+    "| [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node\'s items, as a power of 2 |",
+    "| [LEVEL_MAX](summary::LEVEL_MAX) | 15 | a summary tree\'s level |",
+    "| [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |",
+    "| [SeriesSummarySpec::BASE_SHIFT_MAX](summary::SeriesSummarySpec::BASE_SHIFT_MAX) | 24 | a series summary\'s base node, as a power of 2 |",
+    "| [SERIES_CHANNELS_MAX](series::SERIES_CHANNELS_MAX) | 65535 | a series track\'s channels |",
+    "| [GRID_FIXED_AXES_MAX](grid::GRID_FIXED_AXES_MAX) | 31 | a grid\'s fixed axes, and a grid chunk\'s tile coordinates |",
+    "| [AXIS_NAME_LEN_MAX](grid::AXIS_NAME_LEN_MAX) | 64 | a fixed axis\' name bytes |",
+    "| [GRID_LISTED_MAX](grid::GRID_LISTED_MAX) | 65536 | the listed coordinates of a fixed axis |",
+    "| [GRID_TILE_CELLS_MAX](grid::GRID_TILE_CELLS_MAX) | 64 Mi | the cells of one time step of a grid\'s tile |",
+    "| [GRID_OVERVIEW_LEVELS_MAX](grid::GRID_OVERVIEW_LEVELS_MAX) | 16 | a grid chunk\'s overview level |",
+    "| [TILE_NUMBER_BITS](grid::TILE_NUMBER_BITS) | 128 | the bits of a grid\'s tile number fields together |",
+    "| [GAP_MAX_MAX] | 64 MiB | a layout\'s gap |",
+    "| [GAP_PROBES_MAX] | 8192 | the resume places a reader probes in one gap |",
+    "| [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |",
+    "| [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |",
+    "| [RESYNC_SEQS_MAX] | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |",
+    "| [STATE_KEY_LEN_MAX] | 1024 | a keyed state record\'s key bytes |",
+    "| [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |",
+    "| [LAYOUT_READ_MAX](reader::LAYOUT_READ_MAX) | 256 MiB | the bytes of definitions blocks a reader reads to find a piece\'s layout |",
+    "| [VERIFY_LISTS_MAX](reader::VERIFY_LISTS_MAX) | 466432 | the track lists of a final index one verify takes, one entry held each |",
+    "| [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |",
+    "| [UNIT_CHUNKS_MAX](writer::UNIT_CHUNKS_MAX) | 17 | the chunks of one unit a writer writes or relays |",
+    "| [TRACKS_PER_PIECE_MAX] | 466430 | the tracks with data in one piece a writer takes: its close fits a block |",
+    "| [HEAD_TRACKS_MAX] | 699006 | the tracks a piece head carries over the chain: the head fits a block |",
+    "| [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk\'s missed blocks claim at its start |",
+    "| [WALK_MISS_PER_BYTE_MAX](piece::WALK_MISS_PER_BYTE_MAX) | 4 | the bytes they claim per byte walked, past that |",
+    "| [RESUME_LOOK_MAX](writer::RESUME_LOOK_MAX) | 128 MiB | the bytes past a reader\'s stop a resume looks through for a good block |",
+    "| [RESUME_PROBES_MAX](writer::RESUME_PROBES_MAX) | 4 | the places there it reads whole |",
+    "",
+    "The same input gives the same bytes: blocks hold no wall time, definitions go in the order they are made, what a",
+    "writer puts and copies follows from the blocks before ([writer]) and blocks are cut by size, not by time, unless",
+    "the producer completes them on a timer.",
+    "One exception: an [lz4] payload column is identical only for one `lz4_flex` version on targets of the",
+    "same pointer width and endianness (decoding is unaffected).",
+], crate_idx: 0, trait_name: "ww_tape", items: [], compact_id: None, meta: None), types: [
+    SkippedFullVersion(crate_idx: 1, type_name: "Fixed", signature: [
+        226,
+        246,
+        240,
+        210,
+        111,
+        5,
+        156,
+        197,
+        37,
+        238,
+        72,
+        65,
+        142,
+        141,
+        22,
+        33,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "Magnitude", signature: [
+        100,
+        223,
+        24,
+        36,
+        254,
+        49,
+        130,
+        91,
+        6,
+        163,
+        194,
+        141,
+        28,
+        202,
+        218,
+        141,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "MagnitudeOf", signature: [
+        160,
+        113,
+        158,
+        211,
+        3,
+        137,
+        218,
+        186,
+        36,
+        24,
+        134,
+        120,
+        93,
+        230,
+        196,
+        137,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "Ratio64", signature: [
+        137,
+        174,
+        169,
+        1,
+        74,
+        66,
+        117,
+        99,
+        119,
+        152,
+        61,
+        87,
+        125,
+        246,
+        5,
+        2,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "Unbounded", signature: [
+        117,
+        194,
+        53,
+        38,
+        149,
+        154,
+        238,
+        33,
+        55,
+        18,
+        202,
+        102,
+        156,
+        182,
+        138,
+        5,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "prefix::One", signature: [
+        52,
+        174,
+        110,
+        134,
+        44,
+        217,
+        128,
+        133,
+        41,
+        220,
+        164,
+        167,
+        95,
+        217,
+        20,
+        193,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "units::Byte", signature: [
+        105,
+        217,
+        147,
+        154,
+        78,
+        99,
+        229,
+        193,
+        135,
+        230,
+        195,
+        148,
+        5,
+        194,
+        37,
+        123,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "units::Item", signature: [
+        231,
+        16,
+        180,
+        41,
+        24,
+        139,
+        141,
+        252,
+        80,
+        95,
+        234,
+        59,
+        101,
+        1,
+        164,
+        107,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "units::Per", signature: [
+        37,
+        241,
+        130,
+        252,
+        39,
+        241,
+        235,
+        233,
+        116,
+        41,
+        87,
+        129,
+        31,
+        48,
+        21,
+        183,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "units::Second", signature: [
+        176,
+        71,
+        213,
+        183,
+        163,
+        190,
+        249,
+        131,
+        167,
+        149,
+        168,
+        126,
+        75,
+        17,
+        20,
+        62,
+    ]),
+    SkippedFullVersion(crate_idx: 1, type_name: "units::Tick", signature: [
+        94,
+        139,
+        114,
+        189,
+        176,
+        28,
+        144,
+        16,
+        174,
+        77,
+        86,
+        35,
+        174,
+        150,
+        52,
+        81,
+    ]),
+    InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
+        "Where the cells of a fixed axis are, as numbers of its unit at its scale.",
+    ], ident: "AxisCoords", generics: [], variants: [
+        (docs: [
+            "Cell `i` is at `origin + i · step`; the step is not 0.",
+        ], ident: "Regular", fields: Named([
+            (ident: Some("origin"), default: None, since: None, ty: NumericAny(Base(I64)), docs: [], slot: None, series_opaque: false),
+            (ident: Some("step"), default: None, since: None, ty: NumericAny(Base(I64)), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 0, since: None),
+        (docs: [
+            "One coordinate per cell, as many as the extent and at most [GRID_LISTED_MAX], strictly increasing or strictly",
+            "decreasing.",
+        ], ident: "Listed", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: Vec(NumericAny(Base(I64))), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 1, since: None),
+    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A clock: what record times of the tracks on it count.",
+        "",
+        "A device restart is a new clock (same counter, next epoch in its [key](Self::key)); how clocks relate is said only",
+        "by [ClockMap]s. Wall time is a clock too: origin [ClockOrigin::UnixEpoch], key [UNIX_CLOCK_KEY].",
+    ], ident: "ClockDef", generics: [], fields: Named([
+        (ident: Some("number"), default: None, since: None, ty: OutOfLine(type_idx: 13), docs: [
+            "Number among the definitions, 1 and up: [TrackDef::clock] and [ClockMap] name it, and record blocks list it.",
+            "[Definitions::define_clock](crate::Definitions::define_clock) gives it; it stays the same for the producer\'s",
+            "life.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("key"), default: None, since: None, ty: OutOfLine(type_idx: 14), docs: [
+            "Stable identity across files and runs, see [clock_key].",
+        ], slot: None, series_opaque: false),
+        (ident: Some("rate"), default: None, since: None, ty: Instance(type_idx: 2, args: [
+            Type(Instance(type_idx: 8, args: [
+                Type(OutOfLine(type_idx: 10)),
+                Type(OutOfLine(type_idx: 9)),
+            ])),
+        ]), docs: [
+            "Ticks per second, exact (`60000/1001`, `125 MHz`).",
+        ], slot: None, series_opaque: false),
+        (ident: Some("resolution"), default: None, since: None, ty: Instance(type_idx: 2, args: [
+            Type(OutOfLine(type_idx: 9)),
+        ]), docs: [
+            "Seconds between two values the clock can really give, exact: `1/32768` for a 32 kHz counter read as",
+            "nanoseconds. At least one tick.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("origin"), default: None, since: None, ty: OutOfLine(type_idx: 15), docs: [], slot: None, series_opaque: false),
+        (ident: Some("label"), default: None, since: None, ty: String, docs: [
+            "A name for people (`host`, `dev[3].boot[17]`).",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "A clock\'s number among the definitions, 1 and up ([ClockDef::number]): what a track, a map and a block\'s clock",
+        "table name it by.",
+        "",
+        "[ClockDef::number]: crate::ClockDef::number",
+    ], ident: "ClockNum", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "A clock\'s stable key: the hash of the name path of what counts and its epoch ([clock_key](crate::clock_key)),",
+        "the same across files and runs ([ClockDef::key](crate::ClockDef::key)).",
+        "",
+        "Any value is a key.",
+    ], ident: "ClockKey", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(U64)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
+    InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
+        "What tick 0 of a clock is, as an identity, never as a number.",
+    ], ident: "ClockOrigin", generics: [], variants: [
+        (docs: [
+            "A counter with no known start.",
+        ], ident: "Free", fields: Unit, discriminant: 0, since: None),
+        (docs: [
+            "A device\'s boot; the boot count is the epoch in the clock\'s key. A restart is a new clock of this origin with",
+            "no exact relation to the one before: only an estimated [ClockMap] relates them.",
+        ], ident: "Boot", fields: Unit, discriminant: 1, since: None),
+        (docs: [
+            "The Unix epoch, 1970-01-01T00:00:00 UTC.",
+        ], ident: "UnixEpoch", fields: Unit, discriminant: 2, since: None),
+        (docs: [
+            "The start of a media file or stream (its time base).",
+        ], ident: "MediaStart", fields: Unit, discriminant: 3, since: None),
+        (docs: [
+            "The start of the producer\'s session.",
+        ], ident: "SessionStart", fields: Unit, discriminant: 4, since: None),
+        (docs: [
+            "The next epoch of the same counter: a long capture at fine ticks is cut into clock epochs so ticks stay in",
+            "i64. Its epoch link fixes tick 0: a [ClockMap] from this clock to the previous epoch\'s clock with one segment",
+            "from tick 0 to the end, slope 1, error 0 and `b0 > 0`, so tick 0 here is tick `b0` there",
+            "([ClockMap::is_epoch_link]); a writer requires it ([Current::check_batch](crate::Current::check_batch)). Unlike a restart",
+            "([Self::Boot]), the two clocks are one counter.",
+        ], ident: "Epoch", fields: Unit, discriminant: 5, since: None),
+    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A map from clock [from](Self::from) to clock [to](Self::to): segments in ascending, non-overlapping order.",
+        "",
+        "A map is strictly increasing over all its segments, or item order would flip between the clocks: each segment",
+        "starts above the last value the one before maps to. A tick in no segment is unmapped. A forward jump (NTP step,",
+        "drift correction) starts a new segment; a backward step is a gap or a new clock, never a decreasing segment. A",
+        "map written here is known when it is defined (a wall clock reading at the start); a map estimated",
+        "over time is a track whose items are [MapSegment]s.",
+    ], ident: "ClockMap", generics: [], fields: Named([
+        (ident: Some("from"), default: None, since: None, ty: OutOfLine(type_idx: 13), docs: [], slot: None, series_opaque: false),
+        (ident: Some("to"), default: None, since: None, ty: OutOfLine(type_idx: 13), docs: [], slot: None, series_opaque: false),
+        (ident: Some("segments"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 17)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "`b = b0 + (a - a0) · slope` for `a` in `[a0, a1)` (`a1` None: to the end), within `± error` ticks of `to`.",
+        "",
+        "The slope is a positive reduced fraction of `to` ticks per `from` tick ([Ratio64]), so a map is strictly",
+        "increasing. It is not a [Magnitude](exact_units::Magnitude), since a fitted ratio such as `1000000007/999999931` has primes a `Magnitude`",
+        "can\'t hold.",
+    ], ident: "MapSegment", generics: [], fields: Named([
+        (ident: Some("a0"), default: None, since: None, ty: NumericAny(Base(I64)), docs: [], slot: None, series_opaque: false),
+        (ident: Some("a1"), default: None, since: None, ty: Option(some_ty: NumericAny(Base(I64))), docs: [], slot: None, series_opaque: false),
+        (ident: Some("b0"), default: None, since: None, ty: NumericAny(Base(I64)), docs: [], slot: None, series_opaque: false),
+        (ident: Some("slope"), default: None, since: None, ty: OutOfLine(type_idx: 3), docs: [], slot: None, series_opaque: false),
+        (ident: Some("error"), default: None, since: None, ty: NumericAny(Base(U64)), docs: [
+            "Bound of the error, in ticks of `to`.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
+        "A definition: one per record on track 0, its item\'s whole bytes.",
+    ], ident: "Describe", generics: [], variants: [
+        (docs: [], ident: "Producer", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 19), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 0, since: None),
+        (docs: [], ident: "Track", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 20), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 1, since: None),
+        (docs: [
+            "An API bundle (`ww_self` `ApiBundle` in its ShrinkWrap encoding) by its hash, the hash as the producer,",
+            "a track\'s [Items::WireWeaver] and [TypeRef::bundle] know it (wire_weaver\'s `ApiHash`). Written once per hash in a describe",
+            "set; a live feed may leave it out and let the consumer look the hash up.",
+        ], ident: "Bundle", fields: Named([
+            (ident: Some("hash"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [], slot: None, series_opaque: false),
+            (ident: Some("bytes"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 2, since: None),
+        (docs: [], ident: "Clock", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 12), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 3, since: None),
+        (docs: [], ident: "Map", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 16), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 4, since: None),
+        (docs: [
+            "Any wire_weaver value, typed by its bundle and type path: a run record, a media reference, settings.",
+        ], ident: "Item", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 21), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 5, since: None),
+        (docs: [
+            "How the file\'s blocks are placed; a file that defines none is not aligned.",
+        ], ident: "Layout", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 22), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 6, since: None),
+        (docs: [
+            "A schema a [Foreign] format names by its hash.",
+        ], ident: "Schema", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 23), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 7, since: None),
+    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "Who writes the blocks.",
+    ], ident: "Producer", generics: [], fields: Named([
+        (ident: Some("name"), default: None, since: None, ty: String, docs: [
+            "What it is, for people (`ww link tap`).",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "One track.",
+        "",
+        "Its identity is [key](Self::key) plus [dimensions](Self::dimensions), see [track_id].",
+    ], ident: "TrackDef", generics: [], fields: Named([
+        (ident: Some("number"), default: None, since: None, ty: OutOfLine(type_idx: 24), docs: [
+            "Number in records, 1 and up (track 0 holds the definitions, [RecordTrack::Definitions](crate::RecordTrack)).",
+            "[Definitions::define_track](crate::Definitions::define_track) gives it; it stays the same for the producer\'s",
+            "life.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("key"), default: None, since: None, ty: OutOfLine(type_idx: 25), docs: [
+            "Stable key: the same track across files and producer runs, see [track_key].",
+        ], slot: None, series_opaque: false),
+        (ident: Some("clock"), default: None, since: None, ty: OutOfLine(type_idx: 13), docs: [
+            "The [ClockDef::number] record times of this track count.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("dimensions"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 26)), docs: [
+            "Name and value pairs that are part of the identity (`input=cam1`, `producer=vad`), in ascending order of",
+            "name, names unique. Two variants of one track coexist when their dimensions differ.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("items"), default: None, since: None, ty: OutOfLine(type_idx: 27), docs: [
+            "What one item is: a WireWeaver stream\'s value, a ShrinkWrap value, plain bytes, numbers or a format the user",
+            "names.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("label"), default: None, since: None, ty: String, docs: [
+            "A name for people (`link[1].rx.frames`); readers go by [items](Self::items).",
+        ], slot: None, series_opaque: false),
+        (ident: Some("repeat"), default: None, since: None, ty: OutOfLine(type_idx: 28), docs: [
+            "Whether the track\'s records are events or state. Always [TrackRepeat::Stream] for a series: its chunks are",
+            "data and carry their own grid ([SeriesGrid](crate::series::SeriesGrid)).",
+        ], slot: None, series_opaque: false),
+        (ident: Some("kind"), default: None, since: None, ty: OutOfLine(type_idx: 29), docs: [
+            "How the track\'s items are stored: events or a fixed-rate series.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("owner"), default: Some(Bool(false)), since: None, ty: Array(len: Fixed(32), ty: NumericAny(Base(U8))), docs: [
+            "Whose track this is, opaque to `ww_tape` (a run, a capture): with the [id](Self::id), it tells apart tracks of",
+            "one identity written into one file by several owners. Not part of the identity: [Self::id] and",
+            "[key](Self::key) don\'t hash it. All zeros: the owner of the piece ([OwnerId](crate::OwnerId)).",
+        ], slot: None, series_opaque: false),
+        (ident: Some("relations"), default: Some(Bool(false)), since: None, ty: Vec(OutOfLine(type_idx: 30)), docs: [
+            "What the track\'s items relate to, each by its [name](RelationDef::name), unique, at most [RELATIONS_MAX]:",
+            "per-item values, a target, an index. `ww_tape` gives the building blocks; what a relation means is the",
+            "writer\'s (eventfull\'s `source`, `parent`, `context`, an entity key).",
+        ], slot: None, series_opaque: false),
+        (ident: Some("defined_twice"), default: Some(Bool(false)), since: None, ty: Bool, docs: [
+            "Whether every definition the track needs (its own, its clock chain, its bundles) is written twice at once: a",
+            "record in a block of puts and again in the next block, so one damaged block loses none of them, also in a",
+            "piece too small for the copies spaced apart.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A wire_weaver value of a type in a bundle.",
+    ], ident: "TypedItem", generics: [], fields: Named([
+        (ident: Some("ty"), default: None, since: None, ty: OutOfLine(type_idx: 31), docs: [], slot: None, series_opaque: false),
+        (ident: Some("value"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
+            "The value in its ShrinkWrap encoding.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "How blocks are placed in a file or on a medium.",
+    ], ident: "Layout", generics: [], fields: Named([
+        (ident: Some("alignment"), default: None, since: None, ty: Instance(type_idx: 0, args: [
+            Type(OutOfLine(type_idx: 6)),
+            Type(OutOfLine(type_idx: 5)),
+            Type(NumericAny(Base(U32))),
+            Type(OutOfLine(type_idx: 4)),
+        ]), docs: [
+            "0, or [ALIGNMENT]: every chunk block\'s payload starts at a multiple of it in the file, its head and smaller",
+            "blocks filling the gap before it. Series files are aligned, event files not.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("gap_max"), default: None, since: None, ty: Instance(type_idx: 0, args: [
+            Type(OutOfLine(type_idx: 6)),
+            Type(OutOfLine(type_idx: 5)),
+            Type(NumericAny(Base(U32))),
+            Type(OutOfLine(type_idx: 4)),
+        ]), docs: [
+            "Longest stretch a writer may leave blank or damaged and go on after (a failed program, a bad block, a torn",
+            "unit): a reader looks this far past a blank or bad stretch for the run\'s next block before it takes the",
+            "stretch\'s start as the end of data. 0 on files: the first such stretch is the end.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("resume_align"), default: None, since: None, ty: Instance(type_idx: 0, args: [
+            Type(OutOfLine(type_idx: 6)),
+            Type(OutOfLine(type_idx: 5)),
+            Type(NumericAny(Base(U32))),
+            Type(OutOfLine(type_idx: 4)),
+        ]), docs: [
+            "Where a writer resumes after such a stretch: at a multiple of it in the file or medium, 1 and up (a sector,",
+            "a NAND page). A reader probes these places and the first non-blank byte.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("definitions"), default: None, since: None, ty: OutOfLine(type_idx: 32), docs: [
+            "How track 0, the definitions, is repeated: what [TrackRepeat::State] says of a state track.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A schema of a foreign format ([Foreign::schema]): any blob that describes a format, by its hash. A protobuf",
+        "descriptor set, a JSON schema, a Kaitai Struct file.",
+        "",
+        "One definition per hash, carried on track 0 before the tracks that name it, as a [Describe::Bundle] is. At most",
+        "[STATE_ITEM_MAX](crate::STATE_ITEM_MAX) bytes whole, as any definition.",
+    ], ident: "Schema", generics: [], fields: Named([
+        (ident: Some("hash"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
+            "BLAKE3 of [bytes](Self::bytes), [SCHEMA_HASH_LEN] bytes.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("media_type"), default: None, since: None, ty: String, docs: [
+            "What the bytes are, a [valid](media_type_valid) media type (`application/schema+json`).",
+        ], slot: None, series_opaque: false),
+        (ident: Some("bytes"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "A data track\'s number: what records, chunks and summaries name it by, 1 and up ([TrackDef::number]).",
+        "",
+        "Track 0 holds the definitions and is no data track: a record that may be on it names a [RecordTrack].",
+        "",
+        "[TrackDef::number]: crate::TrackDef::number",
+    ], ident: "TrackNum", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "A track\'s stable key: the hash of its name path ([track_key](crate::track_key)), the same across files and",
+        "producer runs ([TrackDef::key](crate::TrackDef::key)).",
+        "",
+        "Any value is a key. A track without dimensions has its key for its id ([Self::id]).",
+    ], ident: "TrackKey", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(U64)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A name and value of a track\'s identity.",
+    ], ident: "Dimension", generics: [], fields: Named([
+        (ident: Some("name"), default: None, since: None, ty: String, docs: [], slot: None, series_opaque: false),
+        (ident: Some("value"), default: None, since: None, ty: String, docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
+        "What one item of a track is, see [TrackDef::items].",
+        "",
+        "An events item\'s bytes are stored as given whatever the variant: the payload of a record or a chunk item, after",
+        "the duration and flags an [EventRecord](crate::EventRecord) puts before it. The variant only says how to read",
+        "them; `ww_tape` never reads a payload. A variant a reader doesn\'t know reads as `Unknown`, the rest of the",
+        "definition intact: a reader passes such items on as bytes, a relay holds such an events track and stores its items",
+        "as given ([Definitions::take_block](crate::Definitions::take_block)), and neither takes it for damage. A program",
+        "builds no `Unknown` of its own: [Definitions::define_track](crate::Definitions::define_track) refuses one. The variant is not",
+        "part of the track\'s identity: [TrackDef::key] is the producer\'s, see [track_key].",
+    ], ident: "Items", generics: [], variants: [
+        (docs: [
+            "The values of a stream of a WireWeaver API, in their ShrinkWrap encoding.",
+        ], ident: "WireWeaver", fields: Named([
+            (ident: Some("api"), default: None, since: None, ty: OutOfLine(type_idx: 33), docs: [
+                "The API the track\'s resource is in.",
+            ], slot: None, series_opaque: false),
+            (ident: Some("bundle"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
+                "Hash of that API\'s bundle, as in [Describe::Bundle]; empty when not known.",
+            ], slot: None, series_opaque: false),
+            (ident: Some("path"), default: None, since: None, ty: Vec(NumericAny(Base(UNib32))), docs: [
+                "Resource path of the track\'s stream in the API: `ww_trait` ids, array indices included.",
+            ], slot: None, series_opaque: false),
+            (ident: Some("keys"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 34)), docs: [
+                "Keys of the elements of keyed arrays on `path`, in ascending order of position: what the track\'s",
+                "[key](TrackDef::key) hashes instead of those indices. Empty when `path` crosses no keyed array.",
+            ], slot: None, series_opaque: false),
+            (ident: Some("item"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 31)), docs: [
+                "The item type when the path doesn\'t give it (a producer\'s result, a map track); None: the stream\'s type.",
+            ], slot: None, series_opaque: false),
+        ]), discriminant: 0, since: None),
+        (docs: [
+            "Values of a type in a bundle, in their ShrinkWrap encoding, with no API stream.",
+        ], ident: "ShrinkWrap", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 31), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 1, since: None),
+        (docs: [
+            "Plain bytes with no type: a frame as received, a file\'s contents.",
+        ], ident: "RawBytes", fields: Unit, discriminant: 2, since: None),
+        (docs: [
+            "Numbers of one element each: a series\' samples ([GridDef::channels](crate::GridDef::channels) of them),",
+            "or an events track whose item is one element, little-endian in its container",
+            "([ElementDesc::container_bits]).",
+        ], ident: "Numbers", fields: Named([
+            (ident: Some("element"), default: None, since: None, ty: OutOfLine(type_idx: 35), docs: [], slot: None, series_opaque: false),
+            (ident: Some("unit"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 31)), docs: [
+                "The exact_units type of one value, its unit and scale (`Fixed<Ampere, Milli, i32>`); None: a plain number.",
+            ], slot: None, series_opaque: false),
+        ]), discriminant: 3, since: None),
+        (docs: [
+            "Bytes of a format the user names.",
+        ], ident: "Foreign", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 36), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 4, since: None),
+    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
+    InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
+        "What a track\'s records are to a reader that starts later, see [state](crate::state).",
+    ], ident: "TrackRepeat", generics: [], variants: [
+        (docs: [
+            "A stream of events: each record is an item, nothing of the track is repeated.",
+        ], ident: "Stream", fields: Unit, discriminant: 0, since: None),
+        (docs: [
+            "Each record is the track\'s state from then on: a writer puts it ([TapeWriter::put](crate::TapeWriter::put))",
+            "so that a copy lies at most `near` behind wherever it is used, and a reader takes the nearest record behind a",
+            "place.",
+        ], ident: "State", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 32), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 1, since: None),
+        (docs: [
+            "Each record is the state of one key from then on, many keys on one track: a writer puts a key\'s value",
+            "([TapeWriter::put_key](crate::TapeWriter::put_key)) or its deletion",
+            "([TapeWriter::delete_key](crate::TapeWriter::delete_key)) as [StatePolicy] says, per key, and a reader takes",
+            "the newest record of each key behind a place ([state](crate::state)).",
+        ], ident: "Keyed", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 32), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 2, since: None),
+    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
+    InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
+        "How a track\'s items are stored.",
+    ], ident: "TrackKind", generics: [], variants: [
+        (docs: [
+            "Items with a start tick, an optional end, an optional flags word and a payload: in record blocks or in events",
+            "chunks ([BlockKind::Events](crate::BlockKind::Events)).",
+        ], ident: "Events", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 37), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 0, since: None),
+        (docs: [
+            "Samples at an exact period, no time per sample: in series chunks ([BlockKind::Series](crate::BlockKind::Series)),",
+            "each timed and scaled by the [SeriesGrid](crate::series::SeriesGrid) its head carries.",
+        ], ident: "Series", fields: Unnamed([
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 38), docs: [], slot: None, series_opaque: false),
+        ]), discriminant: 1, since: None),
+        (docs: [
+            "Values of any length, each written streamed as parts and read whole with its hash checked: each part one",
+            "events chunk ([BlockKind::Events](crate::BlockKind::Events)) of one item, the last a seal holding the value\'s",
+            "length and BLAKE3 hash ([bytes_track](crate::bytes_track)).",
+        ], ident: "Bytes", fields: Unit, discriminant: 2, since: None),
+    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A relation of a track\'s items, see [TrackDef::relations].",
+    ], ident: "RelationDef", generics: [], fields: Named([
+        (ident: Some("name"), default: None, since: None, ty: String, docs: [
+            "The relation\'s name, not empty, at most [RELATION_NAME_MAX] bytes; the writer gives it meaning.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("target"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 39)), docs: [
+            "The track the values point into, by run and identity; None when the values are not references (keys).",
+        ], slot: None, series_opaque: false),
+        (ident: Some("values"), default: None, since: None, ty: OutOfLine(type_idx: 40), docs: [
+            "Whether the items carry a value, and where it is kept.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("monotone"), default: None, since: None, ty: Bool, docs: [
+            "Whether the values never decrease along the track\'s item order (source ordinals 10, 10, 11, 15; not 10, 12,",
+            "11). A writer refuses a value below the item\'s before it.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("index"), default: None, since: None, ty: OutOfLine(type_idx: 41), docs: [
+            "The index the values feed.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A type in an API bundle: the bundle\'s hash, the crate the type is defined in and its path in that crate",
+        "(`units::Volt`, `RunRecord`), as `ww_self` names a definition.",
+    ], ident: "TypeRef", generics: [], fields: Named([
+        (ident: Some("bundle"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
+            "Hash of the bundle holding the definition, as in [Describe::Bundle].",
+        ], slot: None, series_opaque: false),
+        (ident: Some("krate"), default: None, since: None, ty: OutOfLine(type_idx: 33), docs: [], slot: None, series_opaque: false),
+        (ident: Some("path"), default: None, since: None, ty: String, docs: [
+            "Modules from the crate root and the type\'s name, `::` between them.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "How a writer repeats the items of a state track, or of track 0 ([Layout::definitions]).",
+    ], ident: "StatePolicy", generics: [], fields: Named([
+        (ident: Some("near"), default: None, since: None, ty: Instance(type_idx: 0, args: [
+            Type(OutOfLine(type_idx: 6)),
+            Type(OutOfLine(type_idx: 5)),
+            Type(NumericAny(Base(U32))),
+            Type(OutOfLine(type_idx: 4)),
+        ]), docs: [
+            "An item used at a place has a copy at most this many bytes behind it, in the same piece: how far a reader",
+            "looks back for it.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("copies"), default: None, since: None, ty: Instance(type_idx: 0, args: [
+            Type(OutOfLine(type_idx: 7)),
+            Type(OutOfLine(type_idx: 5)),
+            Type(NumericAny(Base(U8))),
+            Type(OutOfLine(type_idx: 4)),
+        ]), docs: [
+            "Copies an item gets after it is first written in a piece, spaced apart (a writer\'s",
+            "[NearPolicy::copy_spacing](crate::writer::NearPolicy)), against damage around one place; 0 for none.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    SkippedFullVersion(crate_idx: 2, type_name: "FullVersion", signature: [
+        115,
+        6,
+        16,
+        37,
+        53,
+        78,
+        161,
+        245,
+        189,
+        68,
+        8,
+        121,
+        208,
+        86,
+        149,
+        206,
+    ]),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "The key of the keyed-array element an [Items::WireWeaver] path index points at.",
+    ], ident: "KeySegment", generics: [], fields: Named([
+        (ident: Some("at"), default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [
+            "Position in the path of the index this key stands for.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("bytes"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
+            "The key in its shrink_wrap encoding.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "One element described by data: what a stored number is, whatever device sent it.",
+        "",
+        "8-bit IQ (`ComplexI8`, `ComplexU8` offset by 127.5), a packed 12-bit device format, bfloat16: each is a",
+        "description, no code change. Every [Element] is one too ([ElementDesc::of]). A part is read into its",
+        "[scalar](Self::scalar) and coded by the [raw codec](crate::Codec::RAW) as the [lane](Self::lane) says.",
+    ], ident: "ElementDesc", generics: [], fields: Named([
+        (ident: Some("bits"), default: None, since: None, ty: NumericAny(Base(U8)), docs: [
+            "Stored bits of one part, 1 to 64.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("exponent_bits"), default: None, since: None, ty: NumericAny(Base(U8)), docs: [
+            "0: an integer. Else a float of this many exponent bits, the sign one bit and the mantissa the rest: f16 5,",
+            "bfloat16 8, f32 8, f64 11.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("signed"), default: None, since: None, ty: Bool, docs: [
+            "Whether an integer is signed (two\'s complement); a float is always signed.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("msb_first"), default: None, since: None, ty: Bool, docs: [
+            "How the raw codec stores a part: a whole-byte width big-endian, any other width from the top bit of the",
+            "first byte. False: little-endian, from bit 0.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("parts"), default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [
+            "Numbers per element, 1 to [ELEMENT_PARTS_MAX]: 2 for an I/Q pair, I first.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("zero"), default: Some(Bool(false)), since: None, ty: Option(some_ty: OutOfLine(type_idx: 3)), docs: [
+            "The stored number that stands for zero: `255/2` for 8-bit IQ offset to 127.5. None: 0. Only for an integer",
+            "of at most 32 bits; its summaries hold `q · value - p` for a zero `p/q` ([Self::summary_element]).",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A format the user names for a track\'s items, see [Items::Foreign]. At least a name or a media type.",
+    ], ident: "Foreign", generics: [], fields: Named([
+        (ident: Some("name"), default: None, since: None, ty: String, docs: [
+            "The user\'s name for the format (`com.acme.frame`), at most [ENCODING_NAME_MAX] bytes of printable ASCII;",
+            "empty when the media type says it all.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("media_type"), default: None, since: None, ty: String, docs: [
+            "A media type (RFC 6838, parameters allowed): `application/vnd.tcpdump.pcap`, `application/cbor`,",
+            "`application/x-protobuf; messageType=pkg.Msg`; empty for none. See [media_type_valid].",
+        ], slot: None, series_opaque: false),
+        (ident: Some("version"), default: None, since: None, ty: String, docs: [
+            "The format\'s version as the user writes it (`3`, `2.1`), at most [ENCODING_NAME_MAX] bytes of printable",
+            "ASCII; empty for none.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("schema"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
+            "The [hash](Schema::hash) of the [Schema] that describes the format, carried on track 0 with the track; empty",
+            "for none.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "An events track: what its chunks may hold besides starts and payloads.",
+    ], ident: "EventsDef", generics: [], fields: Named([
+        (ident: Some("ends"), default: None, since: None, ty: OutOfLine(type_idx: 42), docs: [], slot: None, series_opaque: false),
+        (ident: Some("flags"), default: None, since: None, ty: Bool, docs: [
+            "Items carry a `u32` flags word (severity in its low bits), which summaries OR together.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A fixed-rate series: scalar or vector samples of the track\'s element, see the [module docs](self).",
+    ], ident: "GridDef", generics: [], fields: Named([
+        (ident: Some("channels"), default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [
+            "Elements of a sample, 1 to [SERIES_CHANNELS_MAX]; the element and the value type are the track\'s items",
+            "([Items::Numbers](crate::Items::Numbers)).",
+        ], slot: None, series_opaque: false),
+        (ident: Some("period"), default: None, since: None, ty: OutOfLine(type_idx: 3), docs: [
+            "Ticks of the track\'s clock from one sample to the next, exact.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("scale"), default: None, since: None, ty: OutOfLine(type_idx: 1), docs: [
+            "What a stored number is worth in the sample type\'s unit at the start: `10⁻³` for `Fixed<Ampere, Milli, i32>`,",
+            "1 for a float. A chunk\'s [SeriesGrid] may change it.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("summaries"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 43)), docs: [
+            "The summaries the writer builds; None for none (a wide vector series).",
+        ], slot: None, series_opaque: false),
+        (ident: Some("media"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 44)), docs: [
+            "The samples are in a media file\'s stream, decoded on demand, not in chunks.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("axes"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 45)), docs: [
+            "The fixed axes beside time, at most [GRID_FIXED_AXES_MAX](crate::grid::GRID_FIXED_AXES_MAX); none for a",
+            "series ([grid](crate::grid)).",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "What a [RelationDef] points into: a track of a run, both named explicitly; never bound by position or default.",
+    ], ident: "RelationTarget", generics: [], fields: Named([
+        (ident: Some("run"), default: None, since: None, ty: Array(len: Fixed(16), ty: NumericAny(Base(U8))), docs: [
+            "The run, opaque to `ww_tape` (eventfull\'s 16-byte run id), the same for a target in the run itself.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("track"), default: None, since: None, ty: OutOfLine(type_idx: 46), docs: [
+            "The target track\'s [id](TrackDef::id).",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
+        "Where a relation\'s per-item values are kept.",
+    ], ident: "RelationValues", generics: [], variants: [
+        (docs: [
+            "No values: the track is related as a whole (read together with the target).",
+        ], ident: "None", fields: Unit, discriminant: 0, since: None),
+        (docs: [
+            "A column of the track\'s chunks ([ColumnKind::Relation](crate::ColumnKind::Relation)).",
+        ], ident: "Stored", fields: Unit, discriminant: 1, since: None),
+        (docs: [
+            "Reserved: values given with each item only to feed the index, no column. Refused by writers until built.",
+        ], ident: "IndexOnly", fields: Unit, discriminant: 2, since: None),
+    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
+    InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
+        "The index a relation\'s values feed.",
+    ], ident: "RelationIndex", generics: [], variants: [
+        (docs: [], ident: "None", fields: Unit, discriminant: 0, since: None),
+        (docs: [
+            "The values\' smallest and largest per chunk in its index entry, for a monotone relation: a search of the",
+            "chunks by value. One relation per track.",
+        ], ident: "Range", fields: Unit, discriminant: 1, since: None),
+        (docs: [
+            "Reserved: per chunk, each distinct value with its items (block kind 11). Refused by writers until built.",
+        ], ident: "Postings", fields: Unit, discriminant: 2, since: None),
+        (docs: [
+            "Reserved: per chunk, the distinct values and each item\'s index into them (block kind 12). Refused by writers",
+            "until built.",
+        ], ident: "Dictionary", fields: Unit, discriminant: 3, since: None),
+    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
+    InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
+        "Whether events have an end.",
+    ], ident: "Ends", generics: [], variants: [
+        (docs: [
+            "Every item is an instant: chunks have no ends ([EndMode::Absent](crate::EndMode::Absent)).",
+        ], ident: "Instants", fields: Unit, discriminant: 0, since: None),
+        (docs: [
+            "Items are spans `[start, end)`; an instant among them has `end == start`.",
+        ], ident: "Spans", fields: Unit, discriminant: 1, since: None),
+    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "What summaries a series track keeps: its declaration, as the track definition carries it.",
+    ], ident: "SeriesSummarySpec", generics: [], fields: Named([
+        (ident: Some("base_shift"), default: None, since: None, ty: NumericAny(Base(U8)), docs: [
+            "A level-0 node holds `2^base_shift` samples, [Self::BASE_SHIFT_MIN] to [Self::BASE_SHIFT_MAX]; each level up 16",
+            "times more. A raw format field: log2 of a sample count.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("stats"), default: None, since: None, ty: OutOfLine(type_idx: 47), docs: [], slot: None, series_opaque: false),
+        (ident: Some("clip"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 48)), docs: [
+            "Where samples clip; None: at the scalar type\'s ends for integers, infinities for floats.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: Some([
+        "summary",
+    ]), instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "Where a series\' samples are in a media file.",
+    ], ident: "MediaStream", generics: [], fields: Named([
+        (ident: Some("media"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
+            "Content hash of the media file, as the producer\'s media reference (a typed describe item) names it.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("stream"), default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [
+            "The stream in the file.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A fixed axis of a grid: its name, extent, tiles and coordinates; see the [module docs](self).",
+    ], ident: "FixedAxis", generics: [], fields: Named([
+        (ident: Some("name"), default: None, since: None, ty: String, docs: [
+            "The axis\' name (`x`, `latitude`, `member`): 1 to [AXIS_NAME_LEN_MAX] bytes.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("extent"), default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [
+            "Cells along the axis, 1 and up.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("tile_extent"), default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [
+            "Cells of the axis one tile holds, 1 to the extent.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("unit"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 31)), docs: [
+            "The exact_units type of a coordinate, its unit and scale; None: a plain number.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("scale"), default: None, since: None, ty: OutOfLine(type_idx: 1), docs: [
+            "What a coordinate number is worth in the unit.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("coords"), default: None, since: None, ty: OutOfLine(type_idx: 11), docs: [
+            "Where the cells are along the axis.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("downsample"), default: None, since: None, ty: Bool, docs: [
+            "Space overviews halve this axis (x, y, z); not an ensemble member or a pressure level.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "A track\'s identity: the hash of its key and dimensions ([track_id](crate::track_id),",
+        "[TrackDef::id](crate::TrackDef::id)), what chunks, summaries and the index place a track by.",
+        "",
+        "Any value is an id.",
+    ], ident: "TrackId", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(U64)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "The statistics a series track keeps per channel and node. Each merges from two adjacent nodes without the samples.",
+    ], ident: "SeriesStats", generics: [], fields: Named([
+        (ident: Some("min"), default: None, since: None, ty: Bool, docs: [
+            "The smallest sample (per component), NaN left out.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("max"), default: None, since: None, ty: Bool, docs: [
+            "The largest sample (per component), NaN left out.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("sum"), default: None, since: None, ty: Bool, docs: [
+            "The sum of the samples (per component), f64; the mean is the sum over the node\'s samples.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("sum_sq"), default: None, since: None, ty: Bool, docs: [
+            "The sum of the squares (per component), f64: the RMS with the sum.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("clipped"), default: None, since: None, ty: Bool, docs: [
+            "Samples clipped (at or past the [ClipRange], any component) or NaN.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("flags"), default: None, since: None, ty: Bool, docs: [
+            "The OR of the flags words the writer was handed with the node\'s samples.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("power_mean"), default: None, since: None, ty: Bool, docs: [
+            "The mean of `I² + Q²` (complex elements), f32.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("power_max"), default: None, since: None, ty: Bool, docs: [
+            "The largest `I² + Q²` (complex elements), f32: max hold, so short bursts show at every level.",
+        ], slot: None, series_opaque: false),
+    ]), sparse: false, path: Some([
+        "summary",
+    ]), instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "Where a sample counts as clipped: at or below `low`, at or above `high`, or NaN, in the samples\' own units.",
+        "",
+        "Raw sample values on purpose: the limits are compared with the stored samples (an ADC\'s codes), whatever unit the",
+        "track gives them.",
+    ], ident: "ClipRange", generics: [], fields: Named([
+        (ident: Some("low"), default: None, since: None, ty: NumericAny(Base(F64)), docs: [], slot: None, series_opaque: false),
+        (ident: Some("high"), default: None, since: None, ty: NumericAny(Base(F64)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: Some([
+        "summary",
+    ]), instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "The block does not fit: nothing was written.",
+    ], ident: "Full", generics: [], fields: Unit, sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "An item\'s number on its track: the first item is 0, each next one more, across chunks and pieces.",
+        "",
+        "Any value is a number. A count of items stays a plain `u64`: a number plus a count is a number",
+        "([Self::checked_add]), a number less a number is a count ([Self::offset_to]). On the wire exactly a `u64`.",
+    ], ident: "ItemNum", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(U64)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "The system\'s monotonic clock, from the first reading of any [SystemClock] in the process: every one reads the",
+        "same time.",
+    ], ident: "SystemClock", generics: [], fields: Unit, sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
+        "A read past the end of a byte slice.",
+    ], ident: "OutOfRange", generics: [], fields: Unit, sparse: false, path: Some([
+        "reader",
+    ]), instance_of: None, extra: None)), crate_idx: 0),
+], traits: [], ext_crates: [
+    (crate_id: "ww_tape", version: (major: 0, minor: 13, patch: 0, pre: None, build: None)),
+    (crate_id: "exact_units", version: (major: 0, minor: 1, patch: 0, pre: None, build: None)),
+    (crate_id: "ww_version", version: (major: 0, minor: 2, patch: 0, pre: None, build: None)),
+], root_omitted: None, wire: None, ext_wire: Some([
+    None,
+    None,
+    Some((line: 1, revision: 0)),
+]))
