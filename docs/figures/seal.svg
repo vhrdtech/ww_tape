@@ -21,7 +21,7 @@
   <path d="M340 108 V146" class="line"/>
   <path d="M340 152 l-4 -8 h8 Z" class="line head"/>
   <text x="350" y="126" class="mono small">seal</text>
-  <text x="350" y="141" class="soft small">reads, checks and hashes the piece, then writes each block in its place</text>
+  <text x="350" y="141" class="soft small">reads and hashes the piece, then writes each block in place</text>
   <!-- sealed -->
   <text x="20" y="172" class="strong small">sealed, <tspan class="mono">Full</tspan></text>
   <rect x="20.5" y="182" width="90" height="40" rx="2" class="tint-green"/>
