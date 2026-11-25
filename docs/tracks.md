@@ -155,8 +155,8 @@ comes:
 --8<-- "examples/example_settings/src/lib.rs:firmware"
 ```
 
-A reader asks for a value by its id, the item number of its first part. [`bytes_track::read_value`] finds the parts in each
-piece's index, reads them in order and checks the hash against the seal:
+A reader asks for a value by its id, the item number of its first part. [`bytes_track::read_value`] finds the parts in
+each piece's index, reads them in order and checks the hash against the seal:
 
 ```rust
 --8<-- "examples/example_settings/src/lib.rs:read_value"

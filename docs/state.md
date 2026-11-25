@@ -8,9 +8,9 @@ Most [[tracks]] are streams of [[events]]: a frame received at one [[tick]] says
 tracks hold [[state]] instead: an [[item]] that stays in force until the next one replaces it. A [[reader]] that
 starts in the middle of a recording needs the state in force there, written perhaps an hour before.
 
-The drive's `mode` is such a [[state track]]. It is idle from boot, runs from minute 1 and turns to fault at minute 52 of the run. A viewer that
-opens the recording at minute 40 must show run, although the mode last changed 39 minutes before. The
-[[definitions]] are state too, on track 0, and follow the same rules.
+The drive's `mode` is such a [[state track]]: the mode is idle from boot, run from minute 1 and fault from minute 52
+of the run. A viewer that opens the recording at minute 40 must show run, although the mode last changed 39 minutes
+before. The [[definitions]] are state too, on track 0, and follow the same rules.
 
 ## Why a reader needs state close behind
 
@@ -72,8 +72,8 @@ copy 2 KiB on, and the item again each time the newest record lies more than <co
 spacing to 2 KiB.</figcaption>
 </figure>
 
-A record that a put or a copy writes goes into a block whose header bit 1 is set, [`FLAG_REPEAT`]. The bit belongs to the
-block contract, so every reader knows a block of state from a block of data. A reader that already holds the same
+A record that a put or a copy writes goes into a block whose header bit 1 is set, [`FLAG_REPEAT`]. The bit belongs to
+the block contract, so every reader knows a block of state from a block of data. A reader that already holds the same
 item in that slot takes the record as nothing new.
 
 The writer never writes a state item ahead of a use. A [[track]] whose data has stopped therefore costs nothing until

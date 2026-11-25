@@ -81,8 +81,9 @@ length, kind and count, and the names of the header bits set. The program reads 
 
 The piece opens with its [[piece head]]. Blocks of [[puts]] follow, records blocks of definitions and keyed puts of
 parameters, each marked `put`. The [[group of puts]] takes two blocks, marked `group` and the first `group start`. The
-firmware's five parts are events chunks, and the index, the close and the tail end the piece. [Definitions](definitions.md)
-covers the description, [Anatomy of a piece](anatomy.md) the structure and [Summaries](summaries.md) the overview.
+firmware's five parts are events chunks, and the index, the close and the tail end the piece.
+[Definitions](definitions.md) covers the description, [Anatomy of a piece](anatomy.md) the structure and
+[Summaries](summaries.md) the overview.
 
 ## Records blocks
 
