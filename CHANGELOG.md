@@ -21,7 +21,7 @@ benchmarks, golden files and book pages.
 - A put while a unit is open goes into the unit's run instead of splitting it (FMT-15).
 - A group put or relayed while a unit is open waits whole and follows the unit's last chunk (FMT-15).
 - A put behind such a waiting group waits too, keeping its order after the unit (FMT-15).
-- A close inside an open unit tears it as a crash would and writes the puts waiting for it (FMT-15).
+- A close inside an open unit writes the puts waiting for it after the unit's blocks; nothing is cut (FMT-15).
 - Keyed puts waiting behind a group count toward the carry's limits (FMT-15).
 - A put past the bytes held behind a group is refused with `InputError::WaitingTooLong` (FMT-15).
 

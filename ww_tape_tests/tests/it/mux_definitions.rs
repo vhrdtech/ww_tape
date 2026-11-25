@@ -29,7 +29,7 @@ fn define_empty(mux: &TapeMux<MemPieces>, n: u32, twice: bool) -> TrackNum {
 }
 
 /// The hash of track `n`'s definition as piece `p` holds it; None when the piece doesn't define it.
-fn track_def(p: &[u8], n: TrackNum) -> Option<ItemHash> {
+pub(crate) fn track_def(p: &[u8], n: TrackNum) -> Option<ItemHash> {
     let r = TapeReader::open(p).unwrap();
     let defs = r.definitions_at(0, u64::MAX).unwrap();
     defs.items
