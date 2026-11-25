@@ -522,6 +522,70 @@ fn a_part_below_the_next_item_is_refused() {
     }
 }
 
+/// A flip of any byte of any part is damage, named, or leaves the value whole: never an absence, even where it
+/// turns a part's flags (first part or seal) the first pass reads without their CRC.
+#[test]
+fn a_flip_in_a_part_never_reads_as_absent() {
+    let defs = defs();
+    let (mem, mut c) = chain(options(PieceTapes::One, Integrity::Full, 1 << 20));
+    let mut w = writer(&defs, 0);
+    let a = put(&mut c, &defs, &mut w, 1, &value(31, 2500));
+    let b = put(&mut c, &defs, &mut w, 2, &value(32, 10));
+    let c_ = put(&mut c, &defs, &mut w, 3, &value(33, 1200));
+    c.close().unwrap();
+    let file = pieces(&mem).remove(0);
+    let r = TapeReader::open(&file[..]).unwrap();
+    let start = r.pieces()[0].start as usize;
+    let parts = r.track_entries(0, bytes_id()).unwrap();
+    assert_eq!(parts.len(), 9, "4, 2 and 3 parts");
+    let mut flips = 0;
+    for e in &parts {
+        let at = start + e.offset as usize;
+        for i in at..at + e.len as usize {
+            let mut f = file.clone();
+            f[i] ^= 0x01;
+            for (id, v) in [
+                (a.id, value(31, 2500)),
+                (b.id, value(32, 10)),
+                (c_.id, value(33, 1200)),
+            ] {
+                match read_from(std::slice::from_ref(&f), id) {
+                    Ok((bytes, _)) => assert_eq!(bytes, v),
+                    Err(ValueError::Absent { why, .. }) => {
+                        panic!(
+                            "a flip at {i} (part {}) reads value {id:?} as absent: {why:?}",
+                            e.first_item
+                        )
+                    }
+                    Err(_) => {}
+                }
+            }
+            flips += 1;
+        }
+    }
+    assert!(flips > 3000, "{flips} flips");
+}
+
+/// A value whose seal lay in a removed piece reads as a gap when a later piece's head says where the track goes on:
+/// the parts are missing, not torn.
+#[test]
+fn a_value_whose_seal_piece_is_removed_reads_as_a_gap() {
+    let defs = defs();
+    let (mem, mut c) = chain(options(PieceTapes::Each, Integrity::Full, 2));
+    let seal = put(&mut c, &defs, &mut writer(&defs, 0), 1, &value(41, 3500));
+    // parts 0-1, 2-3 and the seal 4 in pieces of 2 chunks; a cut leaves the last piece without a part
+    c.cut_now(&defs).unwrap();
+    c.remove(&[2]).unwrap();
+    c.close().unwrap();
+    match read_from(&pieces(&mem), seal.id) {
+        Err(ValueError::Absent {
+            why: Absence::Gap { missing },
+            ..
+        }) => assert_eq!(missing, 4..5),
+        other => panic!("{other:?}"),
+    }
+}
+
 /// A part's bytes coded in lz4 read back the same.
 #[test]
 fn lz4_parts_read_back() {

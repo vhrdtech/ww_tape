@@ -629,14 +629,18 @@ crash, or a write given up. A bytes track takes the plain policy and no relation
 The parts of a value are ordinary chunks, not a run of blocks belonging together. A value so has no length limit, and
 the writer places its checkpoints between parts. A cut may fall between two parts, so a value spans pieces.
 
-A reader of a value (`read_value`) finds its parts by their numbers in each piece's index, in two passes. The first
-reads only each part's head, its flags and the seal. A value is absent when it is torn, its first part is missing, or
-its parts have a gap. A gap is a piece removed on purpose, or a piece file lost. The reason is named (`Absence::Torn`,
-`NotFound`, `NotFirst`, `Gap`), and nothing of the value reaches the caller.
+A reader of a value (`read_value`) finds its parts by their numbers in each piece's index, in two passes. It skips a
+piece whose close, or the next piece's head, says the track's items end before the value. The first pass reads only each
+part's head, its flags and the seal, and keeps only the first part, the last and the seal.
 
-The second pass reads each part whole, checks its CRCs and hands its bytes on, hashing them. A part that doesn't read is
-named by its piece, offset, part number and where its bytes start in the value. A length or hash that differs from the
-seal's is `ValueError::Mismatch`.
+A value is absent when it is torn, its first part is missing, or its parts have a gap. A gap is a piece removed on
+purpose, or a piece file lost. A later piece's head names it by where the track's items go on. The reason is named
+(`Absence::Torn`, `NotFound`, `NotFirst`, `Gap`), and nothing of the value reaches the caller. The parts that decide an
+absence are read whole first, CRCs checked: a damaged one is damage, not an absence.
+
+The second pass walks the index again, reads each part whole, checks its CRCs and hands its bytes on, hashing them. A
+part that doesn't read is named by its piece, offset, part number and where its bytes start in the value. A length or
+hash that differs from the seal's is `ValueError::Mismatch`.
 
 Under `Integrity::None` a piece has no payload CRCs, so only the value's hash catches a changed byte, and the error
 names the value, not the part.
