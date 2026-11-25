@@ -58,16 +58,7 @@ Each sample rounds down on its own, so the rounding never adds up. After an hour
 the first. A period rounded to 20833 ns would drift by 57.6 ms in that hour:
 
 ```rust
-use ww_tape::{Ratio64, Rounding};
-
-let period = Ratio64::new(62_500, 3).expect("a positive fraction");
-let tick = |i: i64| period.apply_rounded(i, Rounding::Floor).expect("in i64");
-assert_eq!([tick(1), tick(2), tick(3)], [20_833, 41_666, 62_500]);
-// One hour of samples ends exactly one hour on.
-let hour = 48_000 * 3_600;
-assert_eq!(tick(hour), 3_600_000_000_000);
-// A period of 20833 ns would end 57.6 ms early.
-assert_eq!(tick(hour) - 20_833 * hour, 57_600_000);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:exact_rate"
 ```
 
 ## Clock maps
@@ -93,21 +84,7 @@ A [[reader]] turns any board time into host time with the segment. At minute 37 
 220 000 000 µs. The map places that at 09:36:59.9556 on the host's clock:
 
 ```rust
-use shrink_wrap::prelude::*;
-use ww_tape::{Describe, Rounding, Slot};
-use example_drive::{BOOT_UNIX_NS, definitions};
-
-let (defs, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-let slot = Slot::Map { from: numbers.board_clock, to: numbers.host_clock };
-let bytes = defs.get(&slot).expect("the drive maps the board's clock to the host's");
-let Describe::Map(map) = Describe::from_ww_bytes(bytes).expect("a definition") else {
-    panic!("the slot of a map holds a map");
-};
-let segment = map.segments.iter().next().expect("one segment").expect("it reads");
-let minute_37_us = 37 * 60 * 1_000_000;
-let host_ns = segment.map(minute_37_us, Rounding::Floor).expect("mapped");
-// 2219.9556 s after the boot at 09:00:00 UTC: 44.4 ms less than the board's count.
-assert_eq!(host_ns - BOOT_UNIX_NS, 2_219_955_600_000);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:map_minute_37"
 ```
 
 A map must increase strictly across all its segments, or the order of [[items]] would flip between the two clocks. A
@@ -141,10 +118,7 @@ A [[reader]] joins the epochs into one time line, while the stored ticks stay 64
 the link: an epoch clock must come with its link in the same call.
 
 ```rust
-// i64 ticks at 1 ps last a little over 106 days.
-assert_eq!(i64::MAX / 1_000_000_000_000 / 86_400, 106);
-// At 1 ns they last 292 years of 365.25 days.
-assert_eq!(i64::MAX / 1_000_000_000 / 31_557_600, 292);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:tick_range"
 ```
 
 A device's own time stays exact on its own clock, and maps place it on any other. The next part uses the clocks,

@@ -65,26 +65,10 @@ failed. Read as a raw medium, the card gives today's 3 pieces, the last one endi
 other 43 MB or so stay behind as stale data. Read as a file, the card gives 4 pieces, and the fourth is the earlier
 run's last piece, found by its tail.
 
-`cargo run -p example_drive` prints these numbers, and this doctest reads the same card at 1/1000 of its data:
+`cargo run -p example_drive` prints these numbers, and this test reads the same card at 1/1000 of its data:
 
 ```rust
-use ww_tape::{Medium, OpenOptions, TapeReader};
-use example_drive::{Drive, EARLIER_CHAIN};
-
-let today = Drive::scaled(1000).expect("1000 divides the rates").on_sd_card();
-let earlier = today.chain(EARLIER_CHAIN).record().expect("the earlier run records");
-let run = today.record().expect("the run records");
-let crashed = today.crash(run.story_crash_byte().expect("minute 37")).expect("the crash");
-let card = crashed.on_card(&earlier).expect("the earlier run fills the card");
-
-let raw = OpenOptions { medium: Medium::Raw, ..OpenOptions::default() };
-let on_card = TapeReader::open_with(&card.bytes[..], raw).expect("the card opens");
-// Today's two closed pieces and the torn one; the earlier run is stale data.
-assert_eq!(on_card.pieces().len(), 3);
-
-let as_file = TapeReader::open(&card.bytes[..]).expect("the card opens as a file");
-// Read as a file, the earlier run's last piece passes for the newest.
-assert_eq!(as_file.pieces().len(), 4);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:stale_card"
 ```
 
 ## Writing a tape onto a card

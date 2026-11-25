@@ -52,7 +52,7 @@ shows how to define a track of your own.
 [[writer]] the minute, one act at a time. [`Drive::acts`] makes the acts from the drive's signals, in the order the
 host receives them, and four calls of the writer take them. A fifth call [[closes|close]] the file:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/first_tape.rs:write"
 ```
 
@@ -81,7 +81,7 @@ definitions on a thread of its own, the [[writing thread]].
 A [[handle]] of the mux takes each kind of act: the mode's puts, the records blocks, the chunks of frames and the
 samples. The drive's own recorder works so. It defines the clocks and tracks on the mux, then makes the handles:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:create"
 
 --8<-- "examples/example_drive/src/record.rs:handles"
@@ -90,7 +90,7 @@ samples. The drive's own recorder works so. It defines the clocks and tracks on 
 The recorder gives each act to its handle, in the order the host receives them, and waits until the mux has placed
 it:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:apply"
 ```
 
@@ -122,7 +122,7 @@ Each call of the writer does one job:
 The application makes a [[records block]] itself with a [`BlockWriter`]. It pushes each [[record]] with its
 [[track]] and time, and the [`BlockWriter`] adds the [[block header]] and the checksum:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:records"
 ```
 
@@ -162,7 +162,7 @@ follows with the piece's [[content hash]], padded with zeros so that the [[tail]
 A [[reader]] starts at the end of the [[piece]]. It finds the [[tail]] there, and from it the [[close record]] and the
 [[final index]]. The program reads the whole file into memory and opens it with [`TapeReader::open`]:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/first_tape.rs:read"
 ```
 

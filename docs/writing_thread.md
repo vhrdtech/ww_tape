@@ -47,7 +47,7 @@ A mux this small still shows the shape. Two sensors push pings on their own even
 [`EventsHandle::push_all`]. A third pushes levels on a series track with [`GridHandle::push`]. Each thread holds
 its own handle into one chain in memory, joins, and the mux closes:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/producers.rs:threads"
 ```
 
@@ -56,7 +56,7 @@ Reading the chain back after the close shows every item of every thread arrived.
 Every blocking call has an async twin, named with `_async`. The same three sources, as tasks on tokio instead of
 threads, push and close the same way:
 
-```rs
+```rust
 --8<-- "examples/example_drive/tests/producers.rs:tasks"
 ```
 
@@ -67,7 +67,7 @@ threads, push and close the same way:
 The drive's hour ([What a tape holds](tape.md)) shows the pattern with four threads. The program first starts a mux on a chain in memory and
 defines the clocks and tracks on it:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/handles.rs:create"
 ```
 
@@ -80,7 +80,7 @@ defines the clocks and tracks on it:
 One thread puts the mode each time it changes. The [[state track]] needs no put at each use. The writer carries the
 newest item into each new piece and writes copies by its own rule.
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/handles.rs:mode"
 ```
 
@@ -88,7 +88,7 @@ Another thread pushes the CAN frames of `can0` in batches of 4096 into an [`Even
 phase current at a time into a [`GridHandle`]. Each handle ends with `finish`, which completes its open chunk and
 sends it:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/handles.rs:can0"
 
 --8<-- "examples/example_drive/src/handles.rs:phase_a"
@@ -97,7 +97,7 @@ sends it:
 A fourth thread sends the log lines and temperatures as records blocks through a [`RecordsHandle`]. When every thread
 is done, the program closes the mux, which places what was sent and closes the chain:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/handles.rs:close"
 ```
 
@@ -160,7 +160,7 @@ A dropped chunk leaves a gap in its track's [[item numbers]]. The next chunk sta
 [[reader]] sees that items were lost and how many. [`MuxStats`] counts the drops of each track. The test below lets one
 handle drop and another fail while the sink stalls:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/mux.rs:pressure"
 ```
 
@@ -200,7 +200,7 @@ A producer learns of an error where it can act on it. Three kinds of error surfa
 
 A failed write stops the chain, since the writer never retries. The test below lets the sink fail after one block:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/mux.rs:failed"
 ```
 
@@ -220,7 +220,7 @@ dropped while it waits keeps the chunk it completed. The handle sends that chunk
 lost. The test
 below ends an events handle and the mux from a task:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/mux_async.rs:push_async"
 ```
 

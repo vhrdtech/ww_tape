@@ -74,29 +74,7 @@ The drive writes its log lines and temperatures into one records block a second.
 [`BlockWriter`], reads it back with [`Block::read`], and changes one byte:
 
 ```rust
-use ww_tape::{Block, BlockId, BlockKind, BlockWriter, ClockTime, SessionTag};
-use example_drive::definitions;
-
-// The numbers the drive's definitions give its board clock and its tracks.
-let (_, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-let (board, log, temp) = (numbers.board_clock, numbers.log, numbers.temp);
-let mut buf = [0u8; 256];
-let id = BlockId::new(SessionTag::writable(1), 0);
-let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[board]).expect("room");
-// A log line at 1 s and the temperature, 32.15 °C, 250 µs later.
-w.push(log, ClockTime::new(board, 1_000_000), &[b"motor: run"]).expect("room");
-w.push(temp, ClockTime::new(board, 1_000_250), &[&3_215i16.to_le_bytes()]).expect("room");
-let len = w.finish();
-assert_eq!(len, 59);
-
-let block = Block::read(&buf[..len]).expect("a good block");
-assert_eq!((block.kind, block.record_count), (BlockKind::Records, 2));
-let tracks: Vec<_> = block.records().map(|r| r.expect("reads").track).collect();
-assert_eq!(tracks, [log.into(), temp.into()]);
-
-// One changed bit fails the CRC-32C.
-buf[40] ^= 1;
-assert!(Block::read(&buf[..len]).is_err());
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:records_block"
 ```
 
 A records block suits a track that produces a few items at a time. It is complete as soon as it holds one record, so a

@@ -99,22 +99,7 @@ After that, it reads only the [[blocks]] a query needs. This test records the dr
 first piece:
 
 ```rust
-use ww_tape::{PIECE_ALIGN, TapeReader};
-use example_drive::Drive;
-
-let drive = Drive::scaled(1000).expect("1000 divides the rates");
-let recording = drive.record().expect("the run records");
-let piece = &recording.pieces[0];
-
-let reader = TapeReader::open(&piece[..]).expect("a closed piece opens");
-let info = &reader.pieces()[0];
-let tail = info.tail.as_ref().expect("a closed piece has a tail");
-assert_eq!(tail.piece_len, piece.len() as u64);
-assert_eq!(piece.len() % PIECE_ALIGN as usize, 0);
-assert!(info.close.is_some());
-
-// The same run records to the same bytes.
-assert_eq!(drive.record().expect("the run records").pieces, recording.pieces);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:closed_piece"
 ```
 
 ## Same input, same bytes

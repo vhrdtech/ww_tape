@@ -18,6 +18,7 @@
 mod appends;
 mod book;
 mod book_frame;
+mod book_pages;
 mod bytes;
 mod chain_numbers;
 mod chain_removal;

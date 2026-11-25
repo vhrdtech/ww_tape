@@ -71,7 +71,7 @@ without reading them. Only the blocks after the newest checkpoint need a scan, o
 
 The drive's file reads like this after the crash. [`PieceInfo::cut`] says where the good blocks end:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/crashes.rs:read"
 ```
 
@@ -86,7 +86,7 @@ The [[resume]] reads the file the way a [[reader]] does. It keeps every byte up 
 and cuts off the rest, the [[torn end]]. It then replays the kept blocks, so that the [[writer]] knows again what it
 wrote. That covers its index, its hashes, and which [[definitions]] and [[state items]] lie close behind.
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/crashes.rs:resume"
 ```
 

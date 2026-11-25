@@ -46,7 +46,7 @@ The drive's host relays the board's tape into a chain cut every 15 minutes. It w
 [`RelayHandle`] sends each block to the writing thread. That thread calls [`TapeWriter::relay_block`] and cuts by
 the chain's policy:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/writing.rs:relay"
 ```
 

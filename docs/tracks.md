@@ -66,20 +66,7 @@ The track's [[definition]] ties the number to the key and the dimensions, so a r
 number into an id.
 
 ```rust
-use ww_tape::{Dimension, track_id};
-use example_drive::{definitions, key};
-
-// The key of can0 is the hash of its path in the drive's API.
-let can0 = key("can0");
-assert_eq!(can0.get(), 0x0158_4c57_693f_d3f2);
-// Without dimensions, the id is the key.
-assert_eq!(track_id(can0, []), can0.id());
-// A dimension gives the same resource another id.
-let bench2 = track_id(can0, [Dimension { name: "bench", value: "2" }]);
-assert_eq!(bench2.get(), 0x4d71_7cfb_2248_cb86);
-// Inside the drive's files, can0 is track 3: the number its definition was given.
-let (_, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-assert_eq!(numbers.can0.get(), 3);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:track_ids"
 ```
 
 The three names compare like this:
@@ -99,8 +86,7 @@ count runs on across files, so item 3 120 000 of `can0` is the same frame in eve
 recording. That frame is the emergency frame the board sends when it faults at minute 52.
 
 ```rust
-// can0 runs at 1 kHz: a frame is due every 1000 µs.
-assert_eq!(example_drive::emergency_frame(1000), 3_120_000);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:emergency_frame"
 ```
 
 A [[reader]] addresses an item by its [[track id]] and item number, never by where it lies in a file. A file that keeps
@@ -126,23 +112,7 @@ A [[clock map]] then places them on the host's time line, and [Clock maps](clock
 hour, the board's count runs 72 ms ahead of the host's:
 
 ```rust
-use shrink_wrap::prelude::*;
-use ww_tape::{Describe, Rounding, Slot};
-use example_drive::{BOOT_UNIX_NS, definitions};
-
-let (defs, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-let map = Slot::Map { from: numbers.board_clock, to: numbers.host_clock };
-let bytes = defs.get(&map).expect("the drive's map");
-let Describe::Map(map) = Describe::from_ww_bytes(bytes).expect("a definition") else {
-    panic!("the slot of a map holds a map");
-};
-let segment = map.segments.iter().next().expect("one segment").expect("it reads");
-// One hour on the board's timer, 90 000 000 samples at 40 µs.
-let hour_us = 3_600 * 1_000_000;
-assert_eq!(hour_us / 40, 90_000_000);
-let host_ns = segment.map(hour_us, Rounding::Floor).expect("mapped") - BOOT_UNIX_NS;
-// On the host's clock the hour of samples lasts 72 ms less.
-assert_eq!(hour_us * 1_000 - host_ns, 72_000_000);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:drift_hour"
 ```
 
 <figure class="ww-figure" markdown="0">
@@ -196,7 +166,7 @@ element has to match.
 A low-cost software-defined radio is such a device. It sends 8-bit IQ samples: each sample is two unsigned bytes, I
 then Q, and the value 127.5 stands for zero. The track describes exactly that:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/iq8.rs:def"
 ```
 

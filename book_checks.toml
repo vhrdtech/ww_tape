@@ -1,8 +1,7 @@
 # The book's frame, checked by `vz check` (`just book-check`, and `just test`).
 # `[[part]]`: the reading ramp, in nav order; every page of a part has its level, so next never steps down.
 # `outside`: the top-level nav sections after the ramp, whose pages may have any level.
-# `[bare_fences]`: pages still holding `rust` fences that are not includes of a compiled source, with their count,
-# which may only go down.
+# No `[bare_fences]`: every `rust` block of the book is an include of a compiled source.
 
 outside = ["Reference", "Articles"]
 
@@ -22,13 +21,3 @@ level = "advanced"
 title = "Nomicon"
 level = "nomicon"
 
-[bare_fences]
-"anatomy.md" = 1
-"blocks.md" = 1
-"clocks.md" = 3
-"damage.md" = 1
-"definitions.md" = 1
-"grids.md" = 3
-"raw_media.md" = 1
-"tracks.md" = 3
-"writers.md" = 2

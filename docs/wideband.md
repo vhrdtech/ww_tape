@@ -21,7 +21,7 @@ its carriers and its bursts, with noise of its own.
 Each channel is a [[series]] track `iq` with a producer thread of its own. The thread pushes the channel's samples into
 a grid handle. The handle packs them at 12 bits and cuts them into chunks of 1 MiB of samples:
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/lib.rs:channel"
 ```
 
@@ -45,7 +45,7 @@ The analyser opens a piece, reads the summary blocks of level 0 of each channel,
 with a threshold. The carriers of the band add up to 1 050 steps of amplitude, and a burst adds 900 more. A threshold of
 1.5 million, [`POWER_MIN`], lies between a quiet node and one that holds a burst:
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/ram.rs:detect"
 ```
 
@@ -53,7 +53,7 @@ Consecutive loud nodes make one burst, from the first node's start to the last n
 [[piece]] into the next: the analyser carries it over and ends it at the next quiet node. The nodes come from one
 function, which the overview below uses too:
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/lib.rs:summary_nodes"
 ```
 
@@ -69,7 +69,7 @@ A piece with a burst is copied to a piece file, with one piece before it and one
 memory unwritten. The band takes fewer bytes a second than the link. In the bench below the replayed run keeps up with
 it in one chain, and the live run is held back by the signal's maths.
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/ram.rs:rf_capture"
 ```
 
@@ -85,7 +85,7 @@ band, past its first burst, and keeps the pieces around each burst under `DIR`. 
 it feeds, and [`RfCapture::start`] hands out the memory window while the capture runs, as the analyser's
 [pipeline](protocol_analyser.md#the-pipeline) does:
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/main.rs:main"
 ```
 
@@ -117,7 +117,7 @@ the smallest and largest I and Q and the mean and largest power `I² + Q²` of i
 4 194 304 samples, 34 ms of a channel. The overview opens each [[piece]] of the chain and reads only the summary
 blocks of one level:
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/lib.rs:overview"
 ```
 

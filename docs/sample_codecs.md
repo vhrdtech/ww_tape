@@ -14,7 +14,7 @@ decides the size of a recording and how fast a [[reader]] decodes it. Which numb
 A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 samples as `i16`. The recorder encodes them with
 [`ww_tape::samples::encode`] into one samples [[column]], and builds the head from the track's [[grid]]:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:samples"
 ```
 
@@ -33,7 +33,7 @@ A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 samples as `
 A recorder that writes through a [`TapeMux`] leaves the encoding to the handle of the track. The drive's recorder gives
 the [`GridHandle`] the codec of the column, and then only the samples of each second:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:series"
 ```
 
@@ -95,7 +95,7 @@ whole, such as NaN payloads, infinities and `-0.0`. A group never grows by more 
 ALP can only recover integers that a short decimal scale hid. The test below codes 4096 counts of a 12-bit converter in
 three ways. They are `i16` counts with `DELTA`, volts in tenths with ALP, and volts of a 3.3 V range with ALP:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/sample_codecs.rs:coded"
 
 --8<-- "ww_tape_tests/tests/it/sample_codecs.rs:fixed_against_alp"

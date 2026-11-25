@@ -50,15 +50,11 @@ per frame are such numbers.
 
 The crate `example_drive` records the drive's hour, and `cargo run -p example_drive` prints the example's
 numbers.
-Figures draw from a scaled run, which has a fraction of the data and of every byte policy. A doctest calls the same
+Figures draw from a scaled run, which has a fraction of the data and of every byte policy. A test calls the same
 code:
 
 ```rust
-// The drive's hour at 1/1000 of its data, as the figures draw it.
-let drive = example_drive::Drive::scaled(1000).expect("1000 divides the rates");
-let story = drive.story().expect("the run records");
-// The crash at minute 37 resumes to the bytes of the run without it.
-assert!(story.same_bytes);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:story"
 ```
 
 ## Numbers
@@ -127,30 +123,24 @@ place, and prose that spells out one of either.
 
 ## Code on a page
 
-Code on a page always comes from code that the tests compile and run. Two forms carry it.
-
-A short example is a `rust` block, which runs as a doctest. It shows every line it runs and checks its result with
-an assertion. For example, this block runs with `cargo test --doc`:
-
-```rust
-// A piece ends on a multiple of 4 KiB.
-assert_eq!(ww_tape::PIECE_ALIGN, 4096);
-```
-
-A doctest runs only on a page listed in `ww_tape_tests/src/book.rs`. List the page there when you add its first
-`rust` block.
-
-Longer code lives in a test and the page includes a marked section of it. The test marks the section with
-`// --8<-- [start:NAME]` and `// --8<-- [end:NAME]` lines. The page shows it in an `rs` block, which highlights as
-Rust but does not run as a doctest:
+Code on a page always comes from code that the tests compile and run. A test marks a section with
+`// --8<-- [start:NAME]` and `// --8<-- [end:NAME]` lines, and the page includes that section in a `rust` block:
 
 ````markdown
-```rs
---8<-- "ww_tape_tests/tests/it/crashes.rs:resume"
+```rust
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:piece_align"
 ```
 ````
 
-The build fails when the file or the marked section is gone.
+The block on the page then shows the lines between the marks:
+
+```rust
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:piece_align"
+```
+
+A short example goes into `ww_tape_tests/tests/it/book_pages.rs` as a test of its own, with an assertion that checks
+its result. A longer one is a section of an example crate or of the test that already runs it. The build fails when
+the file or the marked section is gone, and `vz check` fails a `rust` block that includes nothing.
 
 ## Figures
 

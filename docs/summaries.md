@@ -28,7 +28,7 @@ A track has one of two kinds of tree:
 A series declares its statistics in its definition, a [`SeriesSummarySpec`]. The drive's `phase_a` keeps the minimum,
 the maximum, the sum and the sum of squares. From them a viewer draws the envelope and the root mean square:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/defs.rs:spec"
 ```
 
@@ -54,7 +54,7 @@ recording at 1/1000 of its data.</figcaption>
 The viewer picks the coarsest level whose nodes still outnumber its 600 columns. Every column then gets several
 nodes, and no column falls between two:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:level"
 ```
 
@@ -73,7 +73,7 @@ nodes, and no column falls between two:
 For the hour of `phase_a` that is level 1, nodes of 16 384 samples. The viewer reads the summary blocks of that level
 in each piece, and merges each node into the column its first sample falls in:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:nodes"
 ```
 
@@ -125,7 +125,7 @@ The crate `ww_tape_summary` builds the trees as the items arrive: an [`EventTree
 [`SeriesSummaries`] for a series. A recorder that writes the file itself starts one for `phase_a` with the track's first grid and
 period:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:summaries"
 ```
 
@@ -143,7 +143,7 @@ Each second, the recorder pushes the second's samples. A level that fills a bloc
 hands it to the [[writer]] with [`TapeWriter::defer_block`]. The writer places a [[deferred block]] where it fits, in
 an aligned file into the gap before a chunk's payload:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:push"
 ```
 

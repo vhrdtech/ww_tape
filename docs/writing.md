@@ -111,7 +111,7 @@ by reference with every write of data and every put. A mux holds the container i
 definition. A program that drives the writer directly passes it. Before each block, the writer puts the [[definitions]] that the
 block's tracks need: the clocks, maps and [[bundles]] a track names, then the track itself.
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/book.rs:definitions"
 ```
 

@@ -29,7 +29,7 @@ An [[events chunk]] of the drive holds a second of `can0`: each frame's start ti
 the starts with [`EncodedTimes::encode`] and the frames with [`EncodedPayloads::encode`]. The encoded times also make
 the chunk head, since they know the first and last tick:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:frames"
 ```
 

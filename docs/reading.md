@@ -53,7 +53,7 @@ For the drive's chain, opening reads about 17 KB in 28 reads, and [`TapeReader::
 which ticks the track's [[chunks]] cover in that piece. The program picks the piece whose row reaches 52:00, without
 another read:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:open"
 ```
 
@@ -89,7 +89,7 @@ together. An entry says where the block is and what it holds, so a reader picks 
 index's directory and that track's list, each checked by its own CRC. It never walks the
 file. The example asks for `phase_a` in the second either side of the fault:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:find"
 ```
 
@@ -141,7 +141,7 @@ and the `mode` track says what the controller was doing.
 has an index entry of its own, which holds its slot and the hash of its item. The lookup therefore goes through the
 index to the one block it needs:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:mode"
 ```
 

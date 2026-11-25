@@ -454,7 +454,7 @@ The pages in `docs/`.
 
 - 🚧 **BOOK-2 A book that teaches the format**
 
-  The book runs in parts by reading level: a first tape, then building, writing, reading and damage, then options and internals. Glossary terms and code links carry a card on hover, and a stale name fails `just book-check`. The pages' `rust` blocks run as doctests, their figures are drawn from real blocks, and their numbers come from bench reports. A format reference with numbered sections holds the detail.
+  The book runs in parts by reading level: a first tape, then building, writing, reading and damage, then options and internals. Glossary terms and code links carry a card on hover, and a stale name fails `just book-check`. The pages' `rust` blocks are sections of tests that run, their figures are drawn from real blocks, and their numbers come from bench reports. A format reference with numbered sections holds the detail.
 
   Open: the chapters that are still stubs, tested code in every guide chapter, and screenshots of autorange and damage once eventfull draws them.
 

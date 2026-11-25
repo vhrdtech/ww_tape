@@ -39,7 +39,7 @@ A program therefore never trusts a file's name. Files renamed by hand, copied in
 listed in any order still form their chain. A scan opens each file from its end, a few small reads, and learns which
 piece it is and which [[items]] it holds. [`check_chain`] then orders the pieces and checks every link both ways:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/chains.rs:renamed"
 ```
 
@@ -53,7 +53,7 @@ A [`PieceChain`] writes a chain and [[cuts|cut]] it by itself. On files, [`ww_ta
 per piece in a directory, named `00000000.wwt`, `00000001.wwt` and so on, so that the names sort in chain order. The
 test below cuts a piece once it holds 16 KiB:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/chains.rs:create"
 ```
 
@@ -82,7 +82,7 @@ chain also cuts before a write that the piece's index has no room left for. [`Pi
 A cut by age makes the file's bytes depend on the clock. The drive's recorder counts chunks instead, as many as 15
 minutes of the run make:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:options"
 ```
 
@@ -97,7 +97,7 @@ and cuts first with [`PieceChain::cut_now`]. A [`TapeMux`] does so on its [[writ
 chunk. A chunk thus lies whole in one piece, and its [[handle]] never notices the cut. [`TapeMux::cut`] cuts at once.
 The drive's recorder only starts the mux with these options, and hands it the acts through its handles:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:create"
 ```
 
@@ -158,7 +158,7 @@ number of rows ([Tape pieces](format.md#tape-pieces)).
 Retention by file deletes the oldest piece. Every piece left reads alone, and the chain reads as **head cut**: its start
 was deleted, not damaged.
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/chains.rs:delete"
 ```
 
@@ -207,14 +207,14 @@ crash can come between any two steps:
 2. Close that piece and sync it, then write on after the close ([`TapeWriter::close_and_go_on`]).
 3. Take the pieces out of the store, oldest first ([`PieceStore::remove`]): a file is deleted and its directory synced.
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/chain_removal.rs:remove"
 ```
 
 A crash before the third step leaves pieces at hand that the rows name. A row for a piece still there plays no part in
 a link. A crash part way through it leaves a hole the rows cover. Either way the chain reads whole and resumes:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/chain_removal.rs:resume"
 ```
 
@@ -235,7 +235,7 @@ that keeps a recording as one document, such as a project file. [`ChainOptions::
 The bytes are the same as those of a chain of many files placed back to back. A reader walks such a file from its end.
 The last tail gives the last piece's start, and the tail just before that start gives the piece before.
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/book.rs:one_file"
 ```
 

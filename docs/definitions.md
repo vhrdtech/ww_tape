@@ -75,25 +75,7 @@ The drive holds 8 definitions in 469 bytes. The test below takes them from the e
 and closes a track:
 
 ```rust
-use ww_tape::{MemSink, SyncPolicy, TapeWriter};
-use example_drive::{Mode, definitions};
-
-// The definitions, and the numbers they gave the drive's clocks and tracks.
-let (mut defs, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-let (can0, mode) = (numbers.can0, numbers.mode);
-assert_eq!((defs.len(), defs.bytes()), (8, 469));
-
-let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
-// The first put writes the mode, with the definitions it needs.
-assert!(w.put(&defs, mode, 0, Mode::Run.item()).expect("put"));
-// The same mode 1 ms later lies close behind: the put writes nothing.
-assert!(!w.put(&defs, mode, 1_000, Mode::Run.item()).expect("put"));
-// A new mode is written.
-assert!(w.put(&defs, mode, 2_000, Mode::Fault.item()).expect("put"));
-
-// Closing can0 drops its definition; the clocks stay, since other tracks name them.
-assert!(defs.close(can0));
-assert_eq!(defs.len(), 7);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:puts"
 ```
 
 The [[producer]] and the [[layout]] belong to the writer, which takes them from [`WriterOptions`]. The writer puts them

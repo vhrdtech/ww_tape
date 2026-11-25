@@ -24,7 +24,7 @@ An application that wrote the finished blocks of its own tree into the piece now
 runs or leaves instead. It may keep its tree for its own views. Given the same items, such a sender writes the
 bytes an [`EventsHandle`] or a [`GridHandle`] writes. A test checks it, also after a crash at every block boundary:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/mux_leaves.rs:send_leaves"
 ```
 

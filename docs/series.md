@@ -56,7 +56,7 @@ a second. Each sample is a pair of values, the in-phase I and the quadrature Q, 
 
 The track's items are numbers of two parts, a 16-bit signed integer each:
 
-```rs
+```rust
 --8<-- "examples/example_capture/src/rf.rs:element"
 ```
 
@@ -64,7 +64,7 @@ A sample's I and Q lie side by side in the column. Every codec codes them as two
 its own. The converter gives 12 bits in each 16-bit word. The summaries keep the power of each node, `I² + Q²`, which
 shows where a signal is on the air:
 
-```rs
+```rust
 --8<-- "examples/example_capture/src/rf.rs:def"
 ```
 
@@ -96,7 +96,7 @@ then holds 38 MB of samples and five bursts.
 Each kind goes into a [[chain]] of its own, `iq` and `decoded`. A reader of the bursts never walks the samples, and
 each chain is cut at its own size. One process writes both, each through a [`TapeMux`] of its own:
 
-```rs
+```rust
 --8<-- "examples/example_rf/src/chains.rs:two_muxes"
 ```
 
@@ -104,7 +104,7 @@ A radio thread pushes each chunk's samples into the grid handle of `iq` and hand
 a bounded queue. The decoder pushes a span per burst into the track `bursts` and a power reading per second into the
 track `power`. It completes each second's finds, so they reach the tape a second at a time and in time order:
 
-```rs
+```rust
 --8<-- "examples/example_rf/src/chains.rs:threads"
 ```
 
@@ -117,7 +117,7 @@ a [`TimeMerge`] gives their items in time order. A chunk of samples counts at th
 at its start. The two tracks of `decoded` form one source, since the decoder sends them in time order. The merge
 holds the chunks of samples back until the decoder's next second shows that no burst comes before them:
 
-```rs
+```rust
 --8<-- "examples/example_rf/src/chains.rs:follow"
 ```
 
@@ -144,7 +144,7 @@ same grid, so no sample time moves, however the samples are cut into chunks.
 The program reads the chunk that holds 51:59.980 and the 500 samples from there. It turns the time into a sample
 number with the grid, then decodes from that sample on:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:current"
 ```
 

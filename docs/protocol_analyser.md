@@ -19,7 +19,7 @@ the event's [[payload]]. The track's items are plain bytes with no type, `RawByt
 
 A capture thread takes the frames in batches, as a network card hands them over, and pushes each batch in one call:
 
-```rs
+```rust
 --8<-- "examples/example_ethernet/src/lib.rs:capture"
 ```
 
@@ -45,13 +45,13 @@ bytes per frame instead of the whole frame.
 A decoded header must lead back to its frame. Each item of `ipv4` and `l4` keeps its frame's [[item number]] in a
 relation named `frame`:
 
-```rs
+```rust
 --8<-- "examples/example_ethernet/src/lib.rs:frame_relation"
 ```
 
 The decoder thread pushes the headers of a batch with their frames' numbers, one value each:
 
-```rs
+```rust
 --8<-- "examples/example_ethernet/src/lib.rs:decoded"
 ```
 
@@ -99,7 +99,7 @@ triages. By default the pool has 2 threads a chain ([`RamCapture::triage_threads
 capture's cores, so a large pool can take time from the capture. The capture itself keeps its explicit threads, one per
 queue and one per mux.
 
-```rs
+```rust
 --8<-- "examples/example_ethernet/src/ram.rs:ram_capture"
 ```
 
@@ -118,7 +118,7 @@ The crate's binary runs the analyser headless: `cargo run --release -p example_e
 the link and keeps the pieces around each reset under `DIR`. Its `main` reads like a block diagram of the threads and
 what connects them:
 
-```rs
+```rust
 --8<-- "examples/example_ethernet/src/main.rs:main"
 ```
 
@@ -133,7 +133,7 @@ can keep it, so a viewer finds the newest pieces only. [`RamRunning::join`] wait
 The analyser here looks for TCP resets, the frames that end a connection abruptly. The link sends one in 4 million
 frames of a port. The analyser decodes every frame of each piece and tests its flags:
 
-```rs
+```rust
 --8<-- "examples/example_ethernet/src/ram.rs:look"
 ```
 

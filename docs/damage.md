@@ -107,25 +107,7 @@ chunk among them, and reports nothing else.
 This walk counts what a flipped bit costs, as a test or a salvage tool would:
 
 ```rust
-use ww_tape::{FileBlocks, Recovery};
-
-let drive = example_drive::Drive::scaled(1000).expect("1000 divides the rates");
-let recording = drive.record().expect("the run records");
-let (piece, byte) = recording.story_flip().expect("the run reaches minute 50");
-let damaged = recording.flip(piece, byte).expect("the byte lies in the piece");
-
-let mut walk = FileBlocks::with_recovery(&damaged.bytes[..], Recovery::Resync);
-let (mut good, mut bad_segments, mut reports) = (0, 0, 0);
-while let Some(block) = walk.next_block() {
-    match block {
-        Ok(b) if b.is_intact() => good += 1,
-        Ok(b) => bad_segments += b.chunk().map_or(0, |c| c.bad_segments().count()),
-        Err(_) => reports += 1,
-    }
-}
-// Every block reads but one chunk, which has one bad segment.
-assert_eq!((bad_segments, reports), (1, 0));
-assert!(good > 50);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:flipped_bit"
 ```
 
 Resync has no sequence number check, since damage can hide any block, and guards against a repeated number instead. It

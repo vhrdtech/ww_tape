@@ -27,7 +27,7 @@ links run both ways:
 the heads and closes are already in memory. Its [`ChainReport`] lists each link, how the chain ends, and the pieces
 that belong to another chain. [`ChainReport::is_whole`] says that every piece is there and linked.
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:check"
 ```
 
@@ -96,7 +96,7 @@ instead. [`TapeReader::range_hash`] folds the unit hashes of the chunks that hol
 zero bytes, and returns a [`RangeHash`]. The result depends only on those chunks, so the archive's chain and the
 copied piece give the same hash for the same range:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:range"
 ```
 
