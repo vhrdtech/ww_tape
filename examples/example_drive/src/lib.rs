@@ -77,6 +77,20 @@ impl Part {
     }
 }
 
+/// `parts` as the Markdown table the book's anatomy of a piece shows: each part's blocks and bytes.
+///
+/// # Errors
+///
+/// None in practice: writing to a `String` does not fail.
+pub fn parts_table(parts: &[Part]) -> Result<String, core::fmt::Error> {
+    use core::fmt::Write as _;
+    let mut table = String::from("| Blocks | Count | Bytes |\n|---|---:|---:|\n");
+    for p in parts {
+        writeln!(table, "| {} | {} | {} |", p.name, p.count, p.bytes)?;
+    }
+    Ok(table)
+}
+
 /// The blocks of `piece` by part, in order of first appearance.
 ///
 /// # Errors

@@ -13,8 +13,8 @@ into its chain.
 
 A [[live feed]] is a tape passed on block by block while it is written. Every block checks itself and the writer never
 changes a byte it placed, so a reader may take each block as it comes. A reader that joins late finds the
-[[definitions|definition]] and [[state]] it needs [[near]] behind, as [Definitions and
-state](definitions.md#why-a-reader-needs-state-close-behind) shows.
+[[definitions]] and [[state]] it needs [[near]] behind, as [State in
+force](state.md#why-a-reader-needs-state-close-behind) shows.
 
 How a reader follows the writer depends on where it runs:
 

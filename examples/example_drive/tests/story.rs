@@ -12,7 +12,7 @@
 use example_capture::about;
 use example_drive::{
     CRASH_MINUTE, CRASH_PAST_END, Drive, Error, FAULT_MINUTE, Recording, Story, emergency_frame,
-    frame, parts,
+    frame, parts, parts_table,
 };
 use ww_tape::TapeReader;
 
@@ -141,11 +141,11 @@ fn rounded_on_the_pages(
             ),
         ),
         (
-            "definitions.md",
+            "state.md",
             format!("{puts} times while it writes the first piece"),
         ),
         (
-            "definitions.md",
+            "state.md",
             format!(
                 "idle at the start, its copy at {} seconds, run at minute {} and its copy at {} seconds",
                 s(wrote[1]),
@@ -154,7 +154,7 @@ fn rounded_on_the_pages(
             ),
         ),
         (
-            "definitions.md",
+            "state.md",
             format!("ends at about {} MiB", (len + (1 << 19)) >> 20),
         ),
         ("anatomy.md", format!("of the run in about {}", about(len))),
@@ -192,6 +192,15 @@ fn rounded_on_the_pages(
     ] {
         assert!(page(name).contains(&phrase), "docs/{name} says {phrase:?}");
     }
+    Ok(())
+}
+
+/// The table of the first piece's blocks that docs/anatomy.md shows (`docs/generated/anatomy_parts.txt`).
+#[test]
+fn book_output_anatomy_parts() -> Result<(), Error> {
+    let whole = Drive::full().record()?;
+    let table = parts_table(&parts(&whole.pieces[0])?).expect("a table");
+    ww_tape_book_outputs::check("anatomy_parts.txt", &table);
     Ok(())
 }
 
