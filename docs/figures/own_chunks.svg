@@ -1,0 +1,49 @@
+<svg class="ww-svg" viewBox="0 0 680 290" width="680" height="290" role="img" aria-label="A producer's own chunks: the producer's thread sends each chunk with its summary leaves through a ChunkSender; the writing thread places the chunk, joins the leaves into the track's summary tree and ends the tree before each cut; each chunk's receipt resolves to its placement in a piece" xmlns="http://www.w3.org/2000/svg">
+  <!-- the producer's thread -->
+  <text x="20" y="28" class="small">the producer's thread</text>
+  <rect x="20.5" y="38" width="80" height="28" rx="2" class="tint-blue"/>
+  <text x="60" y="56" text-anchor="middle" class="small">chunk 1</text>
+  <rect x="102.5" y="38" width="40" height="28" rx="2" class="tint-teal"/>
+  <text x="122" y="56" text-anchor="middle" class="small">leaves</text>
+  <rect x="170.5" y="38" width="80" height="28" rx="2" class="tint-blue"/>
+  <text x="210" y="56" text-anchor="middle" class="small">chunk 2</text>
+  <rect x="252.5" y="38" width="40" height="28" rx="2" class="tint-teal"/>
+  <text x="272" y="56" text-anchor="middle" class="small">leaves</text>
+  <rect x="320.5" y="38" width="80" height="28" rx="2" class="tint-blue"/>
+  <text x="360" y="56" text-anchor="middle" class="small">chunk 3</text>
+  <rect x="402.5" y="38" width="40" height="28" rx="2" class="tint-teal"/>
+  <text x="422" y="56" text-anchor="middle" class="small">leaves</text>
+  <text x="470" y="56" class="soft small">its own open chunk and views</text>
+  <!-- the sender's queue -->
+  <path d="M231 70 V108" class="accent-line"/>
+  <path d="M231 112 l-4 -8 h8 Z" class="accent-line head"/>
+  <text x="240" y="94" class="mono small">ChunkSender::send_placed</text>
+  <rect x="100.5" y="116" width="262" height="30" rx="4" class="tint-ink"/>
+  <text x="231" y="136" text-anchor="middle" class="small">the writing thread: places, joins the leaves</text>
+  <path d="M366 131 Q470 128 452 74" class="line dash"/>
+  <path d="M450 68 l-3 9 l8 -1 Z" class="line head"/>
+  <text x="470" y="112" class="small">receipt: <tspan class="mono">Placement</tspan></text>
+  <!-- the pieces -->
+  <text x="20" y="250" class="small">piece 0</text>
+  <rect x="20.5" y="196" width="20" height="28" rx="2" class="tint-ink"/>
+  <rect x="42.5" y="196" width="80" height="28" rx="2" class="tint-blue"/>
+  <text x="82" y="214" text-anchor="middle" class="small">chunk 1</text>
+  <rect x="124.5" y="196" width="80" height="28" rx="2" class="tint-blue"/>
+  <text x="164" y="214" text-anchor="middle" class="small">chunk 2</text>
+  <rect x="206.5" y="196" width="60" height="28" rx="2" class="tint-teal"/>
+  <text x="236" y="214" text-anchor="middle" class="small">summary</text>
+  <rect x="268.5" y="196" width="36" height="28" rx="2" class="tint-green"/>
+  <text x="286" y="214" text-anchor="middle" class="small">end</text>
+  <path d="M312 190 v40" class="accent-line"/>
+  <text x="312" y="244" text-anchor="middle" class="accent small">cut</text>
+  <text x="330" y="250" class="small">piece 1</text>
+  <rect x="320.5" y="196" width="20" height="28" rx="2" class="tint-ink"/>
+  <rect x="342.5" y="196" width="80" height="28" rx="2" class="tint-blue"/>
+  <text x="382" y="214" text-anchor="middle" class="small">chunk 3</text>
+  <rect x="424.5" y="196" width="60" height="28" rx="2" class="tint-teal"/>
+  <text x="454" y="214" text-anchor="middle" class="small">summary</text>
+  <path d="M231 148 Q150 170 82 192" class="line dash"/>
+  <path d="M231 148 Q300 170 382 192" class="line dash"/>
+  <text x="236" y="186" text-anchor="middle" class="accent small">tree ended before the cut</text>
+  <text x="20" y="276" class="soft small">The producer sends leaves, never summary blocks: only the writing thread knows where a piece ends.</text>
+</svg>

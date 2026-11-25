@@ -33,6 +33,7 @@ fn send_and_read(
             .send_placed(head, columns, None)
             .unwrap()
             .expect("a waiting sender drops nothing");
+        // --8<-- [start:read_placement]
         let p = placing.wait().unwrap();
         assert_eq!(p.track, head.track_number);
         assert_eq!(p.first_item, head.first_item);
@@ -43,6 +44,7 @@ fn send_and_read(
         let block = Block::read(&bytes).expect("the placement holds a whole block");
         let chunk = block.chunk().expect("a chunk block");
         assert_eq!(chunk.head(), head, "the chunk sent, at its placement");
+        // --8<-- [end:read_placement]
         out.push(p);
     }
     out
