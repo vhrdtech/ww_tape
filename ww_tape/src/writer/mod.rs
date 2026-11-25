@@ -843,6 +843,7 @@ impl<S: TapeSink> TapeWriter<S> {
         tracks: &[TrackNum],
     ) -> Result<bool, WriteError<S::Error>> {
         self.check()?;
+        self.want(tracks);
         for t in tracks {
             defs.track(*t)
                 .ok_or(DescribeError::UnknownTrack { track: *t })?;

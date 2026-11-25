@@ -398,7 +398,7 @@ where
     /// Put the definitions of `tracks` ([PieceChain::put_definitions]) once every unit sent before is placed: each
     /// track's clock chain, maps, bundles and its own definition, so a track that never gets data is in the chain.
     /// The mux holds the tracks and puts their definitions again in each piece a later cut starts. A definition that
-    /// lies close behind in the piece is not written again ([ww_tape::TapeWriter::put]'s near rule); a track defined
+    /// lies near behind in the piece is not written again ([ww_tape::TapeWriter::put]'s near rule); a track defined
     /// twice ([ww_tape::TrackSpec::defined_twice]) gets its copy.
     ///
     /// A resumed mux holds no track: put them again after the resume, as the tracks are defined again.
