@@ -842,3 +842,54 @@ fn a_unit_refused_midway_leaves_no_unit_open() {
         "a writer with a torn unit takes no more chunks"
     );
 }
+
+/// A caller's overview chunk is never marked a grid start: one marked is refused, the same chunk unmarked is written.
+#[test]
+fn a_callers_overview_chunk_is_never_marked() {
+    let axes = axes(&[(4, 4)]);
+    let track = grid_track(&axes);
+    let id = track.id();
+    let mut defs = ww_tape::Definitions::new();
+    crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let stats = [0u8; 2 * 4 * STEPS as usize];
+    let columns: Vec<(ColumnSpec, &[u8])> = [
+        ColumnKind::OverviewMin,
+        ColumnKind::OverviewMax,
+        ColumnKind::OverviewMean,
+    ]
+    .into_iter()
+    .map(|kind| {
+        let spec = ColumnSpec {
+            kind,
+            codec: Codec::RAW,
+            param: 0,
+            len: stats.len(),
+        };
+        (spec, &stats[..])
+    })
+    .collect();
+    let h = ww_tape::ChunkHead {
+        level: 1,
+        ..head(id, 0, TileCoords::new(&[0]).unwrap())
+    };
+    let mut buf = vec![0u8; 1 << 12];
+    let n = ww_tape::chunk::write_chunk(&mut buf, w.next_id(), &h, &columns, 0).unwrap();
+    let good = buf[..n].to_vec();
+    // mark_grid_start refuses an overview chunk: the flag and both CRCs set by hand
+    let mut marked = good.clone();
+    marked[6] |= ww_tape::FLAG_GRID_START as u8;
+    let payload_at = ww_tape::chunk::ChunkHead::head_len(&marked).unwrap();
+    let head = [&marked[..28], &marked[32..payload_at]];
+    let crc = crate::range_hash::crc32c(&head);
+    marked[28..32].copy_from_slice(&crc.to_le_bytes());
+    let crc = crate::range_hash::crc32c(&[&marked[..n - 4]]);
+    marked[n - 4..].copy_from_slice(&crc.to_le_bytes());
+    assert!(Block::read(&marked).is_ok());
+    let r = w.write_block(&defs, &marked);
+    assert!(
+        matches!(r, Err(WriteError::Input(ww_tape::InputError::Flags { .. }))),
+        "{r:?}"
+    );
+    w.write_block(&defs, &good).unwrap();
+}

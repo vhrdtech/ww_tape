@@ -2606,7 +2606,8 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Refuse a caller's series chunk block `b` of level 0 marked [FLAG_GRID_START](crate::FLAG_GRID_START) other
-    /// than due ([grids]): with `replacing`, against the grid before the last counted block, whose place it takes.
+    /// than due ([grids]), with `replacing` against the newest before the last counted block, whose place it takes;
+    /// and an overview chunk marked.
     fn check_caller_grid(
         &self,
         b: &crate::Block<'_>,
@@ -2616,10 +2617,11 @@ impl<S: TapeSink> TapeWriter<S> {
             return Ok(());
         };
         let head = c.head();
-        if head.kind == BlockKind::Series
-            && head.level == 0
-            && self.grids.due(&head, replacing) != c.grid_start()
-        {
+        let wrong = match head.level {
+            0 => self.grids.due(&head, replacing) != c.grid_start(),
+            _ => b.flags & crate::FLAG_GRID_START != 0,
+        };
+        if head.kind == BlockKind::Series && wrong {
             return Err(WriteError::Input(InputError::Flags {
                 kind: b.kind,
                 flags: b.flags,
