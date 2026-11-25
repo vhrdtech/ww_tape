@@ -179,6 +179,12 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Read more: [Definitions written twice at once](docs/format.md#definitions-written-twice-at-once). Tests `definitions_twice.rs`.
 
+- ✅ **TRACK-10 Bytes tracks: values written as parts, read whole**
+
+  A track of `TrackKind::Bytes` holds values of any length, each written streamed as parts and read whole with its BLAKE3 hash checked. A part is an events chunk of one item, its bytes first; a flags word marks a value's first part and its seal, which holds the length and hash. `BytesWriter` cuts a value into parts for a writer, a chain or a mux and holds one part's bytes at a time. `read_value` finds the parts by number in each piece's index, never by byte offset, across cuts and piece files. A torn value, or one with parts in a removed or lost piece, reads as absent with nothing handed out; a damaged part is named by its chunk. Under `Integrity::None` only the value's hash catches a changed byte.
+
+  Read more: [Bytes tracks](docs/format.md#bytes-tracks). Golden file `v1-bytes.hex`; tests `bytes.rs`.
+
 ## Writer (`WRITE`)
 
 Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_tape`.

@@ -1523,6 +1523,55 @@ impl<'b> Chunk<'b> {
 }
 
 /// The offset field of a column entry.
+/// A column a chunk's head names, read from the head alone: what it is and where its bytes lie in the block.
+#[cfg(feature = "alloc")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ColumnPlace {
+    pub kind: ColumnKind,
+    pub codec: Codec,
+    /// Where the column's bytes lie in the block; [PAYLOAD_PADDING] bytes of the block follow them.
+    pub range: core::ops::Range<usize>,
+}
+
+/// The columns the head of a chunk block names, from its bytes 0..payload offset alone (checked as
+/// [ChunkHead::read_head] checks them) in a block of `block_len` bytes. Each column ends where the next starts, the
+/// last at the payload's padding. The payload is not read.
+#[cfg(feature = "alloc")]
+pub(crate) fn head_columns(
+    bytes: &[u8],
+    block_len: usize,
+) -> Result<alloc::vec::Vec<ColumnPlace>, ChunkHeadError> {
+    let h = HeadBytes::read(bytes, block_len)?;
+    let payload_at = bytes.len();
+    let columns_len = h
+        .layout
+        .payload_end
+        .checked_sub(payload_at)
+        .and_then(|n| n.checked_sub(PAYLOAD_PADDING))
+        .ok_or(ChunkHeadError::BadHead)?;
+    let mut out = alloc::vec::Vec::with_capacity(h.entries.len());
+    for (i, e) in h.entries.iter().enumerate() {
+        let start = column_offset(e)
+            .within(columns_len)
+            .map_err(ChunkHeadError::Bound)?;
+        let end = match h.entries.get(i.saturating_add(1)) {
+            Some(next) => column_offset(next)
+                .within(columns_len)
+                .map_err(ChunkHeadError::Bound)?,
+            None => columns_len,
+        };
+        let [kind, codec, ..] = *e;
+        // offsets are within the columns and ascending (HeadBytes::read), the columns within the block
+        let range = payload_at.saturating_add(start)..payload_at.saturating_add(end);
+        out.push(ColumnPlace {
+            kind: ColumnKind::from_u8(kind),
+            codec: Codec(codec),
+            range,
+        });
+    }
+    Ok(out)
+}
+
 fn column_offset(entry: &[u8; COLUMN_ENTRY_LEN]) -> crate::FromFile<u32> {
     let [.., o0, o1, o2, o3] = *entry;
     crate::FromFile::new(u32::from_le_bytes([o0, o1, o2, o3]))

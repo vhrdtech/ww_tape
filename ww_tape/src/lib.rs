@@ -270,6 +270,8 @@ pub use reader::{
     Verification,
 };
 
+#[cfg(feature = "alloc")]
+pub mod bytes_track;
 mod event;
 #[cfg(feature = "alloc")]
 pub mod group_marks;

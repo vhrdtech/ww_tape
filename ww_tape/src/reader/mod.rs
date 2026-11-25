@@ -1468,6 +1468,29 @@ impl<S: ByteSource> TapeReader<S> {
             .map_err(|error| ReadError::Block { offset, error })
     }
 
+    /// Read `buf.len()` bytes of the block of `entry` in piece `i`, from byte `at` of the block, unchecked: the caller
+    /// checked the block's head and knows where its bytes lie. Refused past the entry's length.
+    pub(crate) fn read_in_block(
+        &self,
+        i: usize,
+        entry: &IndexEntry,
+        at: usize,
+        buf: &mut [u8],
+    ) -> R<(), S> {
+        let (offset, len) = self.place(i, entry)?;
+        let end = at.checked_add(buf.len()).filter(|end| *end <= len);
+        let Some(_) = end else {
+            return Err(ReadError::Block {
+                offset,
+                error: BlockError::Short {
+                    needed: at.saturating_add(buf.len()),
+                },
+            });
+        };
+        let from = offset.saturating_add(crate::chunk::len_u64(at));
+        self.src.read_at(from, buf).map_err(ReadError::Source)
+    }
+
     /// A block read for the caller: its payload checked as [OpenOptions::check_payloads] says.
     fn read_payload<'b>(&self, bytes: &'b [u8]) -> Result<Block<'b>, BlockError> {
         if self.check_payloads {

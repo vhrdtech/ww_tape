@@ -6,6 +6,16 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- `TrackKind::Bytes` is a new track kind; older readers read it as unknown and its parts as events (TRACK-10).
+- `TrackFacts` gains `bytes`; `DescribeError` gains `BytesTrack` and `BytesPart` (TRACK-10).
+
+### Features
+
+- Bytes tracks: a value written streamed as parts, read whole with its BLAKE3 hash checked (TRACK-10).
+- `read_value` reads a value across pieces; a torn value or one over a removed piece reads as absent (TRACK-10).
+
 ## [0.11.0] - 2026-11-25
 
 ### Breaking

@@ -89,8 +89,17 @@ pub enum DescribeError {
     /// A track's items are of a kind this crate doesn't know, or break a rule
     /// ([TrackDef::items_valid](crate::TrackDef::items_valid)).
     Items { track: TrackNum },
-    /// A record or an events chunk on a series track, or a series chunk on an events track.
+    /// A record or an events chunk on a series track, a record on a bytes track, or a series chunk on an events or
+    /// bytes track.
     WrongKind { track: TrackNum },
+    /// A bytes track ([TrackKind::Bytes](crate::TrackKind::Bytes)) whose policy is not a stream, or that declares
+    /// relations.
+    BytesTrack { track: TrackNum },
+    /// A chunk on a bytes track that is not a part ([bytes_track](crate::bytes_track)).
+    BytesPart {
+        track: TrackNum,
+        error: crate::bytes_track::PartError,
+    },
     /// An events chunk whose relation columns are not one per stored relation of its track, or one in a codec its
     /// relation doesn't take (a monotone relation's values in [DURATIONS](crate::times::DURATIONS)).
     RelationColumns { track: TrackNum },
@@ -229,8 +238,14 @@ impl core::fmt::Display for DescribeError {
             ),
             Self::WrongKind { track } => write!(
                 f,
-                "track {track}: a record or events chunk on a series track, or a series chunk on an events track"
+                "track {track}: a record or events chunk on a series track, a record on a bytes track, or a series \
+                 chunk on an events or bytes track"
             ),
+            Self::BytesTrack { track } => write!(
+                f,
+                "track {track}: a bytes track takes the plain policy and no relations"
+            ),
+            Self::BytesPart { track, error } => write!(f, "track {track}: {error}"),
             Self::RelationColumns { track } => write!(
                 f,
                 "track {track}: an events chunk's relation columns don't match its stored relations"
@@ -337,6 +352,8 @@ pub struct TrackFacts {
     pub tiles: crate::TileLayout,
     /// [TrackDef::defined_twice](crate::TrackDef::defined_twice).
     pub defined_twice: bool,
+    /// The track holds values written as parts ([TrackKind::Bytes](crate::TrackKind::Bytes)).
+    pub bytes: bool,
 }
 
 impl TrackFacts {
@@ -372,6 +389,7 @@ impl TrackFacts {
                 .and_then(|s| s.tile_layout().ok())
                 .unwrap_or(crate::TileLayout::SERIES),
             defined_twice: t.defined_twice,
+            bytes: t.is_bytes(),
         }
     }
 }
@@ -464,6 +482,9 @@ pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
             }
             if !t.items_valid() && !matches!(t.items, Items::Unknown(_)) {
                 return Err(DescribeError::Items { track: t.number });
+            }
+            if t.is_bytes() && (t.repeat != crate::TrackRepeat::Stream || !t.relations.is_empty()) {
+                return Err(DescribeError::BytesTrack { track: t.number });
             }
             t.check_kind().map_err(|error| DescribeError::Kind {
                 track: t.number,
@@ -1099,7 +1120,7 @@ impl Definitions {
                 return Err(DescribeError::DefinitionBlock);
             };
             let t = self.check_on_track(track, at)?;
-            if t.period.is_some() {
+            if t.period.is_some() || t.bytes {
                 return Err(DescribeError::WrongKind { track });
             }
             if t.state.is_some() {
@@ -1138,6 +1159,12 @@ impl Definitions {
             self.check_chunk_head(&head)?;
             if head.kind != BlockKind::Events {
                 return Ok(());
+            }
+            if self.track(head.track_number).is_some_and(|t| t.bytes) {
+                crate::bytes_track::read_part(&c).map_err(|error| DescribeError::BytesPart {
+                    track: head.track_number,
+                    error,
+                })?;
             }
             let specs: Vec<crate::ColumnSpec> = c
                 .columns()

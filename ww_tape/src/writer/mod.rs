@@ -2668,6 +2668,14 @@ impl<S: TapeSink> TapeWriter<S> {
             defs.check_relation_columns(head.track_number, &specs)
                 .map_err(WriteError::Describe)?;
         }
+        if defs.track(head.track_number).is_some_and(|t| t.bytes) {
+            crate::bytes_track::check_part_columns(head, columns).map_err(|error| {
+                WriteError::Describe(crate::DescribeError::BytesPart {
+                    track: head.track_number,
+                    error,
+                })
+            })?;
+        }
         // the longest the block can be, its padding at most the alignment
         let chunk_max = crate::chunk::chunk_len(
             head,
