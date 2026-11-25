@@ -139,8 +139,21 @@ fn an_unknown_track_is_refused() {
         MuxOptions::default(),
     )
     .unwrap();
-    let _senders = define(&mux);
-    assert!(mux.put_definitions(&[TrackNum::new(EMPTY)]).is_err());
+    let senders = define(&mux);
+    send(&senders[0], 0, 0);
+    mux.flush().unwrap();
+    let before = mux.watch().get().piece_bytes;
+    let r = mux.put_definitions(&[TrackNum::new(1), TrackNum::new(EMPTY)]);
+    assert!(
+        matches!(
+            r,
+            Err(ww_tape_mux::MuxError::Refused(ww_tape::WriteError::Describe(
+                ww_tape::DescribeError::UnknownTrack { track }
+            ))) if track == TrackNum::new(EMPTY)
+        ),
+        "{r:?}"
+    );
+    assert_eq!(mux.watch().get().piece_bytes, before, "nothing written");
 }
 
 /// Write the run [a_crashed_mux_resumed_holds_the_definition_in_every_piece] crashes: data on track 1, the empty

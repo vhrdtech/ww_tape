@@ -57,6 +57,7 @@ mod payload_check;
 mod pieces;
 mod placed;
 mod progress;
+mod put_definitions;
 mod puts;
 mod quiet;
 mod range_hash;
