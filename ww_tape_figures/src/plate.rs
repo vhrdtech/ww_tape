@@ -1,7 +1,9 @@
-//! `plate_tiles.svg`: the thermal plate's tiles with their coordinates and tile numbers as the index packs them, a box
-//! query over two of them, and the plate's space overview levels. The tiles and levels come from the layout of the
-//! plate's definition, and the tiles the box finds from `TapeReader::grid_tiles` on a recording of the plate at a
-//! sixth of its readings.
+//! The thermal plate's figures:
+//!
+//! - `plate_tiles.svg`: the plate's tiles with their coordinates and tile numbers as the index packs them, and a box
+//!   query over two of them. The tiles come from the layout of the plate's definition, and the tiles the box finds
+//!   from `TapeReader::grid_tiles` on a recording of the plate at a sixth of its readings.
+//! - `plate_levels.svg`: the plate's space overview levels to scale, each with its cells, from the same layout.
 #![allow(
     clippy::indexing_slicing,
     reason = "the layout of the plate's two fixed axes has two entries"
@@ -32,17 +34,13 @@ pub fn plate_tiles() -> anyhow::Result<String> {
     let bits = layout.widths();
     let (left, top) = (20.0, 56.0);
     let (w, h) = (f64::from(cols) * TILE.0, f64::from(rows) * TILE.1);
-    let mut s = Svg::new(
-        left + w + 60.0 + 290.0,
-        top + h + 70.0,
-        "the plate's tiles and overview levels",
-    );
+    let mut s = Svg::new(left + w + 20.0, top + h + 40.0, "the plate's tiles");
     s.text(
         left,
         24.0,
         "start",
         "strong",
-        "Tiles: coordinates, and the number the index packs",
+        "Tiles: coordinates and tile number",
     );
     for r in 0..rows {
         for c in 0..cols {
@@ -109,21 +107,36 @@ pub fn plate_tiles() -> anyhow::Result<String> {
                 .len()
         ),
     );
-    // the levels, each half the size of the one before
-    let x0 = left + w + 60.0;
-    s.text(
-        x0,
-        24.0,
-        "start",
-        "strong",
-        "Overview levels: cells of each",
-    );
-    let scale = 1.2;
-    let mut x = x0;
+    Ok(s.finish())
+}
+
+pub fn plate_levels() -> anyhow::Result<String> {
+    let layout = Thermal::plate().layout().context("the plate's layout")?;
+    let (left, top) = (20.0, 56.0);
+    let scale = 1.6;
+    let mut boxes = Vec::new();
+    let mut x = left;
     for level in 0..=layout.overview_levels() {
         let at = layout.overview(level).context("a level of the layout")?;
         let (cells_y, cells_x) = (at.extents()[0].0, at.extents()[1].0);
         let size = (f64::from(cells_x) * scale, f64::from(cells_y) * scale);
+        boxes.push((level, x, size, cells_y, cells_x));
+        x += size.0.max(44.0) + 16.0;
+    }
+    let height = boxes.first().map_or(0.0, |b| b.2.1);
+    let mut s = Svg::new(
+        (x + 4.0).ceil(),
+        top + height + 66.0,
+        "the plate's overview levels",
+    );
+    s.text(
+        left,
+        24.0,
+        "start",
+        "strong",
+        "Space overview levels of the plate, to scale: level, then rows × columns of cells",
+    );
+    for (level, x, size, cells_y, cells_x) in boxes {
         s.rect(
             (x, top),
             size,
@@ -135,20 +148,26 @@ pub fn plate_tiles() -> anyhow::Result<String> {
             },
         );
         s.text(
-            x + size.0 / 2.0,
-            top + size.1 + 18.0,
-            "middle",
+            x,
+            top + height + 20.0,
+            "start",
             "small",
             &format!("{level}"),
         );
-        x += size.0 + 14.0;
+        s.text(
+            x,
+            top + height + 38.0,
+            "start",
+            "soft small",
+            &format!("{cells_y} × {cells_x}"),
+        );
     }
     s.text(
-        x0,
-        top + 140.0 + 22.0,
+        left,
+        top + height + 58.0,
         "start",
         "soft small",
-        "level k: every downsampled axis halved k times",
+        "level k: every downsampled axis halved k times; each cell holds the smallest, largest and mean value",
     );
     Ok(s.finish())
 }
