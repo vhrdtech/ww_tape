@@ -118,14 +118,16 @@ off size field
   0   4  magic "WWTP"
   4  u8  version, 1
   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
-  6 u16  flags: bit 0 retired (coded records are kind 15), bit 1 state records a writer put or
-         copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
-         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
+  6 u16  flags. Bit 3 is part of the block contract, as len and the CRC are (FLAG_PAYLOAD_UNCHECKED): set, the
+         CRC at the end covers what the block's kind says, a chunk's header and head without its payload; a reader
+         that doesn't know the kind or version skips such a block by its length, unchecked, and never goes on at one
+         right after damage. Every other bit is a flag, and a flag only marks: bit 1 state records a writer put or
+         copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
-         the start of a grid or scale (FLAG_GRID_START, the same bit), bits 5 and 6 retired (tile summaries are
-         kind 17, keyed puts kind 16), bit 7 on a block of puts
-         definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP),
-         bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
+         the start of a grid or scale (FLAG_GRID_START, the same bit), bit 7 on a block of puts definitions written
+         twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9 on a group's first
+         block (FLAG_GROUP_START); bits 0, 5 and 6 retired (coded records, tile summaries and keyed puts are kinds
+         15, 17 and 16); others 0, and a reader ignores them
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -134,8 +136,19 @@ off size field
  24 u32  session tag (SessionTag): the same in every block of one writer's unbroken append, never 0 nor FFFFFFFFh
  28 u32  head CRC in chunk and index blocks (their own docs), else 0
  32 ...  body
-len-4 u32 crc over bytes 0..len-4
+len-4 u32 crc over bytes 0..len-4, or with bit 3 over what the block's kind says
 ```
+
+The **block contract** is what every reader of every version knows of a block:
+
+- the magic, the version, the kind and the length;
+- the CRC at the end, over bytes 0..len-4;
+- header bit 3 (`FLAG_PAYLOAD_UNCHECKED`): the CRC covers only what the block's kind says, for a chunk its header and
+  head ([Fewer checks, sealed later](integrity.md)).
+
+A reader that doesn't know the kind or version of a block with bit 3 can't tell what its CRC covers. It takes the block
+unchecked (`Checked::Unchecked`) and skips it by its length. Right after damage a walk never goes on at such a block
+(`BlockError::Unverified`), since nothing in it was checked.
 
 A **session** is one writer's unbroken append, such as a producer start or a device boot. Its blocks carry the same
 random 32-bit session tag (`ww_tape::SessionTag`), and their seq counts from 0.
@@ -181,20 +194,25 @@ block by its length, and the block is not damage.
 
 ### 3.2 Header flags {#header-flags}
 
-Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know.
+Header bytes 6..8 hold flags, all but bit 3, which belongs to the [block contract](#tape-blocks). A **flag only marks**:
+a reader that doesn't know a flag still reads every byte of the block right. It loses only what the mark tells.
+
+A body that reads another way is a block kind of its own ([Block kinds](#block-kinds)), never a flag. A reader that
+doesn't know the kind skips the block as good and never misreads it. A reader ignores the bits it doesn't know. A
+retired bit is written 0 and never given another meaning in version 1.
 
 | Bit | Flag | Marks |
 |---:|---|---|
-| 0 | | retired: written 0, ignored, not reused in version 1 (coded records are kind 15) |
+| 0 | | retired (coded records are kind 15) |
 | 1 | `FLAG_REPEAT` | a block of state records a writer put or copied ([State tracks](#state-tracks)) |
 | 2 | `FLAG_WITH_NEXT` | puts or a chunk that belong with the block after it ([State tracks](#state-tracks), [Space overviews](#space-overviews)) |
-| 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
+| 3 | `FLAG_PAYLOAD_UNCHECKED` | no flag: part of the block contract, a CRC that covers what the kind says ([above](#tape-blocks)); a writer sets it on the chunks of `Integrity::None` |
 | 4 | `FLAG_RELATION_BREAK`, `FLAG_GRID_START` | by kind: an events chunk where a track's monotone relations start again ([below](#relation-breaks)); a series chunk of level 0 where a grid or scale starts ([Grid starts](#grid-starts)) |
-| 5 | | retired: written 0, ignored, not reused in version 1 (tile summaries are kind 17) |
-| 6 | | retired: written 0, ignored, not reused in version 1 (keyed puts are kind 16) |
+| 5 | | retired (tile summaries are kind 17) |
+| 6 | | retired (keyed puts are kind 16) |
 | 7 | `FLAG_TWICE` | a block of puts of definitions written twice at once, or its copy ([below](#definitions-written-twice-at-once)) |
-| 8 | `FLAG_GROUP` | a block of puts of a group, taken whole or not at all ([Groups of puts](#groups-of-puts)); it only marks, and a reader that doesn't know it reads the block as any block of puts |
-| 9 | `FLAG_GROUP_START` | the first block of a group, with `FLAG_GROUP`; it only marks, as bit 8 |
+| 8 | `FLAG_GROUP` | a block of puts of a group, taken whole or not at all ([Groups of puts](#groups-of-puts)); a reader that doesn't know it reads the block as any block of puts |
+| 9 | `FLAG_GROUP_START` | the first block of a group, with `FLAG_GROUP` |
 
 ### 3.3 Records blocks {#records-blocks}
 
@@ -1050,8 +1068,10 @@ on a keyed track is refused, and so is `put_key` on a plain one.
 
 The records of a keyed track go in blocks of **keyed puts** (kind 16, `BlockKind::KeyedPuts`), marked `FLAG_REPEAT`
 as every block of puts. The body is a records block's. The index then lists each record by its key without the
-definitions. A reader that doesn't know kind 16 skips such a block by its length, so it never takes a key and its value
-for a plain state item. Each item is the key, then the value
+definitions.
+
+A reader that doesn't know kind 16 skips such a block by its length. It never takes a key and its value for a state
+item. Each item is the key, then the value
 ([`state` module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs)):
 
 ```text
@@ -1306,8 +1326,8 @@ The slot codes (`DefinitionKind`) are:
 
 A record of a keyed state track has slot code 0 and entry flag bit 5. Bytes 28..32 hold its key length. Bytes 72..80
 hold the key's first 8 bytes and 80..88 its hash ([Keyed state tracks](#keyed-state-tracks)). Flag bit 6 marks a deletion, so a
-reader lists the live keys of a range from the index alone. A keyed entry without flag bit 0 (repeat) is refused, and
-so is an entry whose flag bit 5 and kind disagree: bit 5 is set on the entries of kind 16 and on no other.
+reader lists the live keys of a range from the index alone. A keyed entry without flag bit 0 (repeat) is refused. Bit 5
+is set on the entries of kind 16 and on no other, and an entry where the two disagree is refused.
 
 A code is a `Describe` variant's discriminant plus 1. A newer writer therefore lists a definition under the code an
 older reader computes for it. The older reader's content check then agrees with the entries.
@@ -2014,11 +2034,12 @@ The check ends at the close in force. `Verification::unchecked` names the bytes 
 
 ### 10.3 Versions and unknown blocks {#versions-and-unknown-blocks}
 
-The header and the CRC at the end stay the same in every version: a later version changes only the body. A block of
+The [block contract](#tape-blocks) stays the same in every version: a later version changes only the body. A block of
 another version that goes on with the data ends the piece the reader is in and starts a piece of that version.
 
 The reader lists that piece with its version (`PieceInfo::version`) and refuses to read it. A reader skips a block of a
-kind it doesn't know by its length, as it skips definitions of a variant it doesn't know.
+kind it doesn't know by its length, as it skips definitions of a variant it doesn't know. New kinds and new flags are
+added within a version the same way: a flag only marks ([Header flags](#header-flags)).
 
 ## 11 Sessions, media and damage {#sessions-media-and-damage}
 
@@ -2429,8 +2450,10 @@ A tile's summary block is a **tile summary** (kind 17, `BlockKind::TileSummary`)
 of fixed axes and the tile's coordinates, one u32 each, as the chunk head does ([Summary blocks](#summary-blocks)). Its
 index entry carries the tile number under flag bit 4, as the tile's chunks' entries do; an entry of kind 6 never does.
 A series has one tree, and its blocks are summary blocks (kind 6) without a tile. A reader that doesn't know kind 17
-skips a tile's block by its length, so it never reads the tile's coordinates as nodes. A writer refuses a summary block of a grid's tile its grid doesn't
-hold, or a series block without a tile on a grid (`SeriesError::TileOutside`).
+skips a tile's block by its length, so it never reads the tile's coordinates as nodes.
+
+A writer refuses a summary block of a grid's tile its grid doesn't hold, or a series block without a tile on a grid
+(`SeriesError::TileOutside`).
 
 `TapeReader::grid_summaries` finds the summary blocks of one level of the tiles a box meets, as `grid_tiles` finds
 their chunks. `ww_tape_summary::region_timeline` reads them and merges, per node, the nodes of every tile into a

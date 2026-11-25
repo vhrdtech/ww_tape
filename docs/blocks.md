@@ -35,10 +35,12 @@ count of the [[records]] or [[items]] it holds. Two more fields tell a [[reader]
 
 The header and the CRC-32C are the same in every version of the format. A reader therefore checks any block and finds
 its end by its length, whatever its kind or version. A changed byte anywhere in the block fails the CRC, and the reader
-knows the block is damaged.
+knows the block is damaged. One header bit narrows the CRC to a chunk's head, for writers that must keep up with a fast
+source ([Fewer checks, sealed later](integrity.md)).
 
 A block of a kind the reader does not know reads as a good block whose body it skips, and the reading goes on. A newer
-kind of block thus never looks like damage to an old reader. A block of a later version is different: it ends the
+kind of block thus never looks like damage to an old reader. The flags in the header only mark: a body that reads
+another way, such as a coded body, is a kind of its own. A block of a later version is different: it ends the
 [[piece]] the reader is in. The reader lists the rest as a piece of that version, which it refuses to read
 ([`ReadError::Version`]).
 

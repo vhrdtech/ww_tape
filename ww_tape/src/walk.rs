@@ -162,10 +162,11 @@ impl SessionState {
     /// last, or a block that takes no part in the order), the last block again (a rewrite after a failed program,
     /// same bytes or not), or a session that may start there.
     pub(crate) fn resumes(&self, b: &Block<'_>) -> bool {
-        matches!(
-            self.verdict(b, true),
-            Verdict::Take | Verdict::Duplicate { .. }
-        )
+        b.checked() != crate::Checked::Unchecked
+            && matches!(
+                self.verdict(b, true),
+                Verdict::Take | Verdict::Duplicate { .. }
+            )
     }
 
     /// Whether the block whose header is `h` may go on with the data past a gap: a superset of [Self::resumes], read

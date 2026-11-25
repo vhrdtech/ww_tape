@@ -17,14 +17,16 @@
 //!   0   4  magic "WWTP"
 //!   4  u8  version, 1
 //!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
-//!   6 u16  flags: bit 0 retired (coded records are kind 15), bit 1 state records a writer put or
-//!          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
-//!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
+//!   6 u16  flags. Bit 3 is part of the block contract, as len and the CRC are (FLAG_PAYLOAD_UNCHECKED): set, the
+//!          CRC at the end covers what the block's kind says, a chunk's header and head without its payload; a reader
+//!          that doesn't know the kind or version skips such a block by its length, unchecked, and never goes on at one
+//!          right after damage. Every other bit is a flag, and a flag only marks: bit 1 state records a writer put or
+//!          copied (FLAG_REPEAT), bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0
-//!          the start of a grid or scale (FLAG_GRID_START, the same bit), bits 5 and 6 retired (tile summaries are
-//!          kind 17, keyed puts kind 16), bit 7 on a block of puts
-//!          definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP),
-//!          bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
+//!          the start of a grid or scale (FLAG_GRID_START, the same bit), bit 7 on a block of puts definitions written
+//!          twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9 on a group's first
+//!          block (FLAG_GROUP_START); bits 0, 5 and 6 retired (coded records, tile summaries and keyed puts are kinds
+//!          15, 17 and 16); others 0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -33,7 +35,7 @@
 //!  24 u32  session tag (SessionTag): the same in every block of one writer's unbroken append, never 0 nor FFFFFFFFh
 //!  28 u32  head CRC in chunk and index blocks (their own docs), else 0
 //!  32 ...  body
-//! len-4 u32 crc over bytes 0..len-4
+//! len-4 u32 crc over bytes 0..len-4, or with bit 3 over what the block's kind says
 //! ```
 //!
 //! The body of a records block is a clock table, then records back to back:
@@ -61,9 +63,11 @@
 //! without the definitions; a writer keeps the two in agreement, and a reader may take a record whose slot names
 //! another clock than its track's for damage.
 //!
-//! The header and the CRC at the end are the same in every version, so any reader can check a block and skip it by its
-//! length. A later version bumps the version byte and changes only the body; new block kinds and flag bits are added
-//! the same way. A block of another version that goes on with the data ends the piece the reader is in and starts a
+//! The **block contract** is the same in every version: the magic, version, kind and length, header bit 3 and the CRC
+//! at the end. So any reader can check a block and skip it by its length; a block marked [FLAG_PAYLOAD_UNCHECKED] of a
+//! kind or version it doesn't know it can only skip ([Checked::Unchecked]). A later version bumps the version byte and
+//! changes only the body. New block kinds and flag bits are added the same way, and a flag only marks: a reader that
+//! doesn't know it reads every byte of the block right. A body read another way is a kind of its own. A block of another version that goes on with the data ends the piece the reader is in and starts a
 //! piece of that version, which the reader lists with its version and refuses to read ([reader::ReadError::Version]).
 //! A block of an unknown kind reads as it is ([Block::body_known] false, no records), not as damage. [Describe] is an
 //! evolvable enum, so a describe record of a variant a reader doesn't know reads as [Describe::Unknown] and is
@@ -372,11 +376,13 @@ pub const FLAG_GROUP: u16 = 1 << 8;
 /// It only marks. After damage a reader that knows it takes a group that starts with it whole: the damage hit no block
 /// of it. A block of a group without it may be the rest of a group the damage hit, and goes with it.
 pub const FLAG_GROUP_START: u16 = 1 << 9;
-/// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk a writer of
-/// [Integrity::None] encodes.
+/// Header bit 3, part of the block contract rather than a flag: the CRC at the end covers what the block's kind says,
+/// not the whole block. A writer of [Integrity::None] sets it on each chunk it encodes.
 ///
-/// The segment CRC slots hold zero and the block CRC covers the head alone; the head CRC covers the header, this flag
-/// with it. A reader checks the head and takes the payload as it is ([Checked::Unprotected]).
+/// On a chunk the segment CRC slots hold zero and the block CRC covers the head alone; the head CRC covers the header,
+/// this bit with it. A reader checks the head and takes the payload as it is ([Checked::Unprotected]). A reader that
+/// doesn't know the block's kind or version can't check it: it skips the block ([Checked::Unchecked]), and a walk never
+/// goes on at one right after damage ([BlockError::Unverified]).
 pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
 /// Header flag on events chunk blocks: the order of its track's monotone relations starts again at this chunk.
 ///
@@ -1010,6 +1016,9 @@ pub enum BlockError {
     UnhandledIntegrity {
         level: u8,
     },
+    /// A block marked [FLAG_PAYLOAD_UNCHECKED] of a kind or version this reader doesn't know ([Checked::Unchecked])
+    /// met right after damage: its CRC can't be checked, so a walk never goes on there.
+    Unverified,
 }
 
 impl core::fmt::Display for BlockError {
@@ -1024,6 +1033,10 @@ impl core::fmt::Display for BlockError {
             Self::BadRecords => write!(f, "the records don't parse as the header says"),
             Self::Coded => write!(f, "a coded body: its records are read by decoding it"),
             Self::NotChunk => write!(f, "not a chunk block this reader reads"),
+            Self::Unverified => write!(
+                f,
+                "a block whose CRC this reader can't check, right after damage"
+            ),
             Self::UnhandledIntegrity { level } => {
                 write!(
                     f,
@@ -1074,6 +1087,10 @@ pub enum Checked {
     /// A chunk block whose writer computed no CRCs over its payload ([FLAG_PAYLOAD_UNCHECKED], [Integrity::None]):
     /// its header and head checked, its payload taken as it is, whatever the reader asked for.
     Unprotected,
+    /// A block marked [FLAG_PAYLOAD_UNCHECKED] of a kind or version this reader doesn't know: its CRC covers what its
+    /// kind says, which this reader can't tell, so only its header was read. It is skipped by its length, and a walk
+    /// never goes on at it past damage ([BlockError::Unverified]).
+    Unchecked,
 }
 
 impl Checked {
@@ -1304,6 +1321,10 @@ impl<'b> Block<'b> {
                 Ok(block)
             }
             Some(_) => Err(BlockError::BadCrc),
+            None if block.is_unchecked() => {
+                block.checked = Checked::Unchecked;
+                Ok(block)
+            }
             None => {
                 if CRC.checksum(block.covered) != block.crc {
                     return Err(BlockError::BadCrc);
@@ -1344,6 +1365,8 @@ impl<'b> Block<'b> {
         let (mut block, chunk) = Self::read_unchecked(bytes)?;
         block.checked = if let Some(c) = &chunk {
             Checked::of_chunk(c, Checked::Unverified)
+        } else if block.is_unchecked() {
+            Checked::Unchecked
         } else {
             block.check_records()?;
             if block.is_summary() {
@@ -1427,6 +1450,12 @@ impl<'b> Block<'b> {
             return Ok((block, Some(chunk)));
         }
         Ok((block, None))
+    }
+
+    /// Whether the block's CRC is one this reader can't check: marked [FLAG_PAYLOAD_UNCHECKED], its kind or version
+    /// unknown to it, so it can't tell what the CRC covers.
+    fn is_unchecked(&self) -> bool {
+        self.flags & FLAG_PAYLOAD_UNCHECKED != 0 && !self.body_known()
     }
 
     /// The records parse to the end and are as many as the header says.

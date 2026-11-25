@@ -101,11 +101,11 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   Read more: [Grid starts](docs/format.md#grid-starts). Tests `grid_starts.rs`; fuzz target `tape-series-hostile`.
 
-- 🚧 **FMT-17 Header flags only mark**
+- ✅ **FMT-17 Header flags only mark**
 
-  A body read another way is a block kind of its own, never a header flag, so a reader that doesn't know it skips the block as good. Coded records are kind 15, keyed puts kind 16 and tile summaries kind 17; header bits 0, 5 and 6 are retired. Still to do: bit 3 into the block contract.
+  A flag only marks: a reader that doesn't know it reads every byte of the block right. A body read another way is a block kind of its own, which such a reader skips as good. Coded records are kind 15, keyed puts kind 16 and tile summaries kind 17; header bits 0, 5 and 6 are retired. Bit 3 belongs to the block contract: a reader skips an unknown kind with it unchecked, and never resumes at one after damage.
 
-  Read more: [Header flags](docs/format.md#header-flags). Tests `keyed.rs`, `grid_summaries.rs`; fuzz targets `tape-keyed`, `tape-keyed-hostile`, `tape-summary-hostile`.
+  Read more: [Header flags](docs/format.md#header-flags). Tests `keyed.rs`, `grid_summaries.rs`, `reserved.rs`; fuzz targets `tape-keyed-hostile`, `tape-summary-hostile`, `tape-records-hostile`.
 
 - 🚧 **FMT-15 Grids: series tracks with fixed axes**
 

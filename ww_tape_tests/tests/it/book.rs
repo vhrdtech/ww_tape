@@ -717,9 +717,9 @@ fn format_page_piece_rows_read_a_chain() {
 fn format_page_integrity_fields_are_the_constants() {
     let page = std::fs::read_to_string("../docs/format.md").unwrap();
     assert_eq!(ww_tape::FLAG_PAYLOAD_UNCHECKED, 1 << 3);
-    assert!(
-        page.contains("bit 3 on a\n         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED")
-    );
+    assert!(page.contains(
+        "flags. Bit 3 is part of the block contract, as len and the CRC are (FLAG_PAYLOAD_UNCHECKED)"
+    ));
     assert_eq!(ww_tape::index::ENTRY_UNHASHED, 1 << 2);
     assert!(page.contains("bit 2 unhashed (no unit hash)"));
     use ww_tape::Integrity;
