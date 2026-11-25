@@ -913,6 +913,9 @@ No cut falls inside a group, nor a checkpoint or a deferred block. A group's las
 relayed while a caller's unit is open waits whole. The writer writes it right after the unit's last chunk. Such
 groups count toward `RELAY_GROUPS_MAX` and `RELAY_HELD_BYTES_MAX`, and a cut carries them.
 
+A put, typed item or definition put behind a waiting group waits too, so the two keep their order
+(`TapeWriter::puts_waiting` counts what waits).
+
 A group on a track defined twice ([above](#definitions-written-twice-at-once)) opens with its block marked
 `FLAG_TWICE`. That block is one of the group: it carries `FLAG_GROUP` and `FLAG_GROUP_START` and counts toward
 `RUN_BLOCKS_MAX`. Its copy follows the group's last block and carries neither mark. It is so no block of the group, and
@@ -2425,7 +2428,8 @@ The writer's policies (`WriterOptions`, `PieceChain`'s `ChainOptions`):
 | `CutPolicy::bytes`, `chunks`, `interval` | none: 0 or None turns each off | when a chain cuts to a new piece: by size, chunk count or age |
 
 A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`. That is the chunk or call that takes it over, with
-its final index entries, then the close and the tail. `CutPolicy::bytes` counts the final index of what came before. A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
+its final index entries, then the close and the tail. `CutPolicy::bytes` counts the final index of what came before.
+A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
 
 A track's state policy (`StatePolicy`) is part of its definition, and track 0's is in the layout:
 

@@ -415,3 +415,49 @@ fn the_mux_holds_a_relayed_group_ending_during_another_producers_unit() {
     assert_eq!(in_force(&p[0], STATE).as_deref(), Some(&b"one"[..]));
     assert_eq!(in_force(&p[0], OTHER).as_deref(), Some(&b"two"[..]));
 }
+
+/// A put after a group, both while the unit is open: the put waits behind the group, so its item is in force after.
+#[test]
+fn a_put_behind_a_waiting_group_keeps_its_order() {
+    let (defs, units) = relayed_units(false, 1);
+    let mut w = crate::resume::begin(0);
+    let tape = w.sink().tape();
+    w.write_block(&defs, &units[0][0]).unwrap();
+    w.put_group(&defs, &group_of(STATE, b"old")).unwrap();
+    assert!(!w.put(&defs, TrackNum::new(STATE), 1, b"new").unwrap());
+    assert!(!w.put_item(&defs, &item(b"run")).unwrap());
+    assert_eq!(
+        w.puts_waiting(),
+        3,
+        "the group, then the put and the item behind it"
+    );
+    w.write_block(&defs, &units[0][1]).unwrap();
+    assert_eq!(w.puts_waiting(), 0);
+    let bytes = tape.to_vec().unwrap();
+    assert_eq!(unit_and_groups(&kinds(&bytes)), 1);
+    assert_eq!(in_force(&bytes, STATE).as_deref(), Some(&b"new"[..]));
+}
+
+/// Through the mux: a state put behind a group put while a relayed unit is open is in force after the unit.
+#[test]
+fn the_mux_keeps_a_put_behind_a_waiting_group() {
+    let (_, units) = relayed_units(false, 1);
+    let mem = ww_tape::MemPieces::new();
+    let (mux, relay) = relay_mux(&mem, 0);
+    let group = mux.group(&[TrackNum::new(STATE)]).unwrap();
+    let state = mux.state(TrackNum::new(STATE)).unwrap();
+    relay.send(units[0][0].clone()).unwrap();
+    relay.flush().unwrap();
+    group.put_group(&group_of(STATE, b"old")).unwrap();
+    state.put(1, b"new").unwrap();
+    state.flush().unwrap();
+    relay.send(units[0][1].clone()).unwrap();
+    relay.flush().unwrap();
+    assert_eq!(mux.stats().refused, 0, "nothing refused");
+    drop((relay, group, state));
+    mux.close().unwrap();
+    let p = crate::mux_multi::pieces(&mem);
+    assert_eq!(p.len(), 1);
+    assert_eq!(unit_and_groups(&kinds(&p[0])), 1);
+    assert_eq!(in_force(&p[0], STATE).as_deref(), Some(&b"new"[..]));
+}
