@@ -188,6 +188,10 @@ opt-level = 3
 [profile.test.package.ww_tape_fuzz]
 opt-level = 3
 
+# a heap test writes and reads a 2 GiB value of a bytes track through a file
+[profile.test.package.ww_tape_fs]
+opt-level = 3
+
 # the mux tests send millions of items through the handles and resume at every block boundary
 [profile.test.package.ww_tape_mux]
 opt-level = 3
