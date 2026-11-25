@@ -55,6 +55,7 @@ fn piece_with(
             prev: None,
             prev_session: SessionTag::NONE,
             integrity: ww_tape::Integrity::Full,
+            unlisted_keys_unknown: false,
         },
         &[],
     )

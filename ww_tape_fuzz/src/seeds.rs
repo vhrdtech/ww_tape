@@ -51,6 +51,11 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ),
     ("tape-resume", "closed-last-piece-damaged", "070030c80101"),
     (
+        "tape-runs",
+        "headless-puts-resume-in-their-session",
+        "010000000000002800000054c2c2fb",
+    ),
+    (
         "tape-reclose",
         "empty-append-has-its-own-final-index",
         "0801000c",
@@ -178,6 +183,7 @@ const GOLDEN_SERIES: &str = include_str!("../../ww_tape/golden/v1-series.hex");
 const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-summary.hex");
 const GOLDEN_GRID_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-grid-summary.hex");
 const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
+const GOLDEN_KEYED: &str = include_str!("../../ww_tape/golden/v1-keyed.hex");
 const GOLDEN_CRC_ONLY: &str = include_str!("../../ww_tape/golden/v1-level-crc-only.hex");
 const GOLDEN_NONE: &str = include_str!("../../ww_tape/golden/v1-level-none.hex");
 /// The golden grids by their count of fixed axes.
@@ -291,6 +297,27 @@ fn golden_grids() -> Vec<Seed> {
                     ));
                 }
             }
+        }
+    }
+    out
+}
+
+/// The golden keyed piece: whole as a `tape-reader` input, each keyed record's item as a `tape-keyed` input.
+fn golden_keyed() -> Vec<Seed> {
+    let piece = golden(GOLDEN_KEYED).concat();
+    let mut out = vec![seed("tape-reader", "golden-v1-keyed", piece.clone())];
+    let mut rd = ww_tape::FileBlocks::with_recovery(&piece[..], ww_tape::Recovery::Prefix);
+    while let Some(Ok(block)) = rd.next_block() {
+        if !block.is_keyed() {
+            continue;
+        }
+        for r in block.records().flatten() {
+            let n = out.len();
+            out.push(seed(
+                "tape-keyed",
+                format!("golden-v1-keyed-{n:02}"),
+                r.item.to_vec(),
+            ));
         }
     }
     out
@@ -534,6 +561,7 @@ fn close_only(final_index: u64, piece_len: Option<u64>) -> Vec<u8> {
         summary: None,
         ident: None,
         next: None,
+        unlisted_keys_unknown: false,
     };
     let mut b = vec![0u8; close_len(0, 0)];
     let n = write_close(&mut b, BlockId::new(SESSION, 0), &close, (&[], &[]), 0).expect("a close");
@@ -624,6 +652,7 @@ fn session(layout: Layout, n: u64) -> Vec<u8> {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let len = write_piece_head(&mut out, BlockId::new(SESSION, 0), &head, &[]).expect("a head");
     out.truncate(len);
@@ -962,6 +991,7 @@ pub fn all() -> Vec<Seed> {
     out.extend(golden_series());
     out.extend(golden_flags());
     out.extend(golden_grids());
+    out.extend(golden_keyed());
     out.extend(encoding_seeds());
     out.extend(golden_blocks("tape-summary", "v1-summary", GOLDEN_SUMMARY));
     out.extend(golden_blocks(

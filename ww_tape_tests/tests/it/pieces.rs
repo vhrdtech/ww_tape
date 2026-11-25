@@ -1064,6 +1064,7 @@ fn a_damaged_block_of_definitions_reads_from_their_copies() {
             prev: None,
             prev_session: SessionTag::NONE,
             integrity: ww_tape::Integrity::Full,
+            unlisted_keys_unknown: false,
         };
         w.begin_piece(&head, &[]).unwrap();
         for k in 0..64 {
@@ -1142,6 +1143,7 @@ fn the_near_policy_carries_over_a_cut() {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).unwrap();
     let (_, mut next) =
@@ -1236,6 +1238,7 @@ fn every_block_of_data_has_its_definitions_behind_it() {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).unwrap();
     let mut defs = crate::definitions::base_defs().clone();

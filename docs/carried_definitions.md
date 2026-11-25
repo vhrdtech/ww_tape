@@ -66,6 +66,9 @@ contract: a new piece carries every definition while the chain's tracks fit its 
 that room, the tracks with the oldest data are left out. The next head flags their rows, the close counts them (`Closed::not_carried`) and a reader of
 the piece names them (`DefinitionsAt::not_carried`).
 
+A keyed state track is never left out. It goes first, with every live key. The writer refuses a put that would make
+its keys too many for a piece ([Keyed state tracks](format.md#keyed-state-tracks)).
+
 The room is counted in entries, not bytes, so a label's length changes it little. `just bench-carried` measures how
 many tracks a cut carries whole, each with its own definition and no bundle:
 
@@ -77,7 +80,7 @@ The copies of the layout and the producer, which every call that puts a record m
 A copy that finds the state entries full is skipped, and the call goes on without it.
 
 A call is admitted only when its records fit an empty piece under the same policy. Those are the definitions its tracks
-need, its put, the layout and the producer. Otherwise `InputError::CarriedEntries` refuses it: nothing written, no cut.
+need, its put, the layout, the producer and the keys every cut carries. Otherwise `InputError::CarriedEntries` refuses it: nothing written, no cut.
 
 A cut is never refused for the definitions it carries. They outgrow the room in four ways:
 
@@ -90,9 +93,10 @@ The cut keeps room for the records of the call it is made for. Those are its put
 written last, or named with `TapeWriter::want`, put again before its data. The rest goes once each, with no repeated
 clocks and maps, in this order while room lasts:
 
-1. The tracks of that call, each with its clock chain and bundles.
-2. The clocks and maps the other tracks count through.
-3. The tracks with data in the piece, newest first, each with its bundles; then the quiet tracks.
+1. The keyed state tracks, each with its clock chain, its bundles and every live key.
+2. The tracks of that call, each with its clock chain and bundles.
+3. The clocks and maps the other tracks count through.
+4. The tracks with data in the piece, newest first, each with its bundles; then the quiet tracks.
 
 Carried once, a damaged block of clocks and maps costs every track using them.
 

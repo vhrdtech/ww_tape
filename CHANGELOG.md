@@ -23,6 +23,40 @@ benchmarks, golden files and book pages.
 - A put behind such a waiting group waits too, keeping its order after the unit (FMT-15).
 - A close inside an open unit with puts waiting is refused with `InputError::Waiting`, never closed without them (FMT-15).
 
+## [0.11.0] - 2026-11-25
+
+### Breaking
+
+- Header bit 6 (`FLAG_KEYED`) marks keyed state blocks; older readers misread them: upgrade readers (TRACK-8).
+- Index entry flags bit 5 and 6 mark keyed records and deletions; older readers refuse such entries (TRACK-8).
+- `IndexEntry` gains `key` and `deleted`, `StateEntry` gains `deleted`: struct literals add them (TRACK-8).
+- `Slot` gains `Keyed`; `Slot::of` takes whether the record's block is keyed (TRACK-8).
+- `TrackFacts` gains `keyed`; `mux::Unit::Put` gains `keyed`; `DescribeError` and `CallError` gain variants (TRACK-8).
+- Head row flag bit 2 (`ROW_KEYS_CARRIED`) marks a carried keyed track; older readers refuse such heads (TRACK-8).
+- `TrackStart` gains `keys_carried`, `Closed` gains `keys_unknown`, `KeysAt` and `Lookup` gain `not_carried` (TRACK-8).
+- Head and close flag bit 1 (`unlisted_keys_unknown`): after damage, a keyed track without a row may have older keys (TRACK-8).
+- `GroupPut::item` is a `GroupItem`, `State` or `Key`: build puts with `GroupPut::state` (TRACK-8).
+- `mux::Unit::Group` holds `GroupUnitPut`s, each with `keyed` (TRACK-8).
+- `InputError::CarryFull`, `ResumeError::KeysUnknown`, `ResumeError::KeysUndefined` and `DescribeError::KeyCollision` are new variants (TRACK-8).
+
+### Features
+
+- `TrackRepeat::Keyed`: a state track of many keys, the newest record per key in force (TRACK-8).
+- `put_key` and `delete_key` on `TapeWriter`, `PieceChain` and the mux's `StateHandle` put by key (TRACK-8).
+- The index lists a keyed record by key head, length and hash: `key_entries` and `key_slots` read the index only (TRACK-8).
+- `key_at`, `key_history` and `keys_at` read a key's record at a place, its history and a prefix's live keys (TRACK-8).
+- Fuzz targets `tape-keyed` and `tape-keyed-hostile` check keyed items, entries, lookups and resume (TRACK-8).
+- A cut carries every live key of a keyed track; a piece read alone holds them or says not (TRACK-8).
+- A put by key past the carry's limit, or of another live key's id, is refused (TRACK-8).
+- Groups of puts take keys and deletions: `put_group`, a relayed group and the mux's `GroupHandle` (TRACK-8).
+
+### Fixes
+
+- A resume takes nothing of a group of puts with a damaged block, as readers drop it (WRITE-17).
+- A piece of puts alone, without a head, resumes in its own session: readers take the blocks after (WRITE-2).
+- A resume decides a group's blocks by the reader's rule: forged group marks never make the carry differ (TRACK-8).
+- A follower drops a group whose marks break it, by the same rule, `ww_tape::group_marks::link` (TRACK-8).
+
 ## [0.10.1] - 2026-11-24
 
 ### Features

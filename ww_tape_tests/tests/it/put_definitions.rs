@@ -107,7 +107,7 @@ fn definitions_put_between_groups_leave_each_group_whole() {
         [GroupPut {
             track: STATE,
             ticks: 0,
-            item,
+            item: ww_tape::GroupItem::State(item),
         }]
     };
     w.put_group(&defs, &put(b"one")).unwrap();
@@ -171,7 +171,7 @@ fn the_mux_puts_definitions_between_groups_and_refuses_an_unknown_track() {
         [GroupPut {
             track: STATE,
             ticks: 0,
-            item,
+            item: ww_tape::GroupItem::State(item),
         }]
     };
     group.put_group(&put(b"one")).unwrap();

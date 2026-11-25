@@ -163,6 +163,16 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds), `ww_tape_tests/tests/it/chain_numbers.rs`.
 
+- ✅ **TRACK-8 Keyed state tracks**
+
+  A keyed state track (`TrackRepeat::Keyed`) holds many slots, one per key of at most 1024 bytes, the newest record per key in force. `put_key` and `delete_key` put a key's value or end it, on the writer, a chain and the mux's `StateHandle`, near its use per key. The index lists each record by its key's first 8 bytes, length and 64-bit hash. A key's records and a prefix's live keys so are found without reading blocks (`key_entries`, `key_slots`). `key_at`, `key_history` and `keys_at` read the records, and the full key decides a hash collision.
+
+  A cut carries every live key into the new piece and never leaves a keyed track out. It marks the head row (`TrackStart::keys_carried`) when the writer knew every key. A piece read alone then holds the keys in force at its start, also after a chain cut by itself or resumed after a crash.
+
+  A reader names a piece without them (`KeysAt::not_carried`). A put that would make the carry too large is refused naming the limit (`InputError::CarryFull`). So is a key with another live key's id (`DescribeError::KeyCollision`).
+
+  Read more: [Keyed state tracks](docs/format.md#keyed-state-tracks), [State entries](docs/format.md#state-entries). Golden files `v1-keyed.hex`, `v1-keyed-carried.hex`; tests `keyed.rs`, `keyed_carry.rs`, `state::tests`, `index::tests`; fuzz targets `tape-keyed`, `tape-keyed-hostile`.
+
 - ✅ **TRACK-9 Definitions written twice at once**
 
   A track whose definition says `defined_twice` has every definition it needs written twice: its clock chain, its bundles and its own. The first record goes into a block marked `FLAG_TWICE` inside its run. Its copy follows right after the block that ends the run and belongs with no other block. In a piece under 1 MiB each definition so reads after any one damaged block. A resume writes the copies a crash cut off, so the bytes equal those written without the crash.

@@ -23,10 +23,28 @@ pub enum Unit {
     },
     /// A block of a [RecordsHandle](crate::RecordsHandle) or [RelayHandle](crate::RelayHandle).
     Block(Vec<u8>),
-    /// A put of a [StateHandle](crate::StateHandle).
-    Put { ticks: i64, item: Vec<u8> },
-    /// A group of puts of a [GroupHandle](crate::GroupHandle): track, time and item each.
-    Group(Vec<(TrackNum, i64, Vec<u8>)>),
+    /// A put of a [StateHandle](crate::StateHandle); with `keyed`, `item` holds a key and its value or deletion as a
+    /// [KeyedItem](ww_tape::KeyedItem) encodes them.
+    Put {
+        ticks: i64,
+        item: Vec<u8>,
+        keyed: bool,
+    },
+    /// A group of puts of a [GroupHandle](crate::GroupHandle).
+    Group(Vec<GroupUnitPut>),
+}
+
+/// A put of a group a [GroupHandle](crate::GroupHandle) sent ([Unit::Group]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupUnitPut {
+    /// The state track.
+    pub track: TrackNum,
+    /// The time of the put, in ticks of the track's clock.
+    pub ticks: i64,
+    /// The item; with `keyed`, a key and its value or deletion as a [KeyedItem](ww_tape::KeyedItem) encodes them.
+    pub item: Vec<u8>,
+    /// Whether the put is by key, on a keyed state track.
+    pub keyed: bool,
 }
 
 /// What a handle refuses at the call, before anything is sent.
@@ -53,6 +71,10 @@ pub enum CallError {
     Encode(EncodeError),
     /// A grid a grid handle refuses: it starts after the next time step, or too close to the last one.
     Grid(SeriesError),
+    /// A put without a key on a keyed state track (`keyed` true), or by key on a plain one.
+    Keyed { track: TrackNum, keyed: bool },
+    /// A key longer than [STATE_KEY_LEN_MAX](ww_tape::STATE_KEY_LEN_MAX).
+    KeyTooLong { len: usize },
     /// A box of cells that isn't one range per fixed axis of the grid, each non-empty, within the axis' extent and
     /// starting and ending at a tile's edge.
     TileBox,
@@ -185,6 +207,21 @@ impl core::fmt::Display for CallError {
             Self::Item { item, why } => write!(f, "item {} refused: {why}", item.get()),
             Self::Encode(e) => write!(f, "{e}"),
             Self::Grid(e) => write!(f, "a grid refused: {e}"),
+            Self::Keyed { track, keyed: true } => write!(
+                f,
+                "track {} is keyed state: put by key",
+                track.get()
+            ),
+            Self::Keyed { track, keyed: false } => write!(
+                f,
+                "track {} is not keyed state: nothing of it is put by key",
+                track.get()
+            ),
+            Self::KeyTooLong { len } => write!(
+                f,
+                "a key of {len} bytes is longer than {}",
+                ww_tape::STATE_KEY_LEN_MAX
+            ),
             Self::TileBox => f.write_str(
                 "a box of cells that isn't one non-empty, tile-aligned range per fixed axis within its extent",
             ),

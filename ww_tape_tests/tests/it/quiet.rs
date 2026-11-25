@@ -140,6 +140,7 @@ fn lowered_cut() -> (ww_tape::writer::Closed, Vec<u8>) {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).unwrap();
     for t in 0..3 {
@@ -211,7 +212,7 @@ fn not_carried_golden() {
 }
 
 /// `bytes` as the golden file `name` holds them in hex, 64 bytes a line; `WW_TAPE_GOLDEN=update` rewrites it.
-fn golden(bytes: &[u8], name: &str) {
+pub(crate) fn golden(bytes: &[u8], name: &str) {
     let mut hex = String::new();
     for line in bytes.chunks(64) {
         push_hex(&mut hex, line);
@@ -284,6 +285,7 @@ fn a_resume_after_a_cut_puts_the_carried_definitions_again() {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_session(SessionTag::writable(0x7175_6966)).unwrap();
@@ -460,6 +462,7 @@ fn a_damaged_carried_block_costs_only_its_own_tracks() {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).unwrap();
     for t in 0..200 {
@@ -634,6 +637,7 @@ fn maps_added_to_tracks_on_their_own_clocks_keep_the_chain_writing() {
             hash: ww_tape::TrackHash::START,
             incomplete: false,
             not_carried: false,
+            keys_carried: false,
         });
         all.push(d);
     }
@@ -771,6 +775,7 @@ fn a_marked_row_whose_definition_the_piece_holds_is_not_named() {
         hash: ww_tape::TrackHash::START,
         incomplete: false,
         not_carried: true,
+        keys_carried: false,
     };
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_session(SessionTag::writable(0x7175_6968)).unwrap();
@@ -784,6 +789,7 @@ fn a_marked_row_whose_definition_the_piece_holds_is_not_named() {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[row(1), row(2)]).unwrap();
     // track 1's data puts its definition; track 2 stays quiet
@@ -957,6 +963,7 @@ fn a_marked_row_whose_number_another_track_took_is_named() {
         hash: ww_tape::TrackHash::START,
         incomplete: false,
         not_carried: true,
+        keys_carried: false,
     };
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_session(SessionTag::writable(0x7175_6969)).unwrap();
@@ -970,6 +977,7 @@ fn a_marked_row_whose_number_another_track_took_is_named() {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[row]).unwrap();
     // number 1 now names the other track, which gives data

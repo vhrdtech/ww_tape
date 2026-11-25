@@ -45,6 +45,7 @@ fn close_only(final_index: u64) -> Vec<u8> {
         summary: None,
         ident: None,
         next: None,
+        unlisted_keys_unknown: false,
     };
     let mut bytes = vec![0u8; close_len(0, 0)];
     let n = write_close(&mut bytes, id(0), &close, (&[], &[]), 0).unwrap();
@@ -94,6 +95,8 @@ fn entry_past_the_piece_is_an_error() {
             unit: ww_tape::UnitHash::NONE,
             range: None,
             tile: None,
+            key: None,
+            deleted: false,
         };
         assert!(
             matches!(
@@ -149,6 +152,8 @@ fn an_entry_longer_than_any_block_is_refused_before_reading() {
         unit: ww_tape::UnitHash::NONE,
         range: None,
         tile: None,
+        key: None,
+        deleted: false,
     };
     let mut buf = Vec::new();
     let e = r.read_block(0, &entry, &mut buf);

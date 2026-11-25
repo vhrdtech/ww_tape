@@ -31,6 +31,8 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
             _ => Some((offset, u64::MAX - offset)),
         },
         tile: None,
+        key: None,
+        deleted: false,
     }
 }
 
@@ -574,12 +576,13 @@ fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
 #[test]
 fn an_entry_is_checked_the_same_on_every_read() {
     refused_both_ways(|e| e[15] |= ENTRY_UNHASHED, IndexError::BadEntries);
-    for bit in 5..8 {
-        refused_both_ways(
-            |e| e[15] |= 1 << bit,
-            IndexError::Invalid("an entry flag this build doesn't know"),
-        );
-    }
+    refused_both_ways(
+        |e| e[15] |= 1 << 7,
+        IndexError::Invalid("an entry flag this build doesn't know"),
+    );
+    // a key or a deletion on a chunk's entry
+    refused_both_ways(|e| e[15] |= ENTRY_KEYED, IndexError::BadEntries);
+    refused_both_ways(|e| e[15] |= ENTRY_DELETED, IndexError::BadEntries);
     refused_both_ways(
         |e| {
             e[15] |= ENTRY_RANGE;
@@ -621,6 +624,8 @@ fn summary_entries_carry_tile_numbers() {
         tree: t.to_u8(),
         range: None,
         tile: Some(7 << 12 | 3 << 6 | 2 << 3 | 5),
+        key: None,
+        deleted: false,
         ..entry(1, 1000)
     };
     let head = IndexHead {
@@ -660,6 +665,8 @@ fn tile_numbers_round_trip() {
             kind: BlockKind::Series,
             range: None,
             tile: *tile,
+            key: None,
+            deleted: false,
             ..entry(1, 1000 + i as u64 * 300)
         })
         .collect();
@@ -728,6 +735,8 @@ fn overview_levels_of_entries_are_checked() {
         kind: BlockKind::Series,
         range: None,
         tile: Some(5),
+        key: None,
+        deleted: false,
         level: 2,
         ..entry(1, 400)
     };
@@ -737,6 +746,8 @@ fn overview_levels_of_entries_are_checked() {
     };
     let scanned = IndexEntry {
         tile: None,
+        key: None,
+        deleted: false,
         ..series
     };
     for e in [series, top, scanned] {
@@ -775,4 +786,22 @@ fn overview_levels_of_entries_are_checked() {
         raw.copy_from_slice(&e.encode()[..ENTRY_READ_LEN]);
         assert_eq!(IndexEntry::read(&raw), Err(IndexError::BadEntries));
     }
+}
+
+/// A key on a state record's entry holds only where the entry is marked repeated: a keyed record is a state record.
+#[test]
+fn a_keyed_entry_without_its_repeat_mark_is_refused() {
+    let key = KeyId::of(b"/a/b").expect("a short key");
+    let mut e = IndexEntry {
+        kind: BlockKind::Records,
+        track_id: STATE_TRACK_ID,
+        second: key.len,
+        repeat: true,
+        range: None,
+        key: Some(key),
+        ..entry(1, 4)
+    };
+    assert!(e.is_valid(), "a keyed state entry");
+    e.repeat = false;
+    assert!(!e.is_valid(), "a keyed entry not marked repeated");
 }

@@ -169,6 +169,7 @@ fn template(mode: TemplateMode, level: ww_tape::Integrity) -> Vec<u8> {
             prev: None,
             prev_session: SessionTag::NONE,
             integrity: level,
+            unlisted_keys_unknown: false,
         };
         w.begin_piece(&h, &[]).expect("a head writes");
     }
@@ -537,9 +538,10 @@ fn good_blocks_holding(out: &[u8], slot: Slot) -> usize {
         }
         let mut buf = Vec::new();
         let Ok(b) = b.decode(&mut buf) else { continue };
+        let keyed = b.is_keyed();
         if b.records()
             .flatten()
-            .any(|r| Slot::of(r.track, r.item) == Some(slot))
+            .any(|r| Slot::of(r.track, r.item, keyed) == Some(slot))
         {
             n += 1;
         }

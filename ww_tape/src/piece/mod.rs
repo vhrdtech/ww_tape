@@ -64,14 +64,16 @@
 //! ```text
 //! piece head (kind 10)
 //!  32 [16] piece id                 48 [32] owner id                80 u64 sequence number in the chain
-//!  88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
+//!  88 u32  flags: bit 0 has a previous piece; bit 1 keyed tracks without a row may have keys before the piece
+//!  92 u32  previous session tag (0: none or unknown)
 //!  96 [32] previous piece's content hash                           128 [16] previous piece's id
 //! 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
 //! 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (a reader refuses another value)    147 [5] reserved
 //! 152 ...  tracks × 96, one per track carried over from the pieces before:
 //!            0 u64 id    8 u32 number
 //!           12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before); bit 1, a head row's only:
-//!                  not carried, the piece holds no definition of the track, its cut had no room for it
+//!                  not carried, the piece holds no definition of the track, its cut had no room for it; bit 2, a
+//!                  head row's only: keys carried, the piece carries every live key of this keyed state track
 //!           16 u64 next item (the first item number this piece holds)
 //!           24 i64 from tick (no item of the track here starts before it)
 //!           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
@@ -89,7 +91,8 @@
 //!  88 u64  previous close record's offset (u64::MAX: the piece's first close)
 //!          (offsets u64::MAX for none)
 //!  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
-//! 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the rows, below [PIECE_ALIGN]
+//! 168 u32  flags: bit 0 the piece has a head; bit 1 the next head sets its bit 1
+//! 172 u32  padding: zero bytes after the rows, below [PIECE_ALIGN]
 //! 176 u64  close summary offset, u64::MAX for none    184 u32 its length
 //! 188 u32  removed pieces, at most REMOVED_PIECES_MAX: their rows follow the tracks
 //! 192 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
@@ -227,12 +230,18 @@ const ROW_INCOMPLETE: u32 = 1;
 /// A piece head's track row flag: the piece doesn't carry the track's definition, its cut had no room for it
 /// ([TrackStart::not_carried]). A close's row never holds it.
 const ROW_NOT_CARRIED: u32 = 2;
+/// A piece head's track row flag on a keyed state track: the piece carries every key live at its start
+/// ([TrackStart::keys_carried]). A close's row never holds it.
+const ROW_KEYS_CARRIED: u32 = 4;
 /// Where a close names its row length.
 const CLOSE_ROW_LEN_AT: usize = 34;
 /// Where a close record's tracks start.
 const CLOSE_TRACKS_AT: usize = HEADER_LEN + CLOSE_FIXED_LEN;
 
 const FLAG_HAS_PREV: u32 = 1;
+/// A piece head's and a close's flag: keyed tracks without a row in the head, or the next head, may have keys
+/// before that piece ([PieceHead::unlisted_keys_unknown], [Close::unlisted_keys_unknown]).
+const FLAG_UNLISTED_KEYS_UNKNOWN: u32 = 2;
 const FLAG_PIECE: u8 = 1;
 
 /// Names a piece of a chain.
@@ -677,6 +686,10 @@ pub struct TrackStart {
     /// policy's state entries. A reader of the piece without the pieces before names the track as not carried
     /// ([DefinitionsAt::not_carried](crate::reader::DefinitionsAt::not_carried)).
     pub not_carried: bool,
+    /// The piece carries every key of this keyed state track live at its start, right after its definition: a
+    /// reader of the piece alone finds each of them. Without it, in a piece after another, a key's record in force
+    /// may lie only in the pieces before ([KeysAt::not_carried](crate::reader::KeysAt::not_carried)).
+    pub keys_carried: bool,
 }
 
 /// The items and ticks of one track's chunk blocks in a piece, its counted records and its hash, from its close.
@@ -758,6 +771,14 @@ pub struct PieceHead {
     /// What the piece's writer computed ([Integrity]): below [Integrity::Full], the hashes it names are absent and
     /// hold zero.
     pub integrity: Integrity,
+    /// A keyed state track without a row in the head may have keys in force at the piece's start (flag bit 1): a
+    /// piece before held damage its writer couldn't read, which may have defined such a track. Without it, a track
+    /// without a row has no records before the piece.
+    ///
+    /// Once set, every later head of the chain sets it: a keyed track first defined after the damage never reads
+    /// whole in a piece alone, since its definition may lie in the damaged bytes with older keys. A crash's torn end
+    /// is cut off, not damage, and never sets it.
+    pub unlisted_keys_unknown: bool,
 }
 
 /// A piece's integrity level, the piece head's byte 146: which CRCs and hashes its writer computed.
@@ -844,8 +865,14 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
     b.get_mut(HEADER_LEN..)?.fill(0);
     put_ident(b, 32, 48, 80, &head.ident)?;
     put_u32(b, 92, head.prev_session.get())?;
+    let unlisted = if head.unlisted_keys_unknown {
+        FLAG_UNLISTED_KEYS_UNKNOWN
+    } else {
+        0
+    };
+    put_u32(b, 88, unlisted)?;
     if let Some((hash, id)) = head.prev {
-        put_u32(b, 88, FLAG_HAS_PREV)?;
+        put_u32(b, 88, FLAG_HAS_PREV | unlisted)?;
         put(b, 96, hash.0)?;
         put(b, 128, id.0)?;
     }
@@ -859,7 +886,9 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
     for (row, t) in rows.zip(tracks) {
         put_u64(row, 0, t.track_id.get())?;
         put_u32(row, 8, t.track_number.get())?;
-        let flags = row_flags(t.incomplete) | if t.not_carried { ROW_NOT_CARRIED } else { 0 };
+        let flags = row_flags(t.incomplete)
+            | if t.not_carried { ROW_NOT_CARRIED } else { 0 }
+            | if t.keys_carried { ROW_KEYS_CARRIED } else { 0 };
         put_u32(row, HEAD_ROW_FLAGS_AT, flags)?;
         put_u64(row, 16, t.next_item.get())?;
         put_i64(row, 24, t.from_tick)?;
@@ -970,7 +999,7 @@ impl<'b> PieceHeadBlock<'b> {
             rows,
             row,
             HEAD_ROW_FLAGS_AT,
-            ROW_INCOMPLETE | ROW_NOT_CARRIED,
+            ROW_INCOMPLETE | ROW_NOT_CARRIED | ROW_KEYS_CARRIED,
         )?;
         let link = read_link(block.bytes()).ok_or(IndexError::BadHead)?;
         let head = PieceHead {
@@ -978,6 +1007,9 @@ impl<'b> PieceHeadBlock<'b> {
             prev: link.prev,
             prev_session: link.prev_session,
             integrity,
+            unlisted_keys_unknown: le_u32(block.bytes(), 88).ok_or(IndexError::BadHead)?
+                & FLAG_UNLISTED_KEYS_UNKNOWN
+                != 0,
         };
         Ok(PieceHeadBlock { head, rows, row })
     }
@@ -1022,6 +1054,7 @@ impl<'b> PieceHeadBlock<'b> {
                 hash: TrackHash(array(row, 64)?),
                 incomplete: le_u32(row, HEAD_ROW_FLAGS_AT)? & ROW_INCOMPLETE != 0,
                 not_carried: le_u32(row, HEAD_ROW_FLAGS_AT)? & ROW_NOT_CARRIED != 0,
+                keys_carried: le_u32(row, HEAD_ROW_FLAGS_AT)? & ROW_KEYS_CARRIED != 0,
             })
         })
     }
@@ -1072,6 +1105,9 @@ pub struct Close {
     pub ident: Option<PieceIdent>,
     /// The next piece's id, chosen at the cut: some when the piece goes on in the next one, the link of its chain.
     pub next: Option<PieceId>,
+    /// The next piece's head sets [PieceHead::unlisted_keys_unknown] (flag bit 1): the piece's writer met bytes it
+    /// couldn't read, or its own head set it.
+    pub unlisted_keys_unknown: bool,
 }
 
 /// A piece of the chain removed on purpose, as a close record names it ([Close], [check_chain]).
@@ -1182,9 +1218,15 @@ fn fill_close(b: &mut [u8], close: &Close, tracks: &[TrackRange]) -> Option<()> 
     let (summary_at, summary_len) = close.summary.unwrap_or((NONE, 0));
     put_u64(b, 176, summary_at)?;
     put_u32(b, 184, summary_len)?;
+    let unlisted = if close.unlisted_keys_unknown {
+        FLAG_UNLISTED_KEYS_UNKNOWN
+    } else {
+        0
+    };
+    put_u32(b, 168, unlisted)?;
     if let Some(ident) = &close.ident {
         put_ident(b, 96, 128, 160, ident)?;
-        put_u32(b, 168, u32::from(FLAG_PIECE))?;
+        put_u32(b, 168, u32::from(FLAG_PIECE) | unlisted)?;
     }
     put(b, 112, close.next.unwrap_or(PieceId::NONE).0)?;
     put_u16(b, CLOSE_ROW_LEN_AT, u16::try_from(CLOSE_TRACK_LEN).ok()?)?;
@@ -1345,6 +1387,7 @@ fn read_close(b: &[u8]) -> Option<Close> {
         summary: get_opt(b, 176)?.zip(Some(le_u32(b, 184)?)),
         ident,
         next,
+        unlisted_keys_unknown: le_u32(b, 168)? & FLAG_UNLISTED_KEYS_UNKNOWN != 0,
     })
 }
 

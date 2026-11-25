@@ -6,13 +6,61 @@
 use ww_tape::ItemNum;
 use ww_tape::TrackId;
 use ww_tape::index::{
-    IndexBlock, IndexEntry, IndexHead, IndexKind, index_len, track_count, write_index,
+    IndexBlock, IndexEntry, IndexHead, IndexKind, STATE_TRACK_ID, index_len, track_count,
+    write_index,
 };
 use ww_tape::piece::{CloseBlock, PieceHeadBlock};
 use ww_tape::{
-    Block, BlockKind, IndexError, Layout, Medium, OpenOptions, OwnerId, PieceInfo, Ratio64,
-    ReadError, Tail, TapeReader, TrackHash,
+    Block, BlockKind, IndexError, KEY_HEAD_LEN, KeyId, Layout, Medium, OpenOptions, OwnerId,
+    PieceInfo, Ratio64, ReadError, STATE_KEY_LEN_MAX, Tail, TapeReader, TrackHash,
 };
+
+/// Entry `e` made a keyed state record's from chunk `c`, valid or not by its bits: a key of `c[1] % 12` bytes, or one
+/// past the cap; its head from `c[1..9]`, zero past its end unless bit 3; its length field `second` the key's unless
+/// `c[2]` bit 0; a deletion by bit 2. Repeat, range and tile stay as drawn.
+fn keyed(e: IndexEntry, c: &[u8; 9]) -> IndexEntry {
+    let len = if c[2] & 2 == 0 {
+        u32::from(c[1] % 12)
+    } else {
+        STATE_KEY_LEN_MAX as u32 + u32::from(c[1] & 1)
+    };
+    let mut head = [0u8; KEY_HEAD_LEN];
+    head.copy_from_slice(&c[1..9]);
+    if c[0] & 0x08 == 0 {
+        head.iter_mut().skip(len as usize).for_each(|b| *b = 0);
+    }
+    IndexEntry {
+        kind: BlockKind::Records,
+        track_id: STATE_TRACK_ID,
+        level: 0,
+        second: if c[2] & 1 == 0 { len } else { u32::from(c[2]) },
+        key: Some(KeyId {
+            head,
+            len,
+            hash: u64::from_le_bytes(*c.last_chunk::<8>().expect("8 bytes")),
+        }),
+        deleted: c[0] & 0x04 != 0,
+        ..e
+    }
+}
+
+/// Whether `e`'s key and deletion are where a reader takes them: a key on a state record's entry, marked repeated,
+/// of level 0 without a range or a tile, its length field the key's, within the cap, its head zero past it; a
+/// deletion only with a key.
+fn keyed_valid(e: &IndexEntry) -> bool {
+    let Some(k) = e.key else {
+        return !e.deleted;
+    };
+    e.track_id == STATE_TRACK_ID
+        && e.kind == BlockKind::Records
+        && e.repeat
+        && e.level == 0
+        && e.range.is_none()
+        && e.tile.is_none()
+        && k.len == e.second
+        && (k.len as usize) <= STATE_KEY_LEN_MAX
+        && k.head.iter().skip(k.len as usize).all(|b| *b == 0)
+}
 
 /// Look at everything the block decoders give for `data`.
 pub(crate) fn decode(data: &[u8]) {
@@ -262,39 +310,45 @@ pub fn index(data: &[u8]) {
         .as_chunks::<9>()
         .0
         .iter()
-        .map(|c| IndexEntry {
-            offset: u64::from_le_bytes(c[1..9].try_into().expect("8 bytes sliced")),
-            // a header and a CRC at least, as write_index takes
-            len: u32::from(c[0]) + 36,
-            kind: BlockKind::from_u8(c[0]),
-            level: c[0],
-            tree: 0,
-            track_id: TrackId::new(u64::from(c[0] % 5)),
-            number: c[0].into(),
-            second: 0,
-            first_item: ItemNum::new(0),
-            count: 1,
-            first_tick: -1,
-            last_tick: 1,
-            latest_end: 2,
-            repeat: c[0] & 0x80 != 0,
-            unhashed: false,
-            relation_break: false,
-            unit: ww_tape::UnitHash::NONE,
-            // a chunk's range relation, both values round-tripped; one that decreases or sits on another kind is refused
-            range: (c[0] & 0x40 != 0).then(|| {
-                (
-                    u64::from(c[2]),
-                    u64::from_le_bytes(c[1..9].try_into().expect("8 bytes sliced")),
-                )
-            }),
-            // a grid chunk's tile number; one beside a range or on another kind is refused
-            tile: (c[0] & 0x20 != 0).then(|| {
-                u128::from(u64::from_le_bytes(
-                    c[1..9].try_into().expect("8 bytes sliced"),
-                ))
-                .wrapping_shl(u32::from(c[0]))
-            }),
+        .map(|c| {
+            let e = IndexEntry {
+                offset: u64::from_le_bytes(c[1..9].try_into().expect("8 bytes sliced")),
+                // a header and a CRC at least, as write_index takes
+                len: u32::from(c[0]) + 36,
+                kind: BlockKind::from_u8(c[0]),
+                level: c[0],
+                tree: 0,
+                track_id: TrackId::new(u64::from(c[0] % 5)),
+                number: c[0].into(),
+                second: 0,
+                first_item: ItemNum::new(0),
+                count: 1,
+                first_tick: -1,
+                last_tick: 1,
+                latest_end: 2,
+                repeat: c[0] & 0x80 != 0,
+                unhashed: false,
+                relation_break: false,
+                unit: ww_tape::UnitHash::NONE,
+                // a chunk's range relation, both values round-tripped; one that decreases or sits on another kind is refused
+                range: (c[0] & 0x40 != 0).then(|| {
+                    (
+                        u64::from(c[2]),
+                        u64::from_le_bytes(c[1..9].try_into().expect("8 bytes sliced")),
+                    )
+                }),
+                // a grid chunk's tile number; one beside a range or on another kind is refused
+                tile: (c[0] & 0x20 != 0).then(|| {
+                    u128::from(u64::from_le_bytes(
+                        c[1..9].try_into().expect("8 bytes sliced"),
+                    ))
+                    .wrapping_shl(u32::from(c[0]))
+                }),
+                key: None,
+                // a deletion on an entry without a key is refused
+                deleted: c[0] & 0x1c == 0x0c,
+            };
+            if c[0] & 0x10 != 0 { keyed(e, c) } else { e }
         })
         .collect();
     let kind = if flag & 1 == 1 {
@@ -329,14 +383,15 @@ pub fn index(data: &[u8]) {
                 BlockKind::Series => e.level <= ww_tape::grid::GRID_OVERVIEW_LEVELS_MAX,
                 _ => true,
             }
-    }) && (kind == IndexKind::Checkpoint
-        || entries.windows(2).all(|w| {
-            w[0].track_id != w[1].track_id
-                || w[0].offset.saturating_add(u64::from(w[0].len)) <= w[1].offset
-                || (w[0].offset == w[1].offset
-                    && w[0].len == w[1].len
-                    && w[0].track_id == ww_tape::index::STATE_TRACK_ID)
-        }));
+    }) && entries.iter().all(keyed_valid)
+        && (kind == IndexKind::Checkpoint
+            || entries.windows(2).all(|w| {
+                w[0].track_id != w[1].track_id
+                    || w[0].offset.saturating_add(u64::from(w[0].len)) <= w[1].offset
+                    || (w[0].offset == w[1].offset
+                        && w[0].len == w[1].len
+                        && w[0].track_id == ww_tape::index::STATE_TRACK_ID)
+            }));
     let n = match write_index(
         &mut buf,
         ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1),

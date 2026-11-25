@@ -123,9 +123,10 @@ off size field
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-         without it refuses the block), bit 7 on a block of puts definitions written twice at once
-         (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9 on a group's first block
-         (FLAG_GROUP_START); others 0, and a reader ignores them
+         without it refuses the block), bit 6 on a records block marked FLAG_REPEAT its records keyed state
+         (FLAG_KEYED: each item a key and a value, so a reader without it misreads them as plain state), bit 7 on a
+         block of puts definitions written twice at once (FLAG_TWICE), bit 8 on a block of puts one of a group
+         (FLAG_GROUP), bit 9 on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -178,8 +179,9 @@ block by its length, and the block is not damage.
 
 ### 3.2 Header flags {#header-flags}
 
-Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know, except bit 5 on a summary block. That bit
-moves the block's body behind the tile, so a reader without it refuses the block.
+Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know, except bit 5 on a summary block and bit 6 on a
+records block. Bit 5 moves the block's body behind the tile: a reader without it refuses the block. Bit 6 makes each
+item a key and a value: a reader without it misreads the block, its keyed items as plain state.
 
 | Bit | Flag | Marks |
 |---:|---|---|
@@ -189,6 +191,7 @@ moves the block's body behind the tile, so a reader without it refuses the block
 | 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
 | 4 | `FLAG_RELATION_BREAK` | an events chunk where a track's monotone relations start again ([below](#relation-breaks)) |
 | 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
+| 6 | `FLAG_KEYED` | a block of puts whose records are keyed state ([Keyed state tracks](#keyed-state-tracks)) |
 | 7 | `FLAG_TWICE` | a block of puts of definitions written twice at once, or its copy ([below](#definitions-written-twice-at-once)) |
 | 8 | `FLAG_GROUP` | a block of puts of a group, taken whole or not at all ([Groups of puts](#groups-of-puts)); it only marks, and a reader that doesn't know it reads the block as any block of puts |
 | 9 | `FLAG_GROUP_START` | the first block of a group, with `FLAG_GROUP`; it only marks, as bit 8 |
@@ -886,10 +889,14 @@ stream on.
 ### 5.3 Groups of puts {#groups-of-puts}
 
 `TapeWriter::put_group` puts items on several state tracks as one **group**: a reader takes all of them or none.
-Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close
-behind. The records it writes and the definitions they need go into blocks of puts one after the other, every block
-but the last marked `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of
-puts, each block of a group marked `FLAG_GROUP` (bit 8) and its first block `FLAG_GROUP_START` (bit 9).
+A put of a group is an item (`GroupItem::State`) or a key's value or deletion on a keyed track (`GroupItem::Key`,
+[Keyed state tracks](#keyed-state-tracks)).
+
+Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close behind.
+A group's keyed records go into blocks of their own, marked `FLAG_KEYED`, among its other blocks. The records it writes
+and the definitions they need go into blocks of puts one after the other, every block but the last marked
+`FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of puts, each block of a
+group marked `FLAG_GROUP` (bit 8) and its first block `FLAG_GROUP_START` (bit 9).
 
 The flag only marks. A reader that doesn't know it reads the blocks as any blocks of puts. It loses nothing a crash
 leaves, since a group is a run. A reader that knows it also drops a damaged group whole ([Marking blocks of puts](#marking-blocks-of-puts)).
@@ -899,9 +906,11 @@ The writer checks the whole group before it writes the first block:
 | Check | Refusal |
 |---|---|
 | every track a state track the definitions hold | `DescribeError::NotState`, `UnknownTrack` |
+| an item on a track that isn't keyed, a key on one that is | `DescribeError::Keyed`, `NotKeyed` |
 | each item at most `STATE_ITEM_MAX` bytes | `DescribeError::TooLong` |
-| no track twice in the group | `InputError::Group(GroupRefusal::SlotTwice)` |
-| the items at most `GROUP_BYTES_MAX` (64 MiB) together | `InputError::Group(GroupRefusal::TooLong)` |
+| no track twice in the group, no key of a keyed track twice | `InputError::Group(GroupRefusal::SlotTwice)` |
+| the items at most `GROUP_BYTES_MAX` (64 MiB) together, a key's item as written | `InputError::Group(GroupRefusal::TooLong)` |
+| the group's keys, all at once, as `put_key` checks one | `DescribeError::KeyCollision`, `InputError::CarryFull` |
 | its blocks of puts, with its definitions, at most `RUN_BLOCKS_MAX` | `InputError::RunTooLong` |
 | the piece's room for the state entries of all it writes | `IndexError::StateEntries` |
 
@@ -928,7 +937,8 @@ between a group's blocks so go through and leave the group whole. A cut carries 
 
 The relay holds groups of at most `RELAY_GROUPS_MAX` (16) producers at once, costing at most `RELAY_HELD_BYTES_MAX`
 (128 MiB) together. A record costs its bytes and `RELAY_RECORD_OVERHEAD` (512). As `put_group`, a relayed group puts
-one item per state track. The relay never drops a group without an error naming it (`InputError::Group`):
+one item per state track and per key. Its last block brings the check of its keys, all at once, before any of the
+group is written; a refusal drops the group. The relay never drops a group without an error naming it:
 
 | Block | Error |
 |---|---|
@@ -936,13 +946,123 @@ one item per state track. The relay never drops a group without an error naming 
 | a block of a group whose first block the relay didn't hold | `GroupRefusal::NoStart` |
 | a first block while groups of 16 producers are held | `GroupRefusal::TooManyHeld` |
 | a block past `RELAY_HELD_BYTES_MAX` held | `GroupRefusal::HeldTooLong` |
-| a second item on a state track in the group | `GroupRefusal::SlotTwice` |
+| a second item on a state track or a key in the group | `GroupRefusal::SlotTwice` |
+| at the last block, a key of another live key's id, or the carry past its limit | `KeyCollision`, `CarryFull` |
 
 A crash inside a group leaves a run of marked blocks at the end of the piece. The resume drops it and names it in
 `Resumed::dropped_run`, and the application gives the group again. The group given again writes the bytes the run
 without the crash has.
 
-### 5.4 Deferred blocks {#deferred-blocks}
+Damage inside a piece may hit a block of a group, and a reader then drops the whole group. A resume does the same: it
+holds a group's records until its last block. A damaged block voids the group, so the resume takes none of its items,
+keys or records as lying near. It doubts the keys of the group's keyed tracks, since the damaged block may have held
+more of them ([After damage inside a piece](#after-damage-inside-a-piece)).
+
+Marks a writer never makes break a group the same way. A block of puts right after a marked block of a group must go
+on the group: marked `FLAG_GROUP`, not `FLAG_GROUP_START`. A block marked `FLAG_GROUP` without a start must follow a
+marked block of its group. Bytes that break either rule are dropped as damage, by a reader and a resume alike. A
+group whose marked last block is followed by a block of another kind, such as a chunk, ends whole there.
+
+### 5.4 Keyed state tracks {#keyed-state-tracks}
+
+A track whose `repeat` is `TrackRepeat::Keyed` holds many slots, one per **key**. A key is at most `STATE_KEY_LEN_MAX`
+(1024) bytes, and the newest record of each key is in force.
+
+The application puts a key's value with `TapeWriter::put_key` and ends the key with `delete_key`. A deletion is a
+record too, so the older values stay in the file. A [group of puts](#groups-of-puts) puts several keys, and items of
+other state tracks, all or none.
+
+The writer keeps each key near its use and copies it as `StatePolicy` says, per key, as for any slot. A plain `put`
+on a keyed track is refused, and so is `put_key` on a plain one.
+
+The records of a keyed track go in blocks of puts of their own, marked `FLAG_KEYED` (header bit 6). The index then
+lists each record by its key without the definitions. Each item is the key, then the value
+([`state` module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs)):
+
+```text
+uvar head: key length << 1 | 1 for a deletion; the length at most STATE_KEY_LEN_MAX (1024)
+key bytes
+value bytes, the rest of the item: none in a deletion
+```
+
+A records block marked `FLAG_KEYED` but not `FLAG_REPEAT` is refused. So is one that holds a record of track 0 or an
+item that doesn't read this way.
+
+The index knows a key by its **key id** (`KeyId`): its first 8 bytes, its length and a 64-bit BLAKE3 hash ([State
+entries](#state-entries)). The head is zero past the key's end. Key ids sort by those bytes first, so a key range is one
+stretch of the sorted entries. A key of at most 8 bytes is whole in the index.
+
+Two keys of the same id share a slot. By chance that is about one pair in 2^64, but a key set crafted for it costs
+about 2^32 BLAKE3 hashes. A lookup of one key (`TapeReader::key_at`) reads each record's full key and stays exact.
+A listing (`keys_at`) reads the newest record of each slot, so it shows only the newer of two keys that share one.
+Whether a key lives is the record's to say: the index's deletion mark lists slots (`key_slots`) without reading one.
+
+#### 5.4.1 Keys carried at a cut {#keys-carried-at-a-cut}
+
+A cut carries every live key into the new piece, after the track's definition. Each key gets one record with the
+value of its last put, in key order. The records go in blocks of puts marked `FLAG_KEYED`, each at most
+`CARRIED_BLOCK_LEN` (4 KiB). A deleted key is not carried. The carry belongs with the first block of data
+(`FLAG_WITH_NEXT`): a crash keeps all of it or none, and the next call puts it again.
+
+The next head marks the track's row `TrackStart::keys_carried` (row flag bit 2) when the writer knew every live key.
+It knows them when it saw every record of the track since its first. It sees them in this piece, in the carry of the
+piece before, or through the index of the closed pieces a chain's resume reads.
+
+A record it couldn't read leaves the row unmarked, and so does a piece resumed alone after its carry was lost.
+`Closed::keys_unknown` counts such tracks. Keys deleted while the writer doesn't know every key count under
+`NearPolicy::kept_bytes_max`. Past it they are forgotten, and the track's rows stay unmarked from then on.
+
+A piece resumed alone whose head marks a row but whose carry a crash dropped refuses to carry again
+(`ResumeError::KeysUnknown`). A `PieceChain` resume reads the keys from the piece before. A call whose definitions
+don't hold the track is refused naming it (`ResumeError::KeysUndefined`). The mark on the row of a track that isn't
+keyed is passed over, by the writer as by a reader.
+
+A piece that follows another may leave the track's row unmarked. A reader of it can't know the keys in force at the
+piece's start. `KeysAt::not_carried` says so, and so does `Lookup::not_carried` of a key it found no record of; their
+`is_whole()` is false then.
+
+The piece's carry is the blocks after its head that belong with the next. A record found
+only there may be stale too, so the key reads as not whole. A first piece holds every record of the track. So does
+a piece whose head has no row of the track, unless the head sets flag bit 1
+([After damage inside a piece](#after-damage-inside-a-piece)).
+
+A keyed track is never left out of a cut ([Carried definitions](carried_definitions.md#when-they-dont-fit)). The
+writer refuses a `put_key` that would make the carry too large for a piece. Its `InputError::CarryFull` names the
+limit (`CarryLimit`):
+
+| Limit | What must fit it |
+|---|---|
+| `StateEntries`: `IndexPolicy::state_entries_max` | the definitions of the keyed tracks, a record per live key, the layout, the producer and one put |
+| `KeptBytes`: `NearPolicy::kept_bytes_max` | the items of the live keys, which the writer keeps for its cuts |
+
+A change of a live key that keeps its size and a deletion are never refused for them. The room for one put more
+lets a change or a deletion land in a piece a cut made for it.
+
+At the `StateEntries` limit that one put is all the room left. A call on a track whose definitions the carry doesn't
+hold yet needs more for them, so it is refused (`InputError::CarriedEntries`) until keys are deleted.
+
+The writer also refuses a `put_key` whose key has the key id of another live key of the track
+(`DescribeError::KeyCollision`). So a listing never hides a live key. The relay of a producer's block of keyed records
+is checked the same way. A group's keys are checked all at once, in order: against the live keys, and against each
+other. A group may delete a key and put another key of the same id after it.
+
+The check knows only the keys the writer knows. While the track's row would stay unmarked, a key whose id only an
+older piece's key holds is not refused. The two keys then share a slot as in a file of another writer, and a lookup
+by key still finds each.
+
+##### 5.4.1.1 After damage inside a piece {#after-damage-inside-a-piece}
+
+Damage inside a piece may hide a track the writer never learns. A resume meets it as junk, a damaged block, or a
+keyed record whose track's definition didn't read ([What a resume keeps](#what-a-resume-keeps)). A crash's torn end
+is no such damage: the resume cuts it off. After such damage the writer doubts the keys of every keyed track it
+doesn't know yet. The piece's close and every later head set flag bit 1 (`PieceHead::unlisted_keys_unknown`,
+`Close::unlisted_keys_unknown`).
+
+A track without a row in such a head may have keys in the pieces before. This has a cost: a keyed track first
+defined after the damage never reads whole in a piece alone, for the rest of the chain. Its definition may lie in
+the damaged bytes with older keys, so a new track and a lost one look the same.
+
+### 5.5 Deferred blocks {#deferred-blocks}
 
 `TapeWriter::defer_block` puts the definitions of a deferred block when the block is deferred, and places the block
 later with no puts.
@@ -1053,13 +1173,14 @@ off size field
  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
  ...     entries, each:
            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-          13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile
+          13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile, bit 5 keyed, bit 6 deleted
           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
           32 u64 first item number                  40 u64 items (samples, records)
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
           72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0
           80 u64 its largest value, else 0
           72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0
+          72 [16] a keyed state record's key id (flag bit 5) in place of the range, below
           88 [32] a chunk's unit hash, else 0
          120 [8] reserved: written zero, not read
 len-4 u32 CRC over bytes 0..len-4, as in every block
@@ -1073,7 +1194,8 @@ chunk's offset, length and kind, its track, its items and ticks, no range relati
 </figure>
 
 Bytes 72..88 of an events chunk's entry hold the range of its track's range relation. A grid chunk's entry holds its
-tile number there instead ([The tile number](#the-tile-number)). A series chunk of no fixed axes leaves them zero.
+tile number there instead ([The tile number](#the-tile-number)), and a keyed state record's entry its key id ([State
+entries](#state-entries)). A series chunk of no fixed axes leaves them zero.
 
 A final index longer than `INDEX_LEN_MAX` (1 MiB) is several final blocks. Each holds whole tracks in ascending track id
 and points back at the one before.
@@ -1091,11 +1213,14 @@ Beside the block's offset, length and kind, a state entry holds:
 
 ```text
  13 u8  the record's slot: 0 a state track's record, else what it defines (DefinitionKind)
- 15 u8  bit 0: the block is marked FLAG_REPEAT
+ 15 u8  bit 0: the block is marked FLAG_REPEAT; bit 5: a keyed state record (its block marked FLAG_KEYED);
+        bit 6: that record is a deletion
  24 u32 the state track, or the number the definition defines (a track's, a clock's, a map's from clock)
- 28 u32 a map's to clock, else 0
+ 28 u32 a map's to clock, a keyed record's key length (at most STATE_KEY_LEN_MAX), else 0
  32 u64 0, reserved for the record's item number       40 u64 0, reserved
  48 16 bytes the item's hash (ItemHash)                 64 i64 the record's time in ticks, 0 on track 0
+ 72 [8] a keyed record's key head: its first 8 bytes, zero past its end (KeyId), else 0
+ 80 u64 a keyed record's key hash: BLAKE3 of the key, its first 8 bytes, else 0
 ```
 
 The slot codes (`DefinitionKind`) are:
@@ -1103,6 +1228,10 @@ The slot codes (`DefinitionKind`) are:
 - 1 producer, 2 track, 3 bundle, 4 clock;
 - 5 map, 6 item, 7 layout, 8 schema;
 - 9 to 15 for a definition the writer doesn't know: its discriminant plus 1, at most 15.
+
+A record of a keyed state track has slot code 0 and entry flag bit 5. Bytes 28..32 hold its key length. Bytes 72..80
+hold the key's first 8 bytes and 80..88 its hash ([Keyed state tracks](#keyed-state-tracks)). Flag bit 6 marks a deletion, so a
+reader lists the live keys of a range from the index alone. A keyed entry without flag bit 0 (repeat) is refused.
 
 A code is a `Describe` variant's discriminant plus 1. A newer writer therefore lists a definition under the code an
 older reader computes for it. The older reader's content check then agrees with the entries.
@@ -1240,14 +1369,16 @@ docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/piece/mod.rs)). 
 ```text
 piece head (kind 10)
  32 [16] piece id                 48 [32] owner id                80 u64 sequence number in the chain
- 88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
+ 88 u32  flags: bit 0 has a previous piece; bit 1 keyed tracks without a row may have keys before the piece
+ 92 u32  previous session tag (0: none or unknown)
  96 [32] previous piece's content hash                           128 [16] previous piece's id
 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (a reader refuses another value)    147 [5] reserved
 152 ...  tracks × 96, one per track carried over from the pieces before:
            0 u64 id    8 u32 number
           12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before); bit 1, a head row's only:
-                 not carried, the piece holds no definition of the track, its cut had no room for it
+                 not carried, the piece holds no definition of the track, its cut had no room for it; bit 2, a
+                 head row's only: keys carried, the piece carries every live key of this keyed state track
           16 u64 next item (the first item number this piece holds)
           24 i64 from tick (no item of the track here starts before it)
           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
@@ -1265,7 +1396,8 @@ close (kind 8)
  88 u64  previous close record's offset (u64::MAX: the piece's first close)
          (offsets u64::MAX for none)
  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
-168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the rows, below [PIECE_ALIGN]
+168 u32  flags: bit 0 the piece has a head; bit 1 the next head sets its bit 1
+172 u32  padding: zero bytes after the rows, below [PIECE_ALIGN]
 176 u64  close summary offset, u64::MAX for none    184 u32 its length
 188 u32  removed pieces, at most REMOVED_PIECES_MAX: their rows follow the tracks
 192 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
@@ -1407,6 +1539,9 @@ A head row's flag bit 1 (`TrackStart::not_carried`) says the piece doesn't carry
 room for it in the index. A close row never sets it, and the next cut sets it afresh. A reader of the piece without
 the pieces before names such a track in `DefinitionsAt::not_carried`. A marked row whose definition is in force all
 the same is not named.
+
+A head row's flag bit 2 (`TrackStart::keys_carried`) says the piece carries every key of the keyed state track live
+at its start ([Keyed state tracks](#keyed-state-tracks)). A close row never sets it, and the next cut sets it afresh.
 
 ## 8 Tape pieces {#tape-pieces}
 
@@ -2492,6 +2627,7 @@ A value past its cap is damage, refused with an error; no file a writer of this 
 | `GAP_MAX_MAX` | 64 MiB | a layout's gap |
 | `GAP_PROBES_MAX` | 8192 | the resume places a reader probes in one gap |
 | `GAP_CHECKS_MAX` | 4 | the blocks a reader checks whole past one gap |
+| `STATE_KEY_LEN_MAX` | 1024 | a keyed state record's key bytes |
 | `STATE_READ_MAX` | 1 GiB | the bytes of blocks one state lookup reads |
 | `LAYOUT_READ_MAX` | 256 MiB | the bytes of definitions blocks a reader reads to find a piece's layout |
 

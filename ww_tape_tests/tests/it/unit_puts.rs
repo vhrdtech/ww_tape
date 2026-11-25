@@ -162,7 +162,7 @@ fn group_of(track: u32, item: &'static [u8]) -> [GroupPut<'static>; 1] {
     [GroupPut {
         track: TrackNum::new(track),
         ticks: 0,
-        item,
+        item: ww_tape::GroupItem::State(item),
     }]
 }
 

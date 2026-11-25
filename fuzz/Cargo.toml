@@ -212,3 +212,17 @@ path = "src/tape_flags_hostile.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "tape-keyed"
+path = "src/tape_keyed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-keyed-hostile"
+path = "src/tape_keyed_hostile.rs"
+test = false
+doc = false
+bench = false

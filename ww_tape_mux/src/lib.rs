@@ -10,7 +10,7 @@
 //! | [ChunkSender] | a chunk of one events or series track, encoded by the caller; with its summary [Leaves] from [TapeMux::summarized_chunks] | [PieceChain::write_chunk], a [Placement] back on [ChunkSender::send_placed] |
 //! | [RecordsHandle] | a records block ([ww_tape::BlockWriter]) | the writer's next block ([PieceChain::write_block]) |
 //! | [RelayHandle] | another producer's block | [PieceChain::relay_block] or [PieceChain::adopt_block] |
-//! | [StateHandle] | a state item, on change | [PieceChain::put] |
+//! | [StateHandle] | a state item, on change; a key's value or deletion on a keyed track | [PieceChain::put], [PieceChain::put_key], [PieceChain::delete_key] |
 //!
 //! Typed items go through [TapeMux::put_item], carried into later pieces as their [ItemCarry] says; the definitions
 //! of tracks without data through [TapeMux::put_definitions], carried into every later piece.
@@ -125,7 +125,7 @@ use ww_tape::{
     TypedItem,
 };
 
-pub use error::{CallError, EncodeError, ItemError, MuxError, Unit};
+pub use error::{CallError, EncodeError, GroupUnitPut, ItemError, MuxError, Unit};
 pub use events::{
     CHUNK_BYTES_DEFAULT, CHUNK_ITEMS_DEFAULT, Event, EventsHandle, EventsOptions, ITEM_BYTES_MAX,
     LATENCY_DEFAULT,
@@ -498,12 +498,15 @@ where
     /// [Self::state] as a future.
     pub async fn state_async(&self, track: TrackNum) -> Result<StateHandle<T>, MuxError<T::Error>> {
         match self.facts(track).await? {
-            Some(f) if f.state.is_some() => Ok(StateHandle::new(self.shared.clone(), track)),
+            Some(f) if f.state.is_some() => {
+                Ok(StateHandle::new(self.shared.clone(), track, f.keyed))
+            }
             _ => Err(CallError::Kind { track }.into()),
         }
     }
 
-    /// A handle that puts groups of items on state tracks `tracks`, each group taken whole or not at all.
+    /// A handle that puts groups of items on state tracks `tracks`, and keys' values and deletions on those keyed,
+    /// each group taken whole or not at all.
     pub fn group(&self, tracks: &[TrackNum]) -> Result<GroupHandle<T>, MuxError<T::Error>> {
         block_on(self.group_async(tracks))
     }
@@ -513,13 +516,22 @@ where
         &self,
         tracks: &[TrackNum],
     ) -> Result<GroupHandle<T>, MuxError<T::Error>> {
+        let mut keyed = Vec::new();
         for &track in tracks {
             match self.facts(track).await? {
-                Some(f) if f.state.is_some() => {}
+                Some(f) if f.state.is_some() => {
+                    if f.keyed {
+                        keyed.push(track);
+                    }
+                }
                 _ => return Err(CallError::Kind { track }.into()),
             }
         }
-        Ok(GroupHandle::new(self.shared.clone(), tracks.to_vec()))
+        Ok(GroupHandle::new(
+            self.shared.clone(),
+            tracks.to_vec(),
+            keyed,
+        ))
     }
 
     /// A handle that sends records blocks.

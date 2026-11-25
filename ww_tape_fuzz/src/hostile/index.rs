@@ -1,7 +1,7 @@
 //! Index, close, piece head and tail blocks: an index's entry offset, directory, self and previous offsets, entry
-//! length and entries (flags, range pair and unit hash among them; entries longer than [ENTRY_LEN] or as long as
-//! [ENTRY_READ_LEN], well formed or not); a close's offsets and track ranges; a piece head's tracks and integrity level; a tail's piece length and
-//! close offset.
+//! length and entries (flags, range pair, unit hash, a keyed state record's key length, head and hash among them;
+//! entries longer than [ENTRY_LEN] or as long as [ENTRY_READ_LEN], well formed or not); a close's offsets and track
+//! ranges; a piece head's tracks and integrity level; a tail's piece length and close offset.
 
 use ww_tape::ItemNum;
 
@@ -12,14 +12,14 @@ use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::index::{
     CHECKPOINT_ENTRIES_MAX, ENTRY_LEN, ENTRY_READ_LEN, INDEX_LEN_MAX, IndexEntry, IndexHead,
-    IndexKind, TRACK_LEN, index_len, track_count, write_index,
+    IndexKind, STATE_TRACK_ID, TRACK_LEN, index_len, track_count, write_index,
 };
 use ww_tape::piece::{
     Close, CloseReason, ContentHash, OwnerId, PieceHead, PieceId, PieceIdent, REMOVED_PIECES_MAX,
     RemovedPiece, TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart, close_len, piece_head_len,
     write_close, write_piece_head,
 };
-use ww_tape::{BlockId, BlockKind, MAX_BLOCK_LEN, SessionTag};
+use ww_tape::{BlockId, BlockKind, KeyId, MAX_BLOCK_LEN, STATE_KEY_LEN_MAX, SessionTag};
 
 /// Where an index block's directory starts.
 const DIRECTORY: usize = 60;
@@ -34,12 +34,22 @@ const INDEX_FIELDS: [Field<'static>; 6] = [
     Field::new(58, 2, &[ENTRY_LEN as u64]),
 ];
 
-/// Entry flag values a draw favours: repeat, range, unhashed ([ww_tape::index::ENTRY_UNHASHED]), the first unknown
-/// bit, every bit.
-const ENTRY_FLAGS: &[u64] = &[1, 2, ww_tape::index::ENTRY_UNHASHED as u64, 8, 0xFF];
+/// Entry flag values a draw favours: repeat, range, unhashed ([ww_tape::index::ENTRY_UNHASHED]), relation break,
+/// keyed and repeat, keyed without repeat, a deletion without a key, a keyed deletion, every bit.
+const ENTRY_FLAGS: &[u64] = &[
+    1,
+    2,
+    ww_tape::index::ENTRY_UNHASHED as u64,
+    8,
+    0x21,
+    0x20,
+    0x40,
+    0x61,
+    0xFF,
+];
 
 /// The fields of an index entry starting at `at`.
-pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 17] {
+pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 18] {
     [
         Field::new(at, 8, &[MAX_BLOCK_LEN as u64]),
         Field::new(at + 8, 4, &[MAX_BLOCK_LEN as u64]),
@@ -56,12 +66,18 @@ pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 17] {
         Field::new(at + 15, 1, ENTRY_FLAGS),
         Field::new(at + 16, 8, &[]),
         Field::new(at + 24, 4, &[]),
+        // a keyed entry's key length, at the cap and past it
+        Field::new(
+            at + 28,
+            4,
+            &[8, 9, STATE_KEY_LEN_MAX as u64, STATE_KEY_LEN_MAX as u64 + 1],
+        ),
         Field::new(at + 32, 8, &[]),
         Field::new(at + 40, 8, &[]),
         Field::new(at + 48, 8, &[]),
         Field::new(at + 56, 8, &[]),
         Field::new(at + 64, 8, &[]),
-        // the range pair, low above high among the draws
+        // the range pair, low above high among the draws; a keyed entry's key head and hash
         Field::new(at + 72, 8, &[u64::MAX]),
         Field::new(at + 80, 8, &[0]),
         Field::new(at + 88, 8, &[]),
@@ -123,7 +139,7 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
             // a grid chunk's tile number, any bits: the index carries it as written
             let tile = (kind == BlockKind::Series && range.is_none() && d.bool())
                 .then(|| u128::from(d.u16()) << (d.u8() % 112));
-            IndexEntry {
+            let e = IndexEntry {
                 offset: 64 * i as u64 + u64::from(d.u8()),
                 len: 36 + u32::from(d.u8()),
                 kind,
@@ -150,6 +166,14 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 unhashed: false,
                 range,
                 tile,
+                key: None,
+                deleted: false,
+            };
+            // a third of the record blocks' entries are keyed state records'
+            if kind == BlockKind::Records && d.below(3) == 0 {
+                keyed_entry(d, e)
+            } else {
+                e
             }
         })
         .collect();
@@ -166,6 +190,22 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
         }
     }
     entries
+}
+
+/// Entry `e` made a keyed state record's, as a writer writes one: of level 0, marked repeated, its key of up to 12
+/// bytes drawn from the input, at times a deletion.
+fn keyed_entry(d: &mut Draw<'_>, e: IndexEntry) -> IndexEntry {
+    let key: Vec<u8> = (0..d.below(13)).map(|_| d.u8()).collect();
+    let key = KeyId::of(&key).expect("a key of at most 12 bytes");
+    IndexEntry {
+        track_id: STATE_TRACK_ID,
+        level: 0,
+        second: key.len,
+        repeat: true,
+        key: Some(key),
+        deleted: d.bool(),
+        ..e
+    }
 }
 
 /// A checkpoint or final index block of entries drawn from the input.
@@ -261,6 +301,7 @@ pub(crate) fn close_block(
         summary: None,
         ident: d.bool().then(|| ident(d)),
         next: None,
+        unlisted_keys_unknown: false,
     };
     let mut seq = 0u64;
     let removed: Vec<RemovedPiece> = (0..d.below(4))
@@ -365,6 +406,7 @@ pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
             hash: TrackHash([d.u8(); 32]),
             incomplete: d.bool(),
             not_carried: d.bool(),
+            keys_carried: d.bool(),
         })
         .collect();
     let head = PieceHead {
@@ -374,6 +416,7 @@ pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
             .then(|| (ContentHash([d.u8(); 32]), PieceId([d.u8() | 1; 16]))),
         prev_session: SessionTag::from_u32(d.u32()),
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let mut buf = vec![0u8; piece_head_len(tracks.len())];
     let n = write_piece_head(&mut buf, id, &head, &tracks).expect("a valid piece head");

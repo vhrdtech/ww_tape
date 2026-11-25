@@ -65,7 +65,9 @@ use alloc::collections::{BTreeMap, BTreeSet};
 
 mod carried;
 mod error;
+mod group_records;
 pub(crate) mod kept;
+mod keyed;
 pub mod near;
 mod relations;
 mod relay;
@@ -73,7 +75,9 @@ pub mod resume;
 mod seal;
 mod twice;
 pub use carried::CARRIED_BLOCK_LEN;
-pub use error::{CutError, GroupRefusal, InputError, RemovedRefusal, ResumeError, WriteError};
+pub use error::{
+    CarryLimit, CutError, GroupRefusal, InputError, RemovedRefusal, ResumeError, WriteError,
+};
 pub use kept::KEPT_BYTES_MAX;
 pub use near::NearPolicy;
 use near::Rule;
@@ -259,6 +263,16 @@ pub struct TapeWriter<S: TapeSink> {
     /// The tracks of the newest call that wrote or was to write data or a put: the next cut carries their
     /// definitions first ([Self::want])
     wanted: Vec<TrackNum>,
+    /// The close in force of a resumed closed piece, before which the writer hasn't read the keys yet, the track
+    /// each number stood for there, and the keys of the pieces before it ([Self::load_keys])
+    keys_base: Option<(u64, BTreeMap<TrackNum, TrackIdent>, kept::Kept)>,
+    /// The tracks known when the writer first met bytes that may hold keyed records of tracks it doesn't know, or
+    /// those of the piece head's rows when the head says the pieces before met such bytes
+    /// ([PieceHead::unlisted_keys_unknown]): the keys of every other keyed track are doubted, and the next head and
+    /// this piece's close say so. None while no such bytes were met.
+    unlisted: Option<BTreeSet<TrackIdent>>,
+    /// The state records of the group of puts met last, held until it ends whole ([group_records])
+    group_records: group_records::GroupRecords,
 }
 
 /// What a cut starts the next piece with: this piece's head, the next head's rows and the definitions of their tracks.
@@ -268,6 +282,8 @@ struct NextRows {
     carried: Vec<Vec<Candidate<'static>>>,
     /// [Closed::states_unknown]
     states_unknown: usize,
+    /// [Closed::keys_unknown]
+    keys_unknown: usize,
 }
 
 /// A close record of the piece a writer writes on after: where it and its tail are, and its hash.
@@ -326,6 +342,11 @@ pub struct Closed {
     /// didn't hold it, forgotten past [NearPolicy::kept_bytes_max] or lying only in a piece before a resume. The next
     /// put of such a track writes its item. 0 for a piece not cut.
     pub states_unknown: usize,
+    /// After a cut, the keyed state tracks the next piece carries without knowing every live key: a record of
+    /// theirs didn't read, or lies only in a piece before a resume. Their rows aren't marked
+    /// [TrackStart::keys_carried], so a reader of the next piece alone names their keys as not carried. 0 for a
+    /// piece not cut.
+    pub keys_unknown: usize,
 }
 
 impl Closed {
@@ -395,26 +416,92 @@ enum PutsEnd {
     Group,
 }
 
-/// A put of a group ([TapeWriter::put_group]): `item` on state track `track` at `ticks` of its clock.
+/// A put of a group ([TapeWriter::put_group]): `item` on state track `track` at `ticks` of its clock, or a key's
+/// value or deletion on a keyed one.
 #[derive(Copy, Clone, Debug)]
 pub struct GroupPut<'a> {
     /// The state track.
     pub track: TrackNum,
     /// The time of the put, in ticks of the track's clock.
     pub ticks: i64,
-    /// The item's bytes.
-    pub item: &'a [u8],
+    /// The item, or a key's value or deletion on a keyed track.
+    pub item: GroupItem<'a>,
+}
+
+/// What a put of a group puts ([GroupPut]).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum GroupItem<'a> {
+    /// The item of a state track that isn't keyed, as [TapeWriter::put] puts it.
+    State(&'a [u8]),
+    /// A key's value, or its deletion when the value is None, on a keyed state track, as [TapeWriter::put_key] and
+    /// [TapeWriter::delete_key] put them.
+    Key(crate::KeyedItem<'a>),
+}
+
+impl GroupItem<'_> {
+    /// Bytes of the record's item: a key's head, key and value ([crate::KeyedItem::len]).
+    pub fn len(&self) -> usize {
+        match self {
+            Self::State(item) => item.len(),
+            Self::Key(k) => k.len(),
+        }
+    }
+
+    /// Whether the item has no bytes: a key's item never.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The key, for a key's value or deletion.
+    fn key(&self) -> Option<&[u8]> {
+        match self {
+            Self::State(_) => None,
+            Self::Key(k) => Some(k.key),
+        }
+    }
+}
+
+impl<'a> GroupPut<'a> {
+    /// The put of `item` on state track `track` at `ticks`.
+    pub fn state(track: TrackNum, ticks: i64, item: &'a [u8]) -> Self {
+        Self {
+            track,
+            ticks,
+            item: GroupItem::State(item),
+        }
+    }
+
+    /// The put of value `value` of key `key` on keyed state track `track` at `ticks`.
+    pub fn key(track: TrackNum, ticks: i64, key: &'a [u8], value: &'a [u8]) -> Self {
+        Self {
+            track,
+            ticks,
+            item: GroupItem::Key(crate::KeyedItem {
+                key,
+                value: Some(value),
+            }),
+        }
+    }
+
+    /// The deletion of key `key` on keyed state track `track` at `ticks`.
+    pub fn delete_key(track: TrackNum, ticks: i64, key: &'a [u8]) -> Self {
+        Self {
+            track,
+            ticks,
+            item: GroupItem::Key(crate::KeyedItem { key, value: None }),
+        }
+    }
 }
 
 impl GroupPut<'_> {
-    /// Refuse `puts` as one group when it names a track twice ([GroupRefusal::SlotTwice]) or its items take more
-    /// than [GROUP_BYTES_MAX] bytes ([GroupRefusal::TooLong]): what [TapeWriter::put_group] checks without the
-    /// definitions.
+    /// Refuse `puts` as one group when it names a track twice, or a key of a keyed track twice
+    /// ([GroupRefusal::SlotTwice]), or its items take more than [GROUP_BYTES_MAX] bytes ([GroupRefusal::TooLong]):
+    /// what [TapeWriter::put_group] checks without the definitions.
     pub fn check(puts: &[GroupPut<'_>]) -> Result<(), GroupRefusal> {
         let mut seen = BTreeSet::new();
         let mut bytes = 0usize;
         for p in puts {
-            if !seen.insert(p.track) {
+            if !seen.insert((p.track, p.item.key())) {
                 return Err(GroupRefusal::SlotTwice { track: p.track });
             }
             bytes = bytes.saturating_add(p.item.len());
@@ -503,7 +590,10 @@ impl<S: TapeSink> TapeWriter<S> {
             removed: Vec::new(),
             removed_added: false,
             carried_due: false,
+            keys_base: None,
             wanted: Vec::new(),
+            unlisted: None,
+            group_records: group_records::GroupRecords::default(),
         }
     }
 
@@ -638,17 +728,31 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok(())
     }
 
-    /// Refuse a call whose state records, `needed` entries of definitions and puts, don't fit an empty piece with
-    /// the layout and the producer under the index policy ([InputError::CarriedEntries]): no cut could make room for
-    /// it. Checked before the piece's own room, so a call refused here never cuts a piece ([crate::PieceChain]).
+    /// Refuse a call on `tracks` (numbers held in `defs`) with `puts` records of its own whose state records, the
+    /// definitions its tracks need and its puts, don't fit an empty piece with the layout, the producer and the keys
+    /// every cut carries ([keyed::carry_entries]) under the index policy ([InputError::CarriedEntries]): no cut could
+    /// make room for it. Checked before the piece's own room, so a call refused here never cuts a piece
+    /// ([crate::PieceChain]).
     ///
     /// The invariant this keeps with [Self::cut_on] and [carried::fit]: a call admitted here fits the piece a cut
-    /// made for it, since that cut carries the call's tracks' definitions first. A piece that refuses an admitted
-    /// call with [IndexError::StateEntries] is full, and one cut makes room: data on a track is never refused for
-    /// good, and no cut made for a call leaves a piece empty.
-    fn admit(&self, needed: usize) -> Result<(), WriteError<S::Error>> {
+    /// made for it, since that cut carries the keyed tracks and then the call's tracks' definitions first. A piece
+    /// that refuses an admitted call with [IndexError::StateEntries] is full, and one cut makes room: data on a track
+    /// is never refused for good, and no cut made for a call leaves a piece empty.
+    ///
+    /// At the key limit ([CarryLimit::StateEntries]) the keyed tracks' carry leaves room for one put alone: a call on
+    /// a track whose definitions the carry doesn't hold yet, with its puts, needs more and is refused here until keys
+    /// are deleted.
+    fn admit(
+        &mut self,
+        defs: &Definitions,
+        tracks: &[TrackNum],
+        puts: usize,
+    ) -> Result<(), WriteError<S::Error>> {
+        self.load_keys(defs, false);
         let max = crate::cap_usize(self.indexer.policy().state_entries_max.get());
-        let needed = needed.saturating_add(HEAD_ENTRIES);
+        let needed = keyed::carry_entries(&self.kept, defs, tracks)
+            .saturating_add(puts)
+            .saturating_add(HEAD_ENTRIES);
         if needed > max {
             return Err(WriteError::Input(InputError::CarriedEntries {
                 needed,
@@ -661,11 +765,11 @@ impl<S: TapeSink> TapeWriter<S> {
     /// [Self::admit] data on `tracks` (numbers held in `defs`): the state entries its definitions take
     /// ([carried::entries]). A chain checks it before a cut due by its policy ([crate::PieceChain::write_chunk]).
     pub(crate) fn admit_data(
-        &self,
+        &mut self,
         defs: &Definitions,
         tracks: &[TrackNum],
     ) -> Result<(), WriteError<S::Error>> {
-        self.admit(carried::entries(defs, tracks))
+        self.admit(defs, tracks, 0)
     }
 
     fn room(&self, puts: usize, head: bool) -> Result<(), WriteError<S::Error>> {
@@ -691,7 +795,118 @@ impl<S: TapeSink> TapeWriter<S> {
         let facts = defs
             .track(track)
             .ok_or(DescribeError::UnknownTrack { track })?;
+        if facts.keyed {
+            return Err(DescribeError::Keyed { track }.into());
+        }
+        self.put_state(defs, track, &facts, ticks, Slot::State { track }, item)
+    }
+
+    /// Put the value `value` of key `key` on keyed state track `track` of `defs` at `ticks` of its clock, as
+    /// [Self::put] puts an item: the key's newest record and its copies decide per key. A key is at most
+    /// [STATE_KEY_LEN_MAX](crate::STATE_KEY_LEN_MAX) bytes. Whether it was written.
+    pub fn put_key(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<bool, WriteError<S::Error>> {
+        self.put_keyed(
+            defs,
+            track,
+            ticks,
+            crate::KeyedItem {
+                key,
+                value: Some(value),
+            },
+        )
+    }
+
+    /// Put the deletion of key `key` on keyed state track `track` of `defs` at `ticks` of its clock: from there on
+    /// the key has no value. Written as [Self::put_key] writes a value. Whether it was written.
+    pub fn delete_key(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        key: &[u8],
+    ) -> Result<bool, WriteError<S::Error>> {
+        self.put_keyed(defs, track, ticks, crate::KeyedItem { key, value: None })
+    }
+
+    /// Put the keyed item `keyed` on keyed state track `track` of `defs`.
+    fn put_keyed(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        keyed: crate::KeyedItem<'_>,
+    ) -> Result<bool, WriteError<S::Error>> {
+        self.check()?;
+        self.load_keys(defs, true);
+        self.want(&[track]);
+        let facts = defs
+            .track(track)
+            .ok_or(DescribeError::UnknownTrack { track })?;
+        if !facts.keyed {
+            return Err(match facts.state {
+                Some(_) => DescribeError::NotKeyed { track },
+                None => DescribeError::NotState { track },
+            }
+            .into());
+        }
+        let (put, slot, item) = Self::key_put(defs, track, keyed)?;
+        keyed::check(&self.kept, defs, &[put], self.key_limits())?;
+        self.put_state(defs, track, &facts, ticks, slot, &item)
+    }
+
+    /// The keyed record of `keyed` on keyed state track `track` of `defs`: the put [keyed::check] checks, its slot
+    /// and its item's bytes.
+    fn key_put<'k>(
+        defs: &Definitions,
+        track: TrackNum,
+        keyed: crate::KeyedItem<'k>,
+    ) -> Result<(keyed::KeyPut<'k>, Slot, Vec<u8>), DescribeError> {
+        let len = keyed.key.len();
+        let key = crate::KeyId::of(keyed.key).ok_or(DescribeError::KeyTooLong { len })?;
+        let mut item = Vec::new();
+        keyed
+            .encode_into(&mut item)
+            .ok_or(DescribeError::KeyTooLong { len })?;
+        let ident = defs
+            .track_identity(track)
+            .map(|(id, owner)| (id, OwnerId(owner)))
+            .ok_or(DescribeError::UnknownTrack { track })?;
+        let put = keyed::KeyPut {
+            track,
+            ident,
+            item: keyed,
+            len: item.len(),
+        };
+        Ok((put, Slot::Keyed { track, key }, item))
+    }
+
+    /// The limits the keys every cut carries keep to ([keyed::check]).
+    fn key_limits(&self) -> keyed::Limits {
+        keyed::Limits {
+            entries_max: crate::cap_usize(self.indexer.policy().state_entries_max.get()),
+            bytes_max: self.kept_bytes_max(),
+        }
+    }
+
+    /// Put `item` in `slot` of state track `track` (of `facts`) at `ticks`, after what the track needs.
+    fn put_state(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        facts: &crate::open::TrackFacts,
+        ticks: i64,
+        slot: Slot,
+        item: &[u8],
+    ) -> Result<bool, WriteError<S::Error>> {
         let policy = facts.state.ok_or(DescribeError::NotState { track })?;
+        let clock = facts.clock;
         if item.len() > STATE_ITEM_MAX {
             return Err(DescribeError::TooLong { len: item.len() }.into());
         }
@@ -700,17 +915,14 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut cands = self.needed(defs, &[track]);
         self.work.hash(item.len());
         cands.push(Candidate {
-            slot: Slot::State { track },
+            slot,
             rule: self.rule(policy),
             track: RecordTrack::Data(track),
-            at: Some(ClockTime {
-                clock: facts.clock,
-                ticks,
-            }),
+            at: Some(ClockTime { clock, ticks }),
             hash: ItemHash::of(item),
             item: Item::Given(item),
         });
-        self.admit(entries_max(&cands))?;
+        self.admit(defs, &[track], 1)?;
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
@@ -718,71 +930,86 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Put `puts` as one group: a reader takes all of them or none. Each is a put on its state track as [Self::put]
-    /// makes one, the near rule deciding whether it is written; the records written and the definitions they need
-    /// go in blocks of puts one after the other, each but the last marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT).
-    /// A crash inside the group leaves a run of marked blocks at the end of the piece, which a resume drops whole
-    /// ([Self::resume_on]); a reader of the piece before the resume and a follower show none of it. Which puts were
-    /// written, one flag each.
+    /// makes one, or of a key's value or deletion on a keyed state track as [Self::put_key] and [Self::delete_key]
+    /// make one, the near rule deciding whether it is written; the records written and the definitions they need
+    /// go in blocks of puts one after the other, each but the last marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT),
+    /// keyed records in blocks of their own. A crash inside the group leaves a run of marked blocks at the end of
+    /// the piece, which a resume drops whole ([Self::resume_on]); a reader of the piece before the resume and a
+    /// follower show none of it. Which puts were written, one flag each.
     ///
     /// While a caller's unit is open ([Self::unit_open]) the group waits whole and is written after the unit's last
     /// block: every flag is then `false`, as for puts the near rule passes over, and [Self::puts_waiting] counts it.
     ///
-    /// The group is checked whole before anything is written: every track a state track of `defs`, each item at
-    /// most [STATE_ITEM_MAX] bytes, no track twice ([GroupRefusal::SlotTwice]), the items at most
-    /// [GROUP_BYTES_MAX] bytes together ([GroupRefusal::TooLong]), the piece's room for the state entries of all it
-    /// writes ([IndexError::StateEntries]: [crate::PieceChain::put_group] cuts first then, never inside), and its
-    /// blocks with its definitions at most [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) ([InputError::RunTooLong]), which
-    /// only a group of many items shorter than [MAX_RECORD_HEAD](crate::MAX_RECORD_HEAD) bytes may pass. The last
-    /// check runs once the blocks are encoded: on [InputError::RunTooLong] none of the group is written, but the
-    /// deferred blocks and the definitions carried from the piece before may already be.
+    /// The group is checked whole before anything is written: every track a state track of `defs`, an item
+    /// ([GroupItem::State]) on one that isn't keyed ([DescribeError::Keyed]) and a key ([GroupItem::Key]) on one
+    /// that is ([DescribeError::NotKeyed]), each item at most [STATE_ITEM_MAX] bytes, no track and no key of a
+    /// keyed track twice ([GroupRefusal::SlotTwice]), the items at most [GROUP_BYTES_MAX] bytes together, a key's
+    /// as written ([GroupRefusal::TooLong]), the keys as [Self::put_key] checks them, all puts of the group at once
+    /// ([DescribeError::KeyCollision] with a live key or another key of the group, [InputError::CarryFull]), the
+    /// piece's room for the state entries of all it writes ([IndexError::StateEntries]:
+    /// [crate::PieceChain::put_group] cuts first then, never inside), and its blocks with its definitions at most
+    /// [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) ([InputError::RunTooLong]), which only a group of many items shorter
+    /// than [MAX_RECORD_HEAD](crate::MAX_RECORD_HEAD) bytes may pass. The last check runs once the blocks are
+    /// encoded: on [InputError::RunTooLong] none of the group is written, but the deferred blocks and the
+    /// definitions carried from the piece before may already be.
     pub fn put_group(
         &mut self,
         defs: &Definitions,
         puts: &[GroupPut<'_>],
     ) -> Result<Vec<bool>, WriteError<S::Error>> {
         self.check()?;
+        if puts.iter().any(|p| matches!(p.item, GroupItem::Key(_))) {
+            self.load_keys(defs, true);
+        }
         let mut tracks = Vec::with_capacity(puts.len());
+        let mut records = Vec::with_capacity(puts.len());
+        let mut key_puts = Vec::new();
         for p in puts {
+            let track = p.track;
             let facts = defs
-                .track(p.track)
-                .ok_or(DescribeError::UnknownTrack { track: p.track })?;
-            facts
-                .state
-                .ok_or(DescribeError::NotState { track: p.track })?;
-            if p.item.len() > STATE_ITEM_MAX {
-                return Err(DescribeError::TooLong { len: p.item.len() }.into());
+                .track(track)
+                .ok_or(DescribeError::UnknownTrack { track })?;
+            let policy = facts.state.ok_or(DescribeError::NotState { track })?;
+            let (slot, item) = match p.item {
+                GroupItem::State(item) if !facts.keyed => {
+                    (Slot::State { track }, Item::Given(item))
+                }
+                GroupItem::State(_) => return Err(DescribeError::Keyed { track }.into()),
+                GroupItem::Key(k) if facts.keyed => {
+                    let (put, slot, item) = Self::key_put(defs, track, k)?;
+                    key_puts.push(put);
+                    (slot, Item::Owned(item))
+                }
+                GroupItem::Key(_) => return Err(DescribeError::NotKeyed { track }.into()),
+            };
+            let len = item.bytes().len();
+            if len > STATE_ITEM_MAX {
+                return Err(DescribeError::TooLong { len }.into());
             }
-            tracks.push(p.track);
+            tracks.push(track);
+            records.push((track, p.ticks, facts.clock, policy, slot, item));
         }
         GroupPut::check(puts).map_err(|r| WriteError::Input(InputError::Group(r)))?;
         if puts.is_empty() {
             return Ok(Vec::new());
         }
+        keyed::check(&self.kept, defs, &key_puts, self.key_limits())?;
         self.want(&tracks);
         self.track_room(defs, &tracks)?;
         let mut cands = self.needed(defs, &tracks);
         let first = cands.len();
-        for p in puts {
-            let facts = defs
-                .track(p.track)
-                .ok_or(DescribeError::UnknownTrack { track: p.track })?;
-            let policy = facts
-                .state
-                .ok_or(DescribeError::NotState { track: p.track })?;
-            self.work.hash(p.item.len());
+        for (track, ticks, clock, policy, slot, item) in records {
+            self.work.hash(item.bytes().len());
             cands.push(Candidate {
-                slot: Slot::State { track: p.track },
+                slot,
                 rule: self.rule(policy),
-                track: RecordTrack::Data(p.track),
-                at: Some(ClockTime {
-                    clock: facts.clock,
-                    ticks: p.ticks,
-                }),
-                hash: ItemHash::of(p.item),
-                item: Item::Given(p.item),
+                track: RecordTrack::Data(track),
+                at: Some(ClockTime { clock, ticks }),
+                hash: ItemHash::of(item.bytes()),
+                item,
             });
         }
-        self.admit(cands.len())?;
+        self.admit(defs, &[], entries_max(&cands))?;
         if self.caller_run {
             self.hold_group(cands.into_iter().map(Candidate::owned).collect())?;
             return Ok(vec![false; puts.len()]);
@@ -833,7 +1060,7 @@ impl<S: TapeSink> TapeWriter<S> {
             hash,
             item: Item::Owned(bytes),
         });
-        self.admit(entries_max(&cands))?;
+        self.admit(defs, &[], entries_max(&cands))?;
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
@@ -860,7 +1087,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if cands.is_empty() {
             return Ok(false);
         }
-        self.admit(entries_max(&cands))?;
+        self.admit(defs, tracks, 0)?;
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
@@ -1014,7 +1241,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let (first, rest) = self.split_twice(cands, chosen);
         let first = chosen_records(cands, &first);
         let rest = chosen_records(cands, &rest);
-        for r in first.iter().chain(&rest) {
+        for (r, _) in first.iter().chain(&rest) {
             self.work.copy(r.item.len());
         }
         let group = if end == PutsEnd::Group {
@@ -1117,10 +1344,37 @@ impl<S: TapeSink> TapeWriter<S> {
             .iter()
             .map(|(n, (_, s))| (*n, s.item.len()))
             .collect();
+        // the live keys of each keyed track, by slot: a key's id is its slot, no two live keys share one
+        let mut keys: BTreeMap<TrackNum, Vec<Slot>> = BTreeMap::new();
+        let mut key_states: BTreeMap<Slot, (crate::StatePolicy, &kept::State)> = BTreeMap::new();
+        for (n, ident) in Self::keyed_rows(defs, &rows) {
+            let slots = keys.entry(n).or_default();
+            let (Some(k), Some(policy)) = (
+                self.kept.keys(n, ident),
+                defs.track(n).and_then(|f| f.state),
+            ) else {
+                continue;
+            };
+            for (key, st) in &k.live {
+                let Some(id) = crate::KeyId::of(key) else {
+                    continue;
+                };
+                let slot = Slot::Keyed { track: n, key: id };
+                if key_states.insert(slot, (policy, st)).is_none() {
+                    slots.push(slot);
+                }
+            }
+        }
+        let key_lens: BTreeMap<Slot, usize> = key_states
+            .iter()
+            .map(|(s, (_, st))| (*s, st.item.len()))
+            .collect();
         let (blocks, dropped) = carried::fit(
             carried::Source {
                 defs,
                 states: &lens,
+                keys: &keys,
+                key_lens: &key_lens,
             },
             &numbers,
             &self.wanted,
@@ -1132,6 +1386,17 @@ impl<S: TapeSink> TapeWriter<S> {
             .map(|b| {
                 b.iter()
                     .filter_map(|s| match s {
+                        Slot::Keyed { track, .. } => {
+                            let (policy, state) = key_states.get(s)?;
+                            Some(Candidate {
+                                slot: *s,
+                                rule: self.rule(*policy),
+                                track: RecordTrack::Data(*track),
+                                at: state.at,
+                                item: Item::Held(state.item.clone()),
+                                hash: state.hash,
+                            })
+                        }
                         Slot::State { track } => {
                             let (policy, state) = states.get(track)?;
                             Some(Candidate {
@@ -1168,6 +1433,102 @@ impl<S: TapeSink> TapeWriter<S> {
                 let state = self.kept.get(r.track_number, key)?;
                 Some((r.track_number, (policy, state)))
             })
+            .collect()
+    }
+
+    /// Read the keys in force at the close of a resumed closed piece through its index, once a call given `defs`
+    /// needs them: one by key (`keyed`), or one whose `defs` hold a track of that piece as keyed. The keys the
+    /// writer learned after the close go over them. An index that doesn't read leaves the keys of the piece's tracks
+    /// in doubt ([kept::Kept::all_keys_doubted]): the next cut doesn't mark them carried.
+    pub(crate) fn load_keys(&mut self, defs: &Definitions, keyed: bool) {
+        let Some((_, idents, _)) = &self.keys_base else {
+            // a call: no older keys follow ([Self::keep_after] comes before any)
+            self.kept.seal_keys();
+            return;
+        };
+        let needed = keyed
+            || idents
+                .keys()
+                .any(|n| defs.track(*n).is_some_and(|f| f.keyed));
+        if !needed {
+            return;
+        }
+        let Some((before, idents, inherited)) = self.keys_base.take() else {
+            return;
+        };
+        let rows = self.head_rows().to_vec();
+        let bytes_max = self.kept_bytes_max();
+        let mut base = kept::Kept::default();
+        let src = resume::SinkSource(&self.sink);
+        let read = match crate::TapeReader::open(&src) {
+            Ok(r) => resume::read_keys(&r, 0, &rows, &idents, before, bytes_max, &mut base),
+            Err(e) => Err(e),
+        };
+        if read.is_ok() {
+            base.keys_after(inherited);
+            self.kept.keys_after(base);
+            // the plain items placed since the close, forgotten first to make room for the keys
+            self.kept.trim(bytes_max);
+        } else {
+            self.kept.all_keys_doubted(idents.into_values());
+        }
+        self.kept.seal_keys();
+    }
+
+    /// Whether the writer sees every record of keyed state track `number` from its first on when it sees those of
+    /// this piece: a piece without a head or first in its chain, a track without a row in the head, or one whose
+    /// row is marked [TrackStart::keys_carried]; never for a track known before bytes it couldn't read
+    /// ([kept::Kept::is_doubted]), nor before it read the keys of a resumed closed piece ([Self::load_keys]).
+    pub(crate) fn keys_from_start(&self, number: TrackNum) -> bool {
+        let key = self.indexer.key_of(number, None);
+        let doubted = key.is_some_and(|k| self.kept.is_doubted(k));
+        let unlisted = self
+            .unlisted
+            .as_ref()
+            .is_some_and(|known| key.is_none_or(|k| !known.contains(&k)));
+        if doubted || unlisted || self.keys_base.is_some() {
+            return false;
+        }
+        let Some((head, rows)) = &self.head else {
+            return true;
+        };
+        head.prev.is_none()
+            || rows
+                .iter()
+                .find(|r| r.track_number == number)
+                .is_none_or(|r| r.keys_carried)
+    }
+
+    /// Bytes met may hold keyed records of tracks the writer doesn't know: a track's definition among them would be
+    /// lost with its records. The keys of every keyed track not known now are doubted from here on, in this piece and
+    /// the pieces after it ([PieceHead::unlisted_keys_unknown]).
+    pub(crate) fn unlisted_doubted(&mut self) {
+        if self.unlisted.is_none() {
+            self.unlisted = Some(self.indexer.known().collect());
+        }
+    }
+
+    /// The piece head says the pieces before met bytes that may hold keyed records of tracks without a row
+    /// (`unlisted`): the keys of every track but those of its rows are doubted ([Self::unlisted_doubted]).
+    pub(crate) fn unlisted_from_head(&mut self, unlisted: bool) {
+        if unlisted {
+            self.unlisted_doubted();
+        }
+    }
+
+    /// Whether the writer knows every live key of keyed state track `number` standing for `key` ([kept::Keys]).
+    fn keys_complete(&self, number: TrackNum, key: TrackIdent) -> bool {
+        self.kept
+            .keys(number, key)
+            .map_or_else(|| self.keys_from_start(number), |k| k.complete)
+    }
+
+    /// The keyed state tracks of head rows `rows` that `defs` holds under the row's number, id and owner.
+    fn keyed_rows(defs: &Definitions, rows: &[TrackStart]) -> Vec<(TrackNum, TrackIdent)> {
+        rows.iter()
+            .filter(|r| defs.track_identity(r.track_number) == Some((r.track_id, r.owner.0)))
+            .filter(|r| defs.track(r.track_number).is_some_and(|f| f.keyed))
+            .map(|r| (r.track_number, (r.track_id, r.owner)))
             .collect()
     }
 
@@ -1266,6 +1627,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// [Self::ensure_carried] without the groups waiting.
     fn carry_head(&mut self, defs: &Definitions) -> Result<(), WriteError<S::Error>> {
+        self.load_keys(defs, false);
         if !self.carried_due {
             return self.ensure_head();
         }
@@ -1274,6 +1636,25 @@ impl<S: TapeSink> TapeWriter<S> {
             .as_ref()
             .map(|(_, rows)| rows.clone())
             .unwrap_or_default();
+        // a carry the head promises keys for, put again after a crash, needs every one of them and the track; a mark
+        // on the row of a track the definitions hold as not keyed is passed over, as a reader passes it over
+        for r in rows.iter().filter(|r| r.keys_carried) {
+            if defs.track_identity(r.track_number) != Some((r.track_id, r.owner.0)) {
+                return Err(ResumeError::KeysUndefined {
+                    track: r.track_number,
+                }
+                .into());
+            }
+            if defs.track(r.track_number).is_none_or(|f| !f.keyed) {
+                continue;
+            }
+            if !self.keys_complete(r.track_number, (r.track_id, r.owner)) {
+                return Err(ResumeError::KeysUnknown {
+                    track: r.track_number,
+                }
+                .into());
+            }
+        }
         let head = if self.head_put { 0 } else { HEAD_ENTRIES };
         let room = self.indexer.policy().state_entries_max.get();
         let room = crate::cap_usize(room)
@@ -1340,7 +1721,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Write `records` as blocks of puts ([Self::encode_puts]) ending as `end` says ([Self::write_put_blocks]).
     fn write_puts(
         &mut self,
-        records: &[RecordRef<'_>],
+        records: &[PutRef<'_>],
         end: PutsEnd,
     ) -> Result<(), WriteError<S::Error>> {
         let flags = if end == PutsEnd::Group {
@@ -1356,7 +1737,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// block, not counted themselves.
     fn encode_puts(
         &self,
-        records: &[RecordRef<'_>],
+        records: &[PutRef<'_>],
         flags: u16,
     ) -> Result<Vec<Vec<u8>>, WriteError<S::Error>> {
         let mut blocks = Vec::new();
@@ -1364,16 +1745,10 @@ impl<S: TapeSink> TapeWriter<S> {
             return Ok(blocks);
         }
         let id = self.structural_id();
-        write_records(
-            records,
-            DEFINITION_BLOCK_LEN,
-            crate::FLAG_REPEAT | flags,
-            || id,
-            |b| {
-                blocks.push(b.to_vec());
-                Ok::<(), DescribeError>(())
-            },
-        )?;
+        put_blocks(records, id, flags, |b| {
+            blocks.push(b.to_vec());
+            Ok::<(), DescribeError>(())
+        })?;
         Ok(blocks)
     }
 
@@ -1452,6 +1827,8 @@ impl<S: TapeSink> TapeWriter<S> {
         self.indexer.start(tracks);
         self.write_own(&buf)?;
         self.head = Some((*head, tracks.to_vec()));
+        self.unlisted = None;
+        self.unlisted_from_head(head.unlisted_keys_unknown);
         self.near.clear();
         // the layout and the producer follow every piece head, the definitions of the tracks it carries them
         self.head_put = false;
@@ -1796,18 +2173,47 @@ impl<S: TapeSink> TapeWriter<S> {
         if counted && matches!(kind, BlockKind::Events | BlockKind::Series) {
             self.chunks = self.chunks.saturating_add(1);
         }
-        if counted && let Some(id) = block_id(block) {
+        // every block is of the writer's session, as a block of another session starts that session
+        // ([Self::write_block]): a piece of puts alone resumes in its session
+        if let Some(id) = block_id(block) {
             self.session = id.session;
-            self.next_seq = id.seq.wrapping_add(1);
+            if counted {
+                self.next_seq = id.seq.wrapping_add(1);
+            }
         }
         Ok(unit)
     }
 
-    /// Take what the block `block` placed at `at` says: every state record (track 0's, and every record of a block
-    /// marked [FLAG_REPEAT](crate::FLAG_REPEAT)) noted as written there ([near]), the track each definition of a
-    /// track names, and, with `tally`, each record of data into its track's hash. Returns the data tracks it holds
-    /// records or a chunk of.
+    /// Take what the block `block` placed at `at` says ([Self::learn_records]), the state records of a group of puts
+    /// once the group is whole ([group_records]).
     fn learn(&mut self, block: &[u8], at: u64, tally: bool) -> Vec<TrackNum> {
+        let marks = crate::Block::read_trusted(block)
+            .ok()
+            .filter(|b| b.kind == BlockKind::Records)
+            .and_then(|b| crate::group_marks::Marks::of_puts(b.flags));
+        let begin = self.group_records.begin(marks);
+        self.void_records(begin.voided);
+        for h in begin.whole {
+            self.take_record(h.slot, h.at, &h.item, h.block_at);
+        }
+        let tracks = self.learn_records(block, at, tally, begin.take);
+        for h in self.group_records.end() {
+            self.take_record(h.slot, h.at, &h.item, h.block_at);
+        }
+        tracks
+    }
+
+    /// Take what the block `block` placed at `at` says: every state record (track 0's, and every record of a block
+    /// marked [FLAG_REPEAT](crate::FLAG_REPEAT)) noted as written there ([near]) as `take` says, the track each
+    /// definition of a track names, and, with `tally`, each record of data into its track's hash. Returns the data
+    /// tracks it holds records or a chunk of.
+    fn learn_records(
+        &mut self,
+        block: &[u8],
+        at: u64,
+        tally: bool,
+        take: group_records::Take,
+    ) -> Vec<TrackNum> {
         // every block placed was made or checked whole before: its CRCs are not checked again
         let Ok(b) = crate::Block::read_trusted(block) else {
             return Vec::new();
@@ -1823,6 +2229,7 @@ impl<S: TapeSink> TapeWriter<S> {
             return Vec::new();
         };
         let repeat = b.is_repeat();
+        let keyed = b.is_keyed();
         let mut tracks = Vec::new();
         for r in b.records().flatten() {
             if let RecordTrack::Data(track) = r.track
@@ -1835,15 +2242,14 @@ impl<S: TapeSink> TapeWriter<S> {
                 }
                 continue;
             }
-            let Some(slot) = Slot::of(r.track, r.item) else {
+            let Some(slot) = Slot::of(r.track, r.item, keyed) else {
                 continue;
             };
-            if let Slot::State { track } = slot
+            // a state record gives its track a row
+            if let Slot::State { track } | Slot::Keyed { track, .. } = slot
                 && let Some(key) = self.indexer.key_of(track, None)
             {
                 self.indexer.state_placed(key, track);
-                self.kept
-                    .placed(track, key, r.at, r.item, self.kept_bytes_max());
             }
             if matches!(slot, Slot::Track { .. })
                 && let Ok(Describe::Track(t)) =
@@ -1853,12 +2259,75 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.relations
                     .define(t.number, &crate::open::TrackFacts::of(&t));
             }
-            self.near
-                .wrote(slot, Some(ItemHash::of(r.item)), at, &self.near_policy);
+            match take {
+                group_records::Take::Now => self.take_record(slot, r.at, r.item, at),
+                group_records::Take::Hold => self.group_records.hold(slot, r.at, r.item, at),
+                group_records::Take::Void => {
+                    if let Slot::Keyed { track, .. } = slot {
+                        self.doubt_keys(track);
+                    }
+                }
+            }
         }
         tracks.sort_unstable();
         tracks.dedup();
         tracks
+    }
+
+    /// Take the state record `item` in `slot` at `at`, of the block placed at `block_at`: noted as lying there
+    /// ([near]), a state track's item as in force, a keyed one's key into the next cut's carry. A keyed record of a
+    /// track whose definition the writer never read leaves the keys of every track it doesn't know in doubt.
+    fn take_record(&mut self, slot: Slot, at: Option<ClockTime>, item: &[u8], block_at: u64) {
+        match slot {
+            Slot::State { track } => {
+                if let Some(key) = self.indexer.key_of(track, None) {
+                    self.kept
+                        .placed(track, key, at, item, self.kept_bytes_max());
+                }
+            }
+            Slot::Keyed { track, .. } => match self.indexer.key_of(track, None) {
+                Some(key) => {
+                    let complete = self.keys_from_start(track);
+                    self.kept
+                        .key_placed(track, key, at, item, complete, self.kept_bytes_max());
+                }
+                None => self.unlisted_doubted(),
+            },
+            _ => {}
+        }
+        self.near
+            .wrote(slot, Some(ItemHash::of(item)), block_at, &self.near_policy);
+    }
+
+    /// A keyed record of track `track` not taken: the track's keys may miss it ([Self::take_record]).
+    pub(crate) fn doubt_keys(&mut self, track: TrackNum) {
+        match self.indexer.key_of(track, None) {
+            Some(key) => self.kept.keys_doubted(track, key),
+            None => self.unlisted_doubted(),
+        }
+    }
+
+    /// The records `held` of a group a reader drops, voided by damage or torn: none is taken, and the keys of the
+    /// tracks of keyed ones are doubted.
+    fn void_records(&mut self, held: Vec<group_records::Held>) {
+        for h in held {
+            if let Slot::Keyed { track, .. } = h.slot {
+                self.doubt_keys(track);
+            }
+        }
+    }
+
+    /// Damage met in a resume: a block that doesn't read or bytes no block explains. It voids the group of puts it
+    /// falls in ([group_records]).
+    pub(crate) fn group_damaged(&mut self) {
+        let held = self.group_records.damage();
+        self.void_records(held);
+    }
+
+    /// The end of a resume's replay: a group of puts still open, which no block ended, is voided ([group_records]).
+    pub(crate) fn groups_replayed(&mut self) {
+        let held = self.group_records.finish();
+        self.void_records(held);
     }
 
     /// List `block`, placed here, in the index as readers take it: a counted block with the id of the last one is
@@ -2532,14 +3001,16 @@ impl<S: TapeSink> TapeWriter<S> {
     /// on, under the session tag of its producer's blocks, and carried over a cut. Blocks of other producers between
     /// its blocks go through and leave it whole; groups of at most [RELAY_GROUPS_MAX] producers costing at most
     /// [RELAY_HELD_BYTES_MAX] together are held at once, each record its bytes and [RELAY_RECORD_OVERHEAD]. As
-    /// [Self::put_group] does, a group puts one item per state track ([GroupRefusal::SlotTwice]).
+    /// [Self::put_group] does, a group puts one item per state track and per key of a keyed one
+    /// ([GroupRefusal::SlotTwice]), and its keys are checked all at once at its last block, before any of it is
+    /// written ([DescribeError::KeyCollision], [InputError::CarryFull]).
     ///
     /// A group held is never dropped without an error naming it ([InputError::Group]):
     /// - a block of its producer that isn't a group's, or the first block of another group, tears it
     ///   ([GroupRefusal::Torn]): that block is put, the error comes after;
     /// - more than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks ([InputError::RunTooLong]), more than
-    ///   [GROUP_BYTES_MAX] bytes of items ([GroupRefusal::TooLong]), a state track twice
-    ///   ([GroupRefusal::SlotTwice]), more than [RELAY_HELD_BYTES_MAX] held ([GroupRefusal::HeldTooLong]), or a
+    ///   [GROUP_BYTES_MAX] bytes of items ([GroupRefusal::TooLong]), a state track or a key twice
+    ///   ([GroupRefusal::SlotTwice]), keys refused at its last block, more than [RELAY_HELD_BYTES_MAX] held ([GroupRefusal::HeldTooLong]), or a
     ///   block refused, drops it. A first block that tears its producer's group held and is refused itself is
     ///   named [GroupRefusal::Torn]; given again, it names its own refusal.
     ///
@@ -2588,7 +3059,11 @@ impl<S: TapeSink> TapeWriter<S> {
                 None => return Err(group_refused(GroupRefusal::NoStart { session })),
             }
         };
+        let last = b.flags & crate::FLAG_WITH_NEXT == 0;
         let added = self.add_relay_block(defs, &b, &mut group).and_then(|()| {
+            if last {
+                self.check_relay_keys(defs, &group.cands)?;
+            }
             let len = self.relay_groups.held().saturating_add(group.held);
             if len > RELAY_HELD_BYTES_MAX {
                 return Err(group_refused(GroupRefusal::HeldTooLong {
@@ -2606,7 +3081,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 None => Err(e),
             };
         }
-        if b.flags & crate::FLAG_WITH_NEXT != 0 {
+        if !last {
             self.relay_groups.hold(session, group);
             return torn_error(session, torn);
         }
@@ -2635,8 +3110,16 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         b: &crate::Block<'_>,
     ) -> Result<(), WriteError<S::Error>> {
+        self.load_keys(defs, b.is_keyed());
         let mut cands = Vec::new();
-        self.block_cands(defs, b, &mut BlockSeen::default(), &mut cands)?;
+        let mut key_puts = Vec::new();
+        self.block_cands(
+            defs,
+            b,
+            &mut BlockSeen::default(),
+            (&mut cands, &mut key_puts),
+        )?;
+        keyed::check(&self.kept, defs, &key_puts, self.key_limits())?;
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
@@ -2645,7 +3128,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Add the records of block `b` of a producer's group to `group` ([Self::put_block]), refused past
     /// [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks, [GROUP_BYTES_MAX] bytes of items or a second item on a state
-    /// track ([GroupRefusal::SlotTwice]).
+    /// track or a key ([GroupRefusal::SlotTwice]).
     fn add_relay_block(
         &mut self,
         defs: &Definitions,
@@ -2659,7 +3142,7 @@ impl<S: TapeSink> TapeWriter<S> {
             group.seen.clone(),
         );
         let mut cands = Vec::new();
-        self.block_cands(defs, b, &mut group.seen, &mut cands)?;
+        self.block_cands(defs, b, &mut group.seen, (&mut cands, &mut Vec::new()))?;
         if let Some(track) = group.seen.twice {
             return Err(group_refused(GroupRefusal::SlotTwice { track }));
         }
@@ -2688,13 +3171,41 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok(())
     }
 
+    /// Refuse the keyed records of a producer's group held, `cands`, as [Self::put_group] refuses its keys: all at once
+    /// ([keyed::check]).
+    fn check_relay_keys(
+        &mut self,
+        defs: &Definitions,
+        cands: &[Candidate<'_>],
+    ) -> Result<(), WriteError<S::Error>> {
+        if !cands.iter().any(|c| matches!(c.slot, Slot::Keyed { .. })) {
+            return Ok(());
+        }
+        self.load_keys(defs, true);
+        let mut key_puts = Vec::new();
+        for c in cands {
+            if let Slot::Keyed { track, .. } = c.slot
+                && let Some((id, owner)) = defs.track_identity(track)
+            {
+                let item = c.item.bytes();
+                key_puts.push(keyed::KeyPut {
+                    track,
+                    ident: (id, OwnerId(owner)),
+                    item: crate::KeyedItem::read(item).map_err(DescribeError::KeyedItem)?,
+                    len: item.len(),
+                });
+            }
+        }
+        keyed::check(&self.kept, defs, &key_puts, self.key_limits())
+    }
+
     /// Put the records of a producer's group held ([Self::put_block]) as one group.
     fn put_relay_group(
         &mut self,
         defs: &Definitions,
         cands: &[Candidate<'_>],
     ) -> Result<(), WriteError<S::Error>> {
-        self.admit(cands.len())?;
+        self.admit(defs, &[], entries_max(cands))?;
         if self.caller_run {
             return self.hold_group(cands.iter().cloned().map(Candidate::owned).collect());
         }
@@ -2803,16 +3314,18 @@ impl<S: TapeSink> TapeWriter<S> {
         }
     }
 
-    /// Push the records of block `b` of puts to put onto `out`, each after what it needs ([Self::put_block]); `seen`
-    /// holds what earlier blocks of its group pushed.
+    /// Push the records of block `b` of puts to put onto `out`, each after what it needs ([Self::put_block]), and
+    /// the keyed records among them onto `key_puts`, for [keyed::check]; `seen` holds what earlier blocks of its
+    /// group pushed.
     fn block_cands<'b>(
         &mut self,
         defs: &Definitions,
         b: &crate::Block<'b>,
         seen: &mut BlockSeen,
-        out: &mut Vec<Candidate<'b>>,
+        (out, key_puts): (&mut Vec<Candidate<'b>>, &mut Vec<keyed::KeyPut<'b>>),
     ) -> Result<(), WriteError<S::Error>> {
         let rule = self.definitions_rule();
+        let keyed = b.is_keyed();
         for r in b.records() {
             let r = r.map_err(WriteError::Block)?;
             let (RecordTrack::Data(track), Some(at)) = (r.track, r.at) else {
@@ -2862,14 +3375,44 @@ impl<S: TapeSink> TapeWriter<S> {
             };
             let facts = defs.check_on_track(track, at)?;
             let policy = facts.state.ok_or(DescribeError::NotState { track })?;
+            let slot = match (facts.keyed, keyed) {
+                (false, false) => Slot::State { track },
+                (true, true) => Slot::of(r.track, r.item, true)
+                    .ok_or(WriteError::Block(crate::BlockError::BadRecords))?,
+                (true, false) => return Err(DescribeError::Keyed { track }.into()),
+                (false, true) => return Err(DescribeError::NotKeyed { track }.into()),
+            };
             if r.item.len() > STATE_ITEM_MAX {
                 return Err(DescribeError::TooLong { len: r.item.len() }.into());
             }
+            if let Slot::Keyed { .. } = slot
+                && let Some((id, owner)) = defs.track_identity(track)
+            {
+                let item = crate::KeyedItem::read(r.item).map_err(DescribeError::KeyedItem)?;
+                key_puts.push(keyed::KeyPut {
+                    track,
+                    ident: (id, OwnerId(owner)),
+                    item,
+                    len: r.item.len(),
+                });
+            }
             self.work.hash(r.item.len());
             let hash = ItemHash::of(r.item);
-            // the same item again on a state track adds nothing; a group's slot takes one item (put_block)
-            let before = seen.newest.insert(track, hash);
-            if before.is_some() && seen.twice.is_none() {
+            // the same item again in a slot adds nothing; a group's slot takes one item (put_block), a keyed slot one
+            // per key: another key of its id is for keyed::check
+            let before = seen.newest.insert(slot, hash);
+            let same_key = match slot {
+                Slot::Keyed { .. } => {
+                    let key = crate::KeyedItem::read(r.item)
+                        .map_err(DescribeError::KeyedItem)?
+                        .key;
+                    seen.keys
+                        .insert(slot, key.to_vec())
+                        .is_none_or(|k| k == key)
+                }
+                _ => true,
+            };
+            if before.is_some() && same_key && seen.twice.is_none() {
                 seen.twice = Some(track);
             }
             if before == Some(hash) {
@@ -2879,7 +3422,7 @@ impl<S: TapeSink> TapeWriter<S> {
             self.push_needs(defs, defs.needs(track), &mut seen.slots, &mut needs);
             out.extend(needs);
             out.push(Candidate {
-                slot: Slot::State { track },
+                slot,
                 rule: self.rule(policy),
                 track: r.track,
                 at: Some(at),
@@ -3039,6 +3582,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 start: self.sink.base().saturating_add(self.start),
                 tracks: self.next_tracks(&ranges),
                 states_unknown: 0,
+                keys_unknown: 0,
             };
             return Ok((self, closed));
         }
@@ -3118,12 +3662,13 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = w.options();
         let newest = w.relations.newest().clone();
         let kept = core::mem::take(&mut w.kept);
+        let unlisted = w.unlisted.is_some();
         let relay_groups = core::mem::take(&mut w.relay_groups);
         let done = w.end(End::Cut, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
             &done.closed,
-            rows.tracks,
+            (rows.tracks, unlisted),
             done.session,
             done.next_seq,
         )?;
@@ -3135,13 +3680,16 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut closed = done.closed;
         closed.tracks = next.head_rows().to_vec();
         closed.states_unknown = rows.states_unknown;
+        closed.keys_unknown = rows.keys_unknown;
         Ok((closed, next))
     }
 
     /// What a cut starts the next piece with ([NextRows]), or the writer back in a [CutError] when the cut is
     /// refused: this piece has no head. The carried definitions take what the index policy's state entries leave
     /// past the layout and the producer ([carried::fit]); the next head's rows mark the tracks left out.
-    fn next_rows(self, defs: &Definitions) -> Result<(Self, NextRows), CutError<S>> {
+    fn next_rows(mut self, defs: &Definitions) -> Result<(Self, NextRows), CutError<S>> {
+        // the next piece starts from every key known
+        self.load_keys(defs, true);
         let Some((head, starts)) = self.head.as_ref() else {
             return Err(self.refuse(WriteError::Index(IndexError::Invalid(
                 "a cut needs a piece head",
@@ -3156,6 +3704,20 @@ impl<S: TapeSink> TapeWriter<S> {
         for t in &mut tracks {
             t.not_carried = dropped.contains(&t.track_number);
         }
+        for (n, ident) in Self::keyed_rows(defs, &tracks) {
+            let complete = self.keys_complete(n, ident);
+            for t in tracks.iter_mut().filter(|t| t.track_number == n) {
+                t.keys_carried = complete && !t.not_carried;
+            }
+        }
+        let keyed: BTreeSet<TrackNum> = Self::keyed_rows(defs, &tracks)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        let keys_unknown = tracks
+            .iter()
+            .filter(|t| keyed.contains(&t.track_number) && !t.keys_carried)
+            .count();
         let states = self.carried_states(defs, &tracks);
         let states_unknown = tracks
             .iter()
@@ -3173,6 +3735,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 tracks,
                 carried,
                 states_unknown,
+                keys_unknown,
             },
         ))
     }
@@ -3203,12 +3766,13 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = w.options();
         let newest = w.relations.newest().clone();
         let kept = core::mem::take(&mut w.kept);
+        let unlisted = w.unlisted.is_some();
         let relay_groups = core::mem::take(&mut w.relay_groups);
         let mut done = w.end(End::CutInPlace, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
             &done.closed,
-            rows.tracks,
+            (rows.tracks, unlisted),
             done.session,
             done.next_seq,
         )?;
@@ -3229,6 +3793,7 @@ impl<S: TapeSink> TapeWriter<S> {
         next.relay_groups = relay_groups;
         done.closed.tracks = next.head_rows().to_vec();
         done.closed.states_unknown = rows.states_unknown;
+        done.closed.keys_unknown = rows.keys_unknown;
         Ok((done.closed, next))
     }
 
@@ -3282,6 +3847,10 @@ impl<S: TapeSink> TapeWriter<S> {
             .map(|t| (t.track_number, (t.track_id, t.owner)))
             .collect();
         older.retain(&rows);
+        if let Some((_, _, inherited)) = &mut self.keys_base {
+            // older than the keys of the closed piece, which are read later: kept apart until then
+            inherited.keys_after(older.take_keys());
+        }
         self.kept.after(older, self.kept_bytes_max());
     }
 
@@ -3422,6 +3991,7 @@ impl<S: TapeSink> TapeWriter<S> {
             summary,
             ident,
             next,
+            unlisted_keys_unknown: self.unlisted.is_some(),
         };
         let tracks = self.next_tracks(&ranges);
         let close_offset = self.offset();
@@ -3471,6 +4041,7 @@ impl<S: TapeSink> TapeWriter<S> {
             start: self.sink.base().saturating_add(self.start),
             tracks,
             states_unknown: 0,
+            keys_unknown: 0,
         };
         Ok((closed, close_offset, close))
     }
@@ -3512,6 +4083,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 start,
                 tracks,
                 states_unknown: 0,
+                keys_unknown: 0,
             },
             next_seq: self.next_seq,
             session: self.session,
@@ -3626,6 +4198,9 @@ impl Candidate<'static> {
     }
 }
 
+/// A record to put, and whether it is a keyed state record ([Slot::Keyed]).
+type PutRef<'c> = (RecordRef<'c>, bool);
+
 impl Candidate<'_> {
     /// The candidate with its item's bytes its own.
     fn owned(self) -> Candidate<'static> {
@@ -3649,10 +4224,12 @@ impl Candidate<'_> {
 struct BlockSeen {
     /// The definitions pushed
     slots: BTreeSet<Slot>,
-    /// The hash of the newest record of each state track
-    newest: alloc::collections::BTreeMap<TrackNum, ItemHash>,
-    /// The first state track with a second record
+    /// The hash of the newest record of each state slot: of each state track, of each key of a keyed one
+    newest: alloc::collections::BTreeMap<Slot, ItemHash>,
+    /// The first state track with a second record, of the same key on a keyed one
     twice: Option<TrackNum>,
+    /// The key of the newest record of each keyed slot
+    keys: alloc::collections::BTreeMap<Slot, Vec<u8>>,
 }
 
 /// A producer's group of puts a writer holds until its last block ([TapeWriter::put_block]).
@@ -3703,17 +4280,38 @@ fn torn_error<E>(
 }
 
 /// The records of `cands` that `chosen` marks, in order.
-fn chosen_records<'c>(cands: &'c [Candidate<'_>], chosen: &[bool]) -> Vec<RecordRef<'c>> {
+fn chosen_records<'c>(cands: &'c [Candidate<'_>], chosen: &[bool]) -> Vec<PutRef<'c>> {
     cands
         .iter()
         .zip(chosen)
         .filter(|(_, c)| **c)
-        .map(|(c, _)| RecordRef {
-            track: c.track,
-            at: c.at,
-            item: c.item.bytes(),
+        .map(|(c, _)| {
+            let r = RecordRef {
+                track: c.track,
+                at: c.at,
+                item: c.item.bytes(),
+            };
+            (r, matches!(c.slot, Slot::Keyed { .. }))
         })
         .collect()
+}
+
+/// Make the blocks of puts holding `records`, each of id `id`, into `out`, in order: blocks marked
+/// [FLAG_REPEAT](crate::FLAG_REPEAT) and `flags`, a run of keyed state records in blocks of their own marked
+/// [FLAG_KEYED](crate::FLAG_KEYED) too.
+fn put_blocks<E: From<DescribeError>>(
+    records: &[PutRef<'_>],
+    id: BlockId,
+    flags: u16,
+    mut out: impl FnMut(&[u8]) -> Result<(), E>,
+) -> Result<(), E> {
+    for run in records.chunk_by(|a, b| a.1 == b.1) {
+        let keyed = run.first().is_some_and(|(_, k)| *k);
+        let flags = crate::FLAG_REPEAT | flags | if keyed { crate::FLAG_KEYED } else { 0 };
+        let refs: Vec<RecordRef<'_>> = run.iter().map(|(r, _)| *r).collect();
+        write_records(&refs, DEFINITION_BLOCK_LEN, flags, || id, &mut out)?;
+    }
+    Ok(())
 }
 
 /// A block waiting for the gap before an aligned chunk payload, its definitions put when it came, and where the
@@ -3736,18 +4334,12 @@ fn entries_max(cands: &[Candidate<'_>]) -> usize {
 }
 
 /// Bytes of the blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.
-fn puts_len<E>(records: &[RecordRef<'_>]) -> Result<usize, WriteError<E>> {
+fn puts_len<E>(records: &[PutRef<'_>]) -> Result<usize, WriteError<E>> {
     let mut len = 0usize;
-    write_records(
-        records,
-        DEFINITION_BLOCK_LEN,
-        crate::FLAG_REPEAT,
-        || BlockId::new(SessionTag::NONE, 0),
-        |b| {
-            len = len.saturating_add(b.len());
-            Ok::<(), DescribeError>(())
-        },
-    )?;
+    put_blocks(records, BlockId::new(SessionTag::NONE, 0), 0, |b| {
+        len = len.saturating_add(b.len());
+        Ok::<(), DescribeError>(())
+    })?;
     Ok(len)
 }
 
@@ -3780,12 +4372,13 @@ pub(crate) struct NextPiece {
 
 impl NextPiece {
     /// The piece after the one headed `head` that ended as `done`, continued: its id [PieceId::after] that one's id
-    /// and content hash, its head naming that piece, its track starts `tracks`; seqs go on in `session` from
+    /// and content hash, its head naming that piece, its track starts `tracks`, and whether keyed tracks without a
+    /// row may have keys before it (`unlisted`, [PieceHead::unlisted_keys_unknown]); seqs go on in `session` from
     /// `next_seq`.
     pub(crate) fn after<E>(
         head: &PieceHead,
         done: &Closed,
-        tracks: Vec<TrackStart>,
+        (tracks, unlisted): (Vec<TrackStart>, bool),
         session: SessionTag,
         next_seq: u64,
     ) -> Result<Self, WriteError<E>> {
@@ -3806,6 +4399,7 @@ impl NextPiece {
                 prev: Some((done.hash, head.ident.id)),
                 prev_session: session,
                 integrity: crate::Integrity::Full,
+                unlisted_keys_unknown: unlisted,
             },
             tracks,
             session,

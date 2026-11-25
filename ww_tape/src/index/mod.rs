@@ -27,13 +27,14 @@
 //!  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
 //!  ...     entries, each:
 //!            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-//!           13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile
+//!           13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile, bit 5 keyed, bit 6 deleted
 //!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
 //!           72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0
 //!           80 u64 its largest value, else 0
 //!           72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0
+//!           72 [16] a keyed state record's key id (flag bit 5) in place of the range, below
 //!           88 [32] a chunk's unit hash, else 0
 //!          120 [8] reserved: written zero, not read
 //! len-4 u32 CRC over bytes 0..len-4, as in every block
@@ -47,12 +48,19 @@
 //!
 //! ```text
 //!  13 u8  the record's slot: 0 a state track's record, else what it defines (DefinitionKind)
-//!  15 u8  bit 0: the block is marked FLAG_REPEAT
+//!  15 u8  bit 0: the block is marked FLAG_REPEAT; bit 5: a keyed state record (its block marked FLAG_KEYED);
+//!         bit 6: that record is a deletion
 //!  24 u32 the state track, or the number the definition defines (a track's, a clock's, a map's from clock)
-//!  28 u32 a map's to clock, else 0
+//!  28 u32 a map's to clock, a keyed record's key length (at most STATE_KEY_LEN_MAX), else 0
 //!  32 u64 0, reserved for the record's item number       40 u64 0, reserved
 //!  48 16 bytes the item's hash (ItemHash)                 64 i64 the record's time in ticks, 0 on track 0
+//!  72 [8] a keyed record's key head: its first 8 bytes, zero past its end (KeyId), else 0
+//!  80 u64 a keyed record's key hash: BLAKE3 of the key, its first 8 bytes, else 0
 //! ```
+//!
+//! A keyed entry is a state record's of level 0, marked repeated, without a range or a tile; a deletion is keyed.
+//! Its key head holds zero past the key's length. An entry that breaks one of these is refused
+//! ([IndexError::BadEntries]).
 //!
 //! A final index longer than [INDEX_LEN_MAX] is several final blocks, chained like checkpoints, each holding whole
 //! tracks in ascending track id order.
@@ -62,7 +70,7 @@ use crate::bytes::{file_u16, file_u32, le_u16, le_u32, le_u64};
 use crate::chunk::u32_len;
 use crate::grid::GRID_OVERVIEW_LEVELS_MAX;
 use crate::piece::UnitHash;
-use crate::state::{ItemHash, Slot};
+use crate::state::{ItemHash, KeyId, Slot};
 use crate::{
     Block, BlockError, BlockId, BlockKind, BoundError, CRC, CRC_LEN, ChunkHead, HEADER_LEN,
     MAX_BLOCK_LEN, VERSION, put_header,
@@ -111,9 +119,18 @@ pub const ENTRY_UNHASHED: u8 = 4;
 const ENTRY_BREAK: u8 = 8;
 /// Entry flag: the entry carries its grid chunk's tile number ([IndexEntry::tile]).
 const ENTRY_TILE: u8 = 16;
+/// Entry flag: a keyed state record, its key's id at bytes 72..88 ([IndexEntry::key]).
+const ENTRY_KEYED: u8 = 32;
+/// Entry flag: the keyed state record is a deletion ([IndexEntry::deleted]).
+const ENTRY_DELETED: u8 = 64;
 /// Entry flag bits this build knows; an entry with another set is refused ([IndexError::Invalid]).
-const ENTRY_FLAGS_KNOWN: u8 =
-    ENTRY_REPEAT | ENTRY_RANGE | ENTRY_UNHASHED | ENTRY_BREAK | ENTRY_TILE;
+const ENTRY_FLAGS_KNOWN: u8 = ENTRY_REPEAT
+    | ENTRY_RANGE
+    | ENTRY_UNHASHED
+    | ENTRY_BREAK
+    | ENTRY_TILE
+    | ENTRY_KEYED
+    | ENTRY_DELETED;
 /// Where an entry's flag byte is.
 const ENTRY_FLAGS_AT: usize = 15;
 /// Offset that means none.
@@ -191,6 +208,10 @@ pub struct IndexEntry {
     /// writer packed them by the grid's definition; None for other blocks, a series chunk (no fixed axes) and an
     /// entry a reader made by a scan.
     pub tile: Option<u128>,
+    /// A keyed state record's key ([Slot::Keyed]); None for every other entry.
+    pub key: Option<KeyId>,
+    /// The keyed state record is a deletion: it ends its key.
+    pub deleted: bool,
 }
 
 /// What an index entry of a state record says, see the [module docs](self).
@@ -200,6 +221,8 @@ pub struct StateEntry {
     pub hash: ItemHash,
     /// The record's time in ticks of its track's clock, 0 on track 0.
     pub ticks: i64,
+    /// A keyed record that deletes its key.
+    pub deleted: bool,
 }
 
 impl IndexEntry {
@@ -213,6 +236,7 @@ impl IndexEntry {
         if block.kind != BlockKind::Records || !block.body_known() {
             return alloc::vec![e];
         }
+        let keyed = block.is_keyed();
         let mut buf = alloc::vec::Vec::new();
         let Ok(b) = block.decode(&mut buf) else {
             return alloc::vec![e];
@@ -224,13 +248,15 @@ impl IndexEntry {
         for r in b.records() {
             // a record that doesn't read ends the block's records
             let Ok(r) = r else { break };
-            let Some(slot) = Slot::of(r.track, r.item) else {
+            let Some(slot) = Slot::of(r.track, r.item, keyed) else {
                 continue;
             };
+            let deleted = keyed && crate::KeyedItem::read(r.item).is_ok_and(|k| k.value.is_none());
             let state = StateEntry {
                 slot,
                 hash: ItemHash::of(r.item),
                 ticks: r.at.map_or(0, |at| at.ticks),
+                deleted,
             };
             out.push(e.with_state(&state));
         }
@@ -257,6 +283,11 @@ impl IndexEntry {
             first_tick: a,
             last_tick: b,
             latest_end: s.ticks,
+            key: match s.slot {
+                Slot::Keyed { key, .. } => Some(key),
+                _ => None,
+            },
+            deleted: s.deleted,
             ..*self
         }
     }
@@ -289,9 +320,10 @@ impl IndexEntry {
         }
         let hash = ItemHash(hash);
         Some(StateEntry {
-            slot: Slot::from_code(self.level, self.number, self.second, hash)?,
+            slot: Slot::from_code(self.level, self.number, self.second, hash, self.key)?,
             hash,
             ticks: self.latest_end,
+            deleted: self.deleted,
         })
     }
 
@@ -322,6 +354,8 @@ impl IndexEntry {
             unhashed: false,
             range: None,
             tile: None,
+            key: None,
+            deleted: false,
         };
         match block.kind {
             BlockKind::Index
@@ -383,6 +417,8 @@ impl IndexEntry {
             unhashed: false,
             range: None,
             tile: None,
+            key: None,
+            deleted: false,
         })
     }
 
@@ -432,7 +468,9 @@ impl IndexEntry {
                     | (if self.range.is_some() { ENTRY_RANGE } else { 0 })
                     | (if self.tile.is_some() { ENTRY_TILE } else { 0 })
                     | (if self.relation_break { ENTRY_BREAK } else { 0 })
-                    | (if self.unhashed { ENTRY_UNHASHED } else { 0 }),
+                    | (if self.unhashed { ENTRY_UNHASHED } else { 0 })
+                    | (if self.key.is_some() { ENTRY_KEYED } else { 0 })
+                    | (if self.deleted { ENTRY_DELETED } else { 0 }),
             ])
             .chain(self.track_id.get().to_le_bytes())
             .chain(self.number.to_le_bytes())
@@ -458,6 +496,15 @@ impl IndexEntry {
             && let Some(at) = out.get_mut(ENTRY_RANGE_AT..ENTRY_UNIT_AT)
         {
             at.copy_from_slice(&tile.to_le_bytes());
+        }
+        if let Some(key) = self.key {
+            for (d, s) in out
+                .iter_mut()
+                .skip(ENTRY_RANGE_AT)
+                .zip(key.head.into_iter().chain(key.hash.to_le_bytes()))
+            {
+                *d = s;
+            }
         }
         if let Some(unit) = out.get_mut(ENTRY_UNIT_AT..ENTRY_RESERVED_AT) {
             unit.copy_from_slice(&self.unit.0);
@@ -524,6 +571,12 @@ impl IndexEntry {
                     a0, a1, a2, a3, a4, a5, a6, a7, z0, z1, z2, z3, z4, z5, z6, z7,
                 ])
             }),
+            key: (flags & ENTRY_KEYED != 0).then_some(KeyId {
+                head: [a0, a1, a2, a3, a4, a5, a6, a7],
+                len: u32::from_le_bytes([r0, r1, r2, r3]),
+                hash: u64::from_le_bytes([z0, z1, z2, z3, z4, z5, z6, z7]),
+            }),
+            deleted: flags & ENTRY_DELETED != 0,
         }
     }
 
@@ -549,7 +602,24 @@ impl IndexEntry {
             BlockKind::Series => self.level <= GRID_OVERVIEW_LEVELS_MAX,
             _ => true,
         };
-        range && tile && mark && unit && level && self.is_in_range()
+        range && tile && mark && unit && level && self.is_keyed_valid() && self.is_in_range()
+    }
+
+    /// Whether a key and a deletion are where they may be: a key on a state record's entry, marked repeated, of level
+    /// 0 without a range or a tile, its head zero past its length and the length within the cap; a deletion only with
+    /// a key.
+    fn is_keyed_valid(&self) -> bool {
+        let Some(key) = self.key else {
+            return !self.deleted;
+        };
+        self.track_id == STATE_TRACK_ID
+            && self.kind == BlockKind::Records
+            && self.repeat
+            && self.level == 0
+            && self.range.is_none()
+            && self.tile.is_none()
+            && key.len == self.second
+            && key.is_valid()
     }
 
     /// Whether the entry names a block a reader may fetch: its length that of a block, its end within a u64.

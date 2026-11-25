@@ -334,7 +334,7 @@ fn blocks_of(bytes: &[u8]) -> Vec<String> {
                 .unwrap()
                 .records()
                 .filter_map(Result::ok)
-                .map(|r| Slot::of(r.track, r.item))
+                .map(|r| Slot::of(r.track, r.item, b.is_keyed()))
                 .collect(),
             _ => Vec::new(),
         };
