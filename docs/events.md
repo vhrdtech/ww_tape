@@ -72,7 +72,7 @@ The program reads the chunk that holds the first frame at or after the fault, th
 
 ??? example "What the example uses here: `fault_us`, `the fault's constants`, `key`, `Frame, Frames`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:fault_us_item"
 
     --8<-- "examples/example_drive/src/fault.rs:fault_consts_item"

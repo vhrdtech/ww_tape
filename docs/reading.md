@@ -59,7 +59,7 @@ another read:
 
 ??? example "What the example uses here: `fault_us`, `key`, `Opened`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:fault_us_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"
@@ -95,7 +95,7 @@ file. The example asks for `phase_a` in the second either side of the fault:
 
 ??? example "What the example uses here: `fault_us`, `key`, `Found`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:fault_us_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"
@@ -147,7 +147,7 @@ index to the one block it needs:
 
 ??? example "What the example uses here: `number_of`, `InForce`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:number_of_item"
 
     --8<-- "examples/example_drive/src/fault.rs:in_force_item"

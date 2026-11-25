@@ -58,7 +58,7 @@ host receives them, and four calls of the writer take them. A fifth call [[close
 
 ??? example "What the example uses here: `Drive`, `Drive::acts`, `Drive::definitions`, `Act`, `records_block`, `DriveNumbers`, `Mode`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/lib.rs:drive_item"
 
     --8<-- "examples/example_drive/src/record.rs:drive_acts_item"
@@ -103,7 +103,7 @@ writes needs none of this and uses the writer's own calls.
 
 ??? example "What the example uses here: `Recorder`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/record.rs:recorder_item"
 
     --8<-- "examples/example_drive/src/record.rs:series"
@@ -128,7 +128,7 @@ The application makes a [[records block]] itself with a [`BlockWriter`]. It push
 
 ??? example "What the example uses here: `DriveNumbers`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:ids_item"
     ```
 
@@ -168,7 +168,7 @@ A [[reader]] starts at the end of the [[piece]]. It finds the [[tail]] there, an
 
 ??? example "What the example uses here: `Track, Items`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/first_tape.rs:tracks_types_item"
     ```
 

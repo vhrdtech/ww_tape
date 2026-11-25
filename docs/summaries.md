@@ -34,7 +34,7 @@ the maximum, the sum and the sum of squares. From them a viewer draws the envelo
 
 ??? example "What the example uses here: `phase_def, phase_shape`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:phase_def_item"
     ```
 
@@ -60,7 +60,7 @@ nodes, and no column falls between two:
 
 ??? example "What the example uses here: `the fault's constants`, `series_def`, `column_of`, `nodes`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:fault_consts_item"
 
     --8<-- "examples/example_drive/src/fault.rs:series_def_item"
@@ -79,7 +79,7 @@ in each piece, and merges each node into the column its first sample falls in:
 
 ??? example "What the example uses here: `column_of`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:column_of_item"
     ```
 
@@ -131,7 +131,7 @@ period:
 
 ??? example "What the example uses here: `DriveNumbers`, `key`, `phase_def, phase_shape`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"
@@ -149,7 +149,7 @@ an aligned file into the gap before a chunk's payload:
 
 ??? example "What the example uses here: `Act`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/record.rs:act_item"
     ```
 

@@ -33,7 +33,7 @@ that belong to another chain. [`ChainReport::is_whole`] says that every piece is
 
 ??? example "What the example uses here: `Checked`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:checked_item"
     ```
 
@@ -102,7 +102,7 @@ copied piece give the same hash for the same range:
 
 ??? example "What the example uses here: `frame_items`, `SameFrames`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:frame_items_item"
 
     --8<-- "examples/example_drive/src/fault.rs:same_frames_type_item"

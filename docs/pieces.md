@@ -89,7 +89,7 @@ minutes of the run make:
 
 ??? example "What the example uses here: `Drive`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/lib.rs:drive_item"
     ```
 
@@ -104,7 +104,7 @@ The drive's recorder only starts the mux with these options, and hands it the ac
 
 ??? example "What the example uses here: `Act`, `Recorder`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/record.rs:act_item"
 
     --8<-- "examples/example_drive/src/record.rs:recorder_item"

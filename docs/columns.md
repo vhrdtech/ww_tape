@@ -35,7 +35,7 @@ the chunk head, since they know the first and last tick:
 
 ??? example "What the example uses here: `DriveNumbers`, `key`, `Act`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"

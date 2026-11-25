@@ -58,7 +58,7 @@ the chain's policy:
 
 ??? example "What the example uses here: `board_tape`, `options`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/writing.rs:board_tape_item"
 
     --8<-- "examples/example_drive/src/record.rs:options_item"

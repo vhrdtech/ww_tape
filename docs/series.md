@@ -70,7 +70,7 @@ shows where a signal is on the air:
 
 ??? example "What the example uses here: `Rf`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_capture/src/rf.rs:rf_item"
     ```
 
@@ -150,7 +150,7 @@ number with the grid, then decodes from that sample on:
 
 ??? example "What the example uses here: `fault_us`, `the fault's constants`, `series_def`, `Current`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:fault_us_item"
 
     --8<-- "examples/example_drive/src/fault.rs:fault_consts_item"

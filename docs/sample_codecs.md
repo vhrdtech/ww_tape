@@ -20,7 +20,7 @@ A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 samples as `
 
 ??? example "What the example uses here: `DriveNumbers`, `key`, `phase_def, phase_shape`, `Act`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"

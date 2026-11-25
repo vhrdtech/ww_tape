@@ -75,7 +75,7 @@ on a chain in memory and defines the clocks and tracks on it:
 
 ??? example "What the example uses here: `define_on_mux`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:define_on_mux"
     ```
 

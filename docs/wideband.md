@@ -37,7 +37,7 @@ leaves, and a mux only places chunks; with several muxes, channel k goes to mux 
 
 ??? example "What the example uses here: `Wideband`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_wideband/src/lib.rs:wideband"
     ```
 

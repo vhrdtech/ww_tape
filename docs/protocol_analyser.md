@@ -29,7 +29,7 @@ The handle copies the batch into its open [[events chunk]] and completes the chu
 
 ??? example "What the example uses here: `Link`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_ethernet/src/lib.rs:link"
     ```
 
