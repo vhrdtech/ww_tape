@@ -438,6 +438,23 @@ fn a_put_behind_a_waiting_group_keeps_its_order() {
     assert_eq!(in_force(&bytes, STATE).as_deref(), Some(&b"new"[..]));
 }
 
+/// A close while a unit is open and a group waits for it: refused, naming the group's slots, never closed without it.
+#[test]
+fn a_close_inside_an_open_unit_names_the_groups_it_would_drop() {
+    let (defs, units) = relayed_units(false, 1);
+    let mut w = crate::resume::begin(0);
+    w.write_block(&defs, &units[0][0]).unwrap();
+    w.put_group(&defs, &group_of(STATE, b"old")).unwrap();
+    let r = w.close();
+    let Err(ww_tape::WriteError::Input(ww_tape::InputError::Waiting { dropped })) = r else {
+        panic!("{r:?}")
+    };
+    assert_eq!(dropped.len(), 1, "{dropped:?}");
+    assert!(dropped[0].contains(&ww_tape::Slot::State {
+        track: TrackNum::new(STATE)
+    }));
+}
+
 /// Through the mux: a state put behind a group put while a relayed unit is open is in force after the unit.
 #[test]
 fn the_mux_keeps_a_put_behind_a_waiting_group() {

@@ -2773,6 +2773,24 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok(())
     }
 
+    /// Before a close: write the groups and puts waiting when no caller's unit is open; refuse the close, writing
+    /// nothing, with [InputError::Waiting] naming the slots of each one a unit left open would drop.
+    fn close_waiting(&mut self) -> Result<(), WriteError<S::Error>> {
+        if !self.caller_run {
+            self.write_waiting(None)?;
+        }
+        if !self.relay_groups.has_waiting() {
+            return Ok(());
+        }
+        let dropped = self
+            .relay_groups
+            .waiting()
+            .iter()
+            .map(|w| w.cands.iter().map(|c| c.slot).collect())
+            .collect();
+        Err(WriteError::Input(InputError::Waiting { dropped }))
+    }
+
     /// [Self::write_waiting] right after the block that ends a caller's unit: a group the piece has no room for
     /// waits for the next call, which cuts in a chain.
     fn write_waiting_after_unit(&mut self, defs: &Definitions) -> Result<(), WriteError<S::Error>> {
@@ -3280,6 +3298,9 @@ impl<S: TapeSink> TapeWriter<S> {
     /// the tail. A disk may write pages out of order; the first sync keeps a close record and tail that reached it from
     /// naming blocks that didn't.
     fn end(mut self, how: End, summary: Option<&[u8]>) -> Result<Ended<S>, WriteError<S::Error>> {
+        if matches!(how, End::Close(_)) && self.relay_groups.has_waiting() {
+            self.close_waiting()?;
+        }
         let summary = summary
             .map(|body| {
                 crate::piece::write_close_summary(body, BlockId::new(self.session, 0)).ok_or(
