@@ -986,11 +986,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 };
                 named.take(&w.sink, &step)?;
                 past_head |= kind != BlockKind::PieceHead;
-                carry.saw(
-                    kind,
-                    &buf,
-                    s.end().saturating_add(wide(w.indexer.final_bytes_upper())),
-                );
+                carry.saw(kind, &buf, w.closed_past(s.end()));
                 continue;
             }
             past_head = true;

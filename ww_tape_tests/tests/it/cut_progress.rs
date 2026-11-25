@@ -38,9 +38,14 @@ fn state(number: u32, label: &'static str) -> Describe<'static> {
 }
 
 fn options() -> ChainOptions {
+    options_cut_at(BUDGET)
+}
+
+/// [options] with a cut budget of `budget` bytes.
+fn options_cut_at(budget: u64) -> ChainOptions {
     ChainOptions {
         cut: CutPolicy {
-            bytes: Bytes::new(BUDGET),
+            bytes: Bytes::new(budget),
             ..CutPolicy::default()
         },
         writer: WriterOptions {
@@ -57,18 +62,6 @@ fn options() -> ChainOptions {
 
 fn pieces(mem: &MemPieces) -> Vec<Vec<u8>> {
     crate::mux_multi::pieces(mem)
-}
-
-/// Bytes of the close block of `piece`.
-fn close_len(piece: &[u8]) -> u64 {
-    let mut rd = ww_tape::FileBlocks::new(piece);
-    let mut len = 0;
-    while let Some(Ok(b)) = rd.next_block() {
-        if b.kind == ww_tape::BlockKind::Close {
-            len = b.bytes().len() as u64;
-        }
-    }
-    len
 }
 
 /// The test makes the case it names: a piece of `p` holds more than [BUDGET] and [SLACK], which only a carry left
@@ -169,11 +162,9 @@ fn a_chain_whose_carry_passes_the_budget_cuts_by_its_data() {
     carry_past_budget(&p);
     assert!(carry > BUDGET, "the case: a carry of {carry} bytes");
     for (i, piece) in p.iter().enumerate() {
-        // the close lists a row per track, outside the budget: 10 000 rows take more than the slack
-        let close = close_len(piece);
         assert!(
-            piece.len() as u64 - close <= carry + BUDGET + SLACK,
-            "piece {i} of {} bytes, a close of {close}, past the carry and the budget",
+            piece.len() as u64 <= carry + BUDGET + SLACK,
+            "piece {i} of {} bytes past the carry and the budget",
             piece.len()
         );
     }
@@ -226,4 +217,40 @@ fn a_mux_whose_carry_passes_the_budget_cuts_by_its_data() {
         "{} pieces for {data} bytes of data",
         p.len()
     );
+}
+
+/// A call counts the first copies it brings before the cut: 99 definitions put in one call leave the piece under the
+/// budget, and the next call, which would write their first copies past it, cuts first. Each piece so holds at most
+/// its own carry, the budget and the slack.
+#[test]
+fn a_cut_by_bytes_counts_the_first_copies_a_call_brings() {
+    const SMALL: u64 = 384 << 10;
+    let defs = defs(100, 40);
+    let mem = MemPieces::new();
+    let mut chain =
+        PieceChain::create_on(mem.clone(), OWNER, 0, &[], options_cut_at(SMALL)).unwrap();
+    // the first call's puts join the head's run as carry: the definitions after it are data
+    chain.put(&defs, TrackNum::new(1), 0, &[0]).unwrap();
+    let tracks: Vec<TrackNum> = (2..=100).map(TrackNum::new).collect();
+    chain.put_definitions(&defs, &tracks).unwrap();
+    let w = chain.writer().unwrap();
+    let (data, copies) = (w.data_bytes(), w.first_copies_len(&defs));
+    assert!(
+        data < SMALL && data + copies > SMALL,
+        "the case: {data} bytes of data and {copies} of first copies due"
+    );
+    let mut carries = vec![w.carried_bytes()];
+    chain.put(&defs, TrackNum::new(1), 1, &[1]).unwrap();
+    carries.push(chain.writer().unwrap().carried_bytes());
+    assert_eq!(chain.seq(), 1, "the put cut first");
+    chain.close().unwrap();
+    let p = pieces(&mem);
+    assert_eq!(p.len(), 2);
+    for (i, (piece, carry)) in p.iter().zip(&carries).enumerate() {
+        assert!(
+            piece.len() as u64 <= carry + SMALL + SLACK,
+            "piece {i} of {} bytes past its carry of {carry} and the budget",
+            piece.len()
+        );
+    }
 }

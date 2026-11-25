@@ -68,7 +68,7 @@ A [`CutPolicy`] has three limits, and the first one reached cuts:
 
 | Limit | Cuts when the piece holds |
 |---|---|
-| `bytes` | that many bytes past its carry, with the final index it will list, such as 256 MiB |
+| `bytes` | that many bytes past its carry, with the final index and the close it will list, such as 256 MiB |
 | `chunks` | that many [[chunks]] |
 | `interval` | data for that long, counted from its start or its resume |
 

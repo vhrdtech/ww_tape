@@ -2770,11 +2770,16 @@ A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`. That is the c
 its final index entries, then the close and the tail. A memory sink reserves the cut size plus `CUT_SLACK` when a
 piece starts.
 
-`CutPolicy::bytes` counts the final index of what came before and leaves out the piece's carry
-(`TapeWriter::carried_bytes`), so a piece grows to its carry and the budget. Caps bound the carry: its state records
-by `IndexPolicy::state_entries_max`, its state items and keys by `NearPolicy::kept_bytes_max` (`KEPT_BYTES_MAX`). A
-mux counts the definitions and items it puts again after a cut as carry, those items bounded by `HELD_ITEMS_MAX` and
-`HELD_ITEM_BYTES_MAX`.
+`CutPolicy::bytes` counts the final index of what came before and the close's row of each track that has one. It
+leaves out the piece's carry (`TapeWriter::carried_bytes`), with the rows of the tracks the carry gives one. A piece so
+grows to its carry and the budget.
+
+Before a call the chain also counts the first copies the call would write (`TapeWriter::first_copies_len`). It cuts
+first when they would take the piece past the budget.
+
+Caps bound the carry: its state records by `IndexPolicy::state_entries_max`, its state items and keys by
+`NearPolicy::kept_bytes_max` (`KEPT_BYTES_MAX`). A mux counts the definitions and items it puts again after a cut as
+carry, those items bounded by `HELD_ITEMS_MAX` and `HELD_ITEM_BYTES_MAX`.
 
 A resume finds the carry in the blocks after the head that belong with the next. It so counts
 the definitions the first call after the carry put as carry too. A piece resumed after its close counts it as data.

@@ -179,6 +179,22 @@ impl Near {
         pos: u64,
         rule: Rule,
     ) -> Option<bool> {
+        let due = self.first_copy_check(slot, hash, pos, rule);
+        if due == Some(false) {
+            self.swept(slot);
+        }
+        due
+    }
+
+    /// [Self::first_copy_due] that leaves [Self::first_copies] as it is: Some(false) for a slot past its first
+    /// copy, which [Self::swept] takes out.
+    pub fn first_copy_check(
+        &self,
+        slot: &Slot,
+        hash: ItemHash,
+        pos: u64,
+        rule: Rule,
+    ) -> Option<bool> {
         let w = self.slots.get(slot)?;
         if w.hash != Some(hash) {
             return None;
@@ -186,11 +202,17 @@ impl Near {
         let twice = u32::from(rule.twice);
         let first = w.records <= twice.saturating_add(1) && rule.copies.get() > 0;
         if !first {
-            let at = w.at;
-            self.unswept.remove(&(at, *slot));
             return Some(false);
         }
         Some(Self::copy(w, pos.saturating_sub(w.at), rule))
+    }
+
+    /// Take `slot`, past its first copy, out of [Self::first_copies].
+    pub fn swept(&mut self, slot: &Slot) {
+        if let Some(w) = self.slots.get(slot) {
+            let at = w.at;
+            self.unswept.remove(&(at, *slot));
+        }
     }
 
     /// Note a record of item `hash` in `slot` written in the block at `offset` (None: the block is damaged and the

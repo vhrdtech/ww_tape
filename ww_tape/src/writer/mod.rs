@@ -1825,32 +1825,68 @@ impl<S: TapeSink> TapeWriter<S> {
     /// record lies [NearPolicy::copy_first] behind, still the newest of its slot. A call finds them right before its
     /// run, so a resume after blocks the call placed first decides as the writer did.
     fn find_first_copies(&mut self, defs: &Definitions) {
-        let pos = self.offset();
         let mut slots = core::mem::take(&mut self.sweep_slots);
+        let mut sweep = core::mem::take(&mut self.sweep);
+        let mut past = Vec::new();
+        self.first_copies_due(defs, &mut slots, &mut sweep, &mut past);
+        for slot in &past {
+            self.near.swept(slot);
+        }
+        self.sweep = sweep;
+        self.sweep_slots = slots;
+    }
+
+    /// The first copies a call writes in its run where the next block goes, as candidates into `out`, the oldest
+    /// first: as many as the open run has room for, by a bound on their blocks of puts; the rest wait for the next
+    /// calls. The call's own puts and block take [FIRST_COPY_RUN_RESERVE] of the room. Slots past their first copy
+    /// go into `past`; `slots` is a buffer.
+    fn first_copies_due(
+        &self,
+        defs: &Definitions,
+        slots: &mut Vec<Slot>,
+        out: &mut Vec<Candidate<'static>>,
+        past: &mut Vec<Slot>,
+    ) {
+        let pos = self.offset();
         self.near
-            .first_copies(pos, self.near_policy.copy_first, &mut slots);
-        self.sweep.clear();
-        // as many as the open run has room for, by a bound on their blocks of puts: the rest wait for the next calls,
-        // the oldest first. The call's own puts and block take FIRST_COPY_RUN_RESERVE of the room
+            .first_copies(pos, self.near_policy.copy_first, slots);
+        out.clear();
         let room = crate::RUN_BLOCKS_MAX
             .saturating_sub(self.run_blocks)
             .saturating_sub(FIRST_COPY_RUN_RESERVE);
         let mut bytes = 0usize;
-        for slot in &slots {
+        for slot in slots.iter() {
             let Some(c) = self.copy_candidate(defs, slot) else {
                 continue;
             };
-            if self.near.first_copy_due(slot, c.hash, pos, c.rule) != Some(true) {
-                continue;
+            match self.near.first_copy_check(slot, c.hash, pos, c.rule) {
+                Some(true) => {}
+                Some(false) => {
+                    past.push(*slot);
+                    continue;
+                }
+                None => continue,
             }
             bytes = bytes.saturating_add(c.item.bytes().len());
             // a block of puts holds at least half of DEFINITION_BLOCK_LEN, but a block per part
             if bytes.div_ceil(DEFINITION_BLOCK_LEN / 2).saturating_add(3) > room {
                 break;
             }
-            self.sweep.push(c);
+            out.push(c);
         }
-        self.sweep_slots = slots;
+    }
+
+    /// Bytes the first copies due at the next block add to the next call that writes a run, at most: a record head
+    /// and a block of puts each ([TapeWriter::put] and the others pick them). A chain's cut by bytes counts them
+    /// before the call ([PieceChain](crate::piece::PieceChain)), so a piece stays within its carry and its budget.
+    pub fn first_copies_len(&self, defs: &Definitions) -> u64 {
+        if self.head.is_none() {
+            return 0;
+        }
+        let mut slots = Vec::new();
+        let mut due = Vec::new();
+        self.first_copies_due(defs, &mut slots, &mut due, &mut Vec::new());
+        u64::try_from(puts_len_upper(&due)).unwrap_or(u64::MAX)
     }
 
     /// The record a copy in `slot` writes: the layout or the producer as put, the definition `defs` holds, or the
@@ -2141,12 +2177,20 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// [Self::bytes] and, at most, the final index the close lists them in: its entries, each
-    /// [ENTRY_LEN](crate::index::ENTRY_LEN) bytes, and its blocks' heads, directories and CRCs. What the piece holds
-    /// once closed, short of the close and the tail. A piece of puts lists an entry for each small block, so its final
-    /// index may outgrow its blocks.
+    /// [ENTRY_LEN](crate::index::ENTRY_LEN) bytes, and its blocks' heads, directories and CRCs; then the close record
+    /// with a row for each track that has one ([close_len]). What the piece holds once closed, short of the close's
+    /// padding and the tail. A piece of puts lists an entry for each small block, so its final index may outgrow its
+    /// blocks. A track's row counts where the track gets it: in the carry for the tracks the carry gives one.
     pub fn closed_bytes(&self) -> u64 {
+        self.closed_past(self.bytes)
+    }
+
+    /// [Self::closed_bytes] of a piece of `bytes` with the indexer as it is: a resume's walk counts the carry by it.
+    pub(crate) fn closed_past(&self, bytes: u64) -> u64 {
         let index = u64::try_from(self.indexer.final_bytes_upper()).unwrap_or(u64::MAX);
-        self.bytes.saturating_add(index)
+        let close =
+            u64::try_from(close_len(self.indexer.rows(), self.removed.len())).unwrap_or(u64::MAX);
+        bytes.saturating_add(index).saturating_add(close)
     }
 
     /// The piece's bytes up to the writer's last sync ([Self::bytes] then): durable once the sink's sync is. 0 before

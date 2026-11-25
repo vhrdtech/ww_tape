@@ -17,6 +17,10 @@ benchmarks, golden files and book pages.
 
 - Losing a piece's first 4 KiB loses no definition, layout or producer, so raw-media walks read past gaps (TRACK-12).
 
+### Fixes
+
+- A cut by bytes counts the close's rows and a call's first copies: pieces stay within carry and budget (TRACK-12).
+
 ## [0.15.0] - 2026-11-25
 
 ### Breaking
