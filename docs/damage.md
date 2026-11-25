@@ -70,7 +70,7 @@ example_drive` prints these numbers, and [`examples/example_drive/src/damage.rs`
 
 A [[reader]] meets the flip in two places. [`TapeReader::verify`] checks the piece against its [[content hash]] and
 finds that it no longer holds. Reading by the [[final index]], [`TapeReader::read_block`] fails for that one chunk and
-succeeds for the other 3444 blocks the index lists. The reader thus knows which track and which items it lost, since the
+succeeds for the other 3445 blocks the index lists. The reader thus knows which track and which items it lost, since the
 index entry names them, while the bytes themselves do not read.
 
 A chunk longer than one segment loses less. The sample codecs code samples in groups that decode alone, and
@@ -95,13 +95,13 @@ on. Drawn by <code>ww_tape_figures</code> from the drive's last piece at 1/1000 
 magic, length or CRC, or at a block cut short. It also stops at a sequence number going backwards, and at a good block
 of another [[session]] where none may start. It reports where it stopped and why ([`FileError::Cut`]).
 
-A crash leaves good blocks, then a [[torn block]], which is what Prefix expects. In the flipped piece, Prefix reads 1154
+A crash leaves good blocks, then a [[torn block]], which is what Prefix expects. In the flipped piece, Prefix reads 1155
 blocks and stops where the damaged chunk starts, about 9.7 MB in.
 
 [`Recovery::Resync`] reads on. At a bad block it reports [`FileError::Bad`] and looks for the next block's magic one
 byte after the bad block's start. Any byte may start a block, so Resync takes a block only when its CRCs match. It hands
 out a chunk with a good chunk head and a damaged payload instead of skipping it, with [`Block::is_intact`] false and
-[`Chunk::bad_segments`] naming the failed segments. In the flipped piece, Resync hands out all 3455 blocks, the damaged
+[`Chunk::bad_segments`] naming the failed segments. In the flipped piece, Resync hands out all 3456 blocks, the damaged
 chunk among them, and reports nothing else.
 
 This walk counts what a flipped bit costs, as a test or a salvage tool would:
@@ -167,24 +167,25 @@ reads from the newest checkpoint. Drawn by <code>ww_tape_figures</code> from the
 data, where 4 KiB is a larger share.</figcaption>
 </figure>
 
-At full scale, the piece holds 3445 blocks that its index lists. `cargo run -p example_drive` prints what each damage
+At full scale, the piece holds 3446 blocks that its index lists. `cargo run -p example_drive` prints what each damage
 leaves:
 
 | Damage | The reader finds the piece by | Content hash | Blocks that read | Definitions found |
 |---|---|---|---:|---:|
-| a flipped bit | its tail | does not hold | 3444 | 10 of 10 |
+| a flipped bit | its tail | does not hold | 3445 | 10 of 10 |
 | the first 4 KiB lost | its tail | does not hold | 3441 | 10 of 10 |
-| the last 4 KiB lost | its final index, with no scan after it | no close to check | 3445 | 10 of 10 |
+| the last 4 KiB lost | its newest checkpoint, scanning 1.1 MB after it | no close to check | 3446 | 10 of 10 |
 
 ### The first 4 KiB lost
 
 These bytes hold the [[piece head]], the first [[definitions]] and the first blocks of data. The reader still opens the
-piece from its [[tail]]. By the [[final index]] it reads every block outside the lost bytes, 3441 of the 3445. Four
+piece from its [[tail]]. By the [[final index]] it reads every block outside the lost bytes, 3441 of the 3446. Five
 blocks are lost:
 
 - the [[puts]] of the layout and the producer;
 - the puts of the definitions the piece carries for the tracks its head carries, with the mode's newest item;
-- the chunk of frames of minute 45's first second;
+- the records block of minute 45's first second, its log lines and temperatures;
+- the chunk of frames of that second;
 - the chunk of samples that the lost bytes reach into.
 
 Each definition comes from its newest record that reads. The writer copies a definition at a use 1 MiB or more after its
@@ -205,12 +206,13 @@ piece of a chain names no next piece, so it has no link forward to lose.
 
 ### The last 4 KiB lost
 
-These bytes hold the [[tail]], the [[close]] and the padding up to a multiple of 4 KiB. The [[final index]] before
-them is whole. The reader finds no tail and reads the piece as unclosed. It takes the final index as the newest index
-block, with no byte to scan after it. Every one of the 3445 blocks of data reads, and so does every definition,
-but the piece loses its [[content hash]].
+These bytes hold the [[tail]], the [[close]], the padding up to a multiple of 4 KiB and the end of the [[final
+index]]. The reader finds no tail and reads the piece as unclosed. The final index no longer reads, so the reader takes
+the newest [[checkpoint]] and scans the 1.1 MB after it. Every one of the 3446 blocks of data reads, and so does every
+definition, but the piece loses its [[content hash]].
 
-Lost bytes that reach into the final index make the reader take the newest [[checkpoint]] and scan the stretch after it.
+Lost bytes that stop short of the final index leave it whole. The reader then takes it as the newest index block, with
+no byte to scan after it.
 
 A piece in the middle of a chain would also lose its close's link to the next piece.
 

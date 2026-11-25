@@ -905,7 +905,8 @@ A block belongs with the next one in four cases:
 - it serves the block of data after it;
 - the next block holds the rest of a put too long for one block;
 - it is a block of a group of puts but the last ([Groups of puts](#groups-of-puts));
-- it is a chunk of a unit but the last.
+- it is a chunk of a unit but the last;
+- it is a block of puts written while a unit is open: the unit's next chunk ends the run.
 
 A **run** is such blocks in a row and the block they belong to, all from one writer call. It has at most
 `RUN_BLOCKS_MAX` (4096) blocks, and a writer refuses a call that would make a longer one (`InputError::RunTooLong`).
@@ -972,7 +973,24 @@ A group of `GROUP_BYTES_MAX` of items of `MAX_RECORD_HEAD` (25) bytes or more al
 items may take more blocks than its bytes say, and the writer refuses it whole.
 
 `PieceChain::put_group` cuts before a group that the piece has no room for and puts it whole into the next piece.
-No cut falls inside a group, nor a checkpoint or a deferred block.
+No cut falls inside a group, nor a checkpoint or a deferred block. A group's last block is its own, so a group put or
+relayed while a caller's unit is open waits whole. The writer writes it right after the unit's last chunk. Such
+groups count toward `RELAY_GROUPS_MAX` and `RELAY_HELD_BYTES_MAX`, and a cut carries them.
+
+A put, typed item or definition put behind a waiting group waits too, so the two keep their order.
+`TapeWriter::puts_waiting` counts what waits. Keyed puts that wait count toward the carry's limits as if written.
+
+#### A unit open at the close {#a-unit-open-at-the-close}
+
+A close while a caller's unit is still open cuts nothing written:
+
+| Waiting at the close | What ends the unit's run |
+|---|---|
+| groups or puts | the last of them, written after the unit's blocks in order, unmarked |
+| nothing | the close |
+
+A unit whose producer died before its last chunk so reads as whole with the chunks it has. A tile chunk without all
+its overviews is one such unit. They are the producer's own data, kept, never cut by a close.
 
 A group on a track defined twice ([above](#definitions-written-twice-at-once)) opens with its block marked
 `FLAG_TWICE`. That block is one of the group: it carries `FLAG_GROUP` and `FLAG_GROUP_START` and counts toward
@@ -1609,7 +1627,8 @@ two checkpoints, the final index, the close with its padding, and the 164-byte t
 </figure>
 
 `ww_tape::PieceChain` writes the pieces as `dir/00000000.wwt`, `00000001.wwt` and so on, through
-`ww_tape_fs::FilePieces`. It cuts before a chunk by size, chunk count or age (`CutPolicy`).
+`ww_tape_fs::FilePieces`. It cuts before a chunk or a call of puts by size, chunk count or age (`CutPolicy`). The size counts the final
+index the piece will list.
 
 `TapeWriter::cut_with` cuts by hand.
 
@@ -2610,8 +2629,9 @@ The writer's policies (`WriterOptions`, `PieceChain`'s `ChainOptions`):
 | `NearPolicy::kept_bytes_max` | 64 MiB (`KEPT_BYTES_MAX`) | the bytes of newest state items the writer keeps for a cut to carry |
 | `CutPolicy::bytes`, `chunks`, `interval` | none: 0 or None turns each off | when a chain cuts to a new piece: by size, chunk count or age |
 
-A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`: the chunk that takes it over the limit, the index,
-the close and the tail. A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
+A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`. That is the chunk or call that takes it over, with
+its final index entries, then the close and the tail. `CutPolicy::bytes` counts the final index of what came before.
+A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
 
 A track's state policy (`StatePolicy`) is part of its definition, and track 0's is in the layout:
 

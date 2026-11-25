@@ -5,7 +5,7 @@ members = ["examples/example_capture", "examples/example_drive", "examples/examp
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.11.0"
+version = "0.12.0"
 authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 edition = "2024"
 # 1.99: the git dependencies of the WireWeaver family declare it; 1.89 alone would do for the AVX-512 intrinsics of
@@ -23,13 +23,13 @@ example_images = { path = "./examples/example_images" }
 example_rf = { path = "./examples/example_rf" }
 example_thermal = { path = "./examples/example_thermal" }
 example_wideband = { path = "./examples/example_wideband" }
-ww_tape = { version = "0.11.0", path = "./ww_tape", default-features = false }
+ww_tape = { version = "0.12.0", path = "./ww_tape", default-features = false }
 ww_tape_bench = { path = "./ww_tape_bench" }
 ww_tape_bench_report = { path = "./ww_tape_bench_report" }
-ww_tape_codecs = { version = "0.11.0", path = "./ww_tape_codecs", default-features = false }
-ww_tape_fs = { version = "0.11.0", path = "./ww_tape_fs" }
+ww_tape_codecs = { version = "0.12.0", path = "./ww_tape_codecs", default-features = false }
+ww_tape_fs = { version = "0.12.0", path = "./ww_tape_fs" }
 ww_tape_mux = { path = "./ww_tape_mux" }
-ww_tape_summary = { version = "0.11.0", path = "./ww_tape_summary", default-features = false }
+ww_tape_summary = { version = "0.12.0", path = "./ww_tape_summary", default-features = false }
 ww_tape_testalloc = { path = "./ww_tape_testalloc" }
 
 # git dependencies without rev or tag: Cargo.lock pins the commit, `cargo update -p NAME` moves it

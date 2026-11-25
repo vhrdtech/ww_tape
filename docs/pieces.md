@@ -68,13 +68,16 @@ A [`CutPolicy`] has three limits, and the first one reached cuts:
 
 | Limit | Cuts when the piece holds |
 |---|---|
-| `bytes` | that many bytes, such as 256 MiB |
+| `bytes` | that many bytes with the final index it will list, such as 256 MiB |
 | `chunks` | that many [[chunks]] |
 | `interval` | data for that long, counted from its start or its resume |
 
-A limit of 0 or `None` is off. The chain checks the policy before each chunk, so a cut never comes after the last chunk
-and never leaves a piece without data. The chain also cuts before a write that the piece's index has no room left for.
-[`PieceChain::cut_now`] cuts at once.
+A limit of 0 or `None` is off. The chain checks the policy before each chunk and each call of puts, never inside a run
+of blocks. So a cut never comes after the last write and never leaves a piece without data, and a chain of puts alone
+is cut too.
+
+A piece of puts lists an index entry of 128 bytes for each small block, so the final index counts toward `bytes`. The
+chain also cuts before a write that the piece's index has no room left for. [`PieceChain::cut_now`] cuts at once.
 
 A cut by age makes the file's bytes depend on the clock. The drive's recorder counts chunks instead, as many as 15
 minutes of the run make:
@@ -129,7 +132,7 @@ with its head and two blocks of puts that carry the definitions, before its firs
 <code>ww_tape_figures</code> from the drive's chain at 1/1000 of its data; each row has its own scale.</figcaption>
 </figure>
 
-At full rate, piece 0 of the drive ends with a final index of 443 kB. The close takes 2556 bytes, 1680 of them padding,
+At full rate, piece 0 of the drive ends with a final index of 443 kB. The close takes 2909 bytes, 2033 of them padding,
 and the tail 164 bytes. Piece 1 starts with a head of 636 bytes, then 2 blocks of puts of 624 bytes in all.
 
 The head lists every track the chain has used so far, a [[state track]] included. The puts after it carry their
@@ -140,10 +143,10 @@ The four pieces of the hour end on 4 KiB:
 
 | Piece | Bytes | Close padding |
 |---|---:|---:|
-| 0 | 29396992 | 1680 |
-| 1 | 29614080 | 1820 |
-| 2 | 29605888 | 1687 |
-| 3 | 26890240 | 3259 |
+| 0 | 29396992 | 2033 |
+| 1 | 29614080 | 1692 |
+| 2 | 29605888 | 1559 |
+| 3 | 26890240 | 2778 |
 
 A [`TapeWriter`] without a chain cuts the same way. [`TapeWriter::cut_on`] takes a sink the caller made, and
 [`writer::cut`] the path of the next file. Only a piece of a chain can be cut: such a piece starts with a piece head,

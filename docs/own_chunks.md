@@ -50,3 +50,13 @@ in [`MuxStats::refused`]; the next piece gets it. The mux holds at most [`HELD_I
 
 In a chain that several owners write, [`ChainFollower::track_of`] follows one owner's track. It passes over the chunks
 the other owners wrote on a track of the same id.
+
+## Tracks without data
+
+The writer puts a track's definition before the track's first block of data. A track that never gets data is then
+in no piece. [`TapeMux::put_definitions`] puts the definitions of such tracks now, behind the units sent before: each
+track's clock chain, maps, bundles and its own definition.
+
+A definition that lies near behind is not written again, and a track defined twice gets its copy. The mux holds the
+tracks and puts them again in each piece a later cut starts, never cutting for them. A resumed mux holds none: put
+them again after the resume.
