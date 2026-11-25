@@ -1527,7 +1527,9 @@ fn too_long<E>(len: u64) -> WriteError<E> {
 }
 
 /// The carry of a piece a resume walks: its head and the run of good blocks after it that belong with the next
-/// ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)), ended by any other block or by damage.
+/// ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)), ended by any other block or by damage. The first call after the carry
+/// puts the definitions it needs in the same run, so a resume counts them as carry too, where the live writer counted
+/// them as data: at most one run more, which only puts a cut later by that much.
 struct CarryRun {
     /// Every block walked so far is in the carry
     open: bool,
