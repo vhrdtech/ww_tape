@@ -19,9 +19,12 @@ A [[clock]] is anything that counts time: the host's nanosecond clock, a device'
 [[sample]] clock. A [[tick]] is one count of a clock, and every time in a [[tape]] is a signed 64-bit count of ticks.
 Every [[track]] names one clock, and its [[records]] count that clock's ticks.
 
-A clock's [[definition]], a [`ClockDef`], states four facts. Its rate is the ticks per second, as an exact number. Its
-resolution is the smallest step it really takes, which can be coarser than one tick. Its origin says what tick 0 is, and
-its key names it across files as a [[track key]] names a track.
+A clock's [[definition]], a [`ClockDef`], states four facts:
+
+- its rate, the ticks per second as an exact number;
+- its resolution, the smallest step it really takes, which can be coarser than one tick;
+- its origin, what tick 0 is;
+- its key, which names it across files as a [[track key]] names a track.
 
 The origin is an identity, never a number. It is one of these:
 
@@ -32,9 +35,14 @@ The origin is an identity, never a number. It is one of these:
 - nothing known, as for a free-running counter;
 - the previous [[epoch]] of the same counter, for a long capture that [Boots and epochs](#boots-and-epochs) explains.
 
-The drive defines two clocks. Clock 1 is the board's timer: a rate of 10⁶ ticks a second, origin the board's boot. Clock
-2 is the host's wall clock: 10⁹ ticks a second, origin the Unix epoch. No [[block]] carries a wall time of its own,
-because wall time is one more clock.
+The drive defines two clocks:
+
+| Clock | Counts | Rate, ticks a second | Origin |
+|---|---|---:|---|
+| 1 | the board's timer | 10⁶ | the board's boot |
+| 2 | the host's wall clock | 10⁹ | the Unix epoch |
+
+No [[block]] carries a wall time of its own, because wall time is one more clock.
 
 ### Exact rates
 

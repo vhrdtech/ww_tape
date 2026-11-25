@@ -9,7 +9,7 @@ use ww_tape::index::{IndexEntry, IndexKind};
 use ww_tape::piece::{APPEND_HEAD_LEN, Close, PIECE_ALIGN, TAIL_LEN};
 use ww_tape::reader::Found;
 use ww_tape::{
-    ALIGNMENT, Block, BlockKind, CloseReason, ContentHash, FileBlocks, Medium, MemSink,
+    ALIGNMENT, Block, BlockKind, ByteSource, CloseReason, ContentHash, FileBlocks, Medium, MemSink,
     OpenOptions, Recovery, ResumeError, Resumed, TapeReader, TapeSink, TapeWriter, WriteError,
 };
 
@@ -999,4 +999,62 @@ pub(crate) fn golden(bytes: &[u8], name: &str) {
         hex == want,
         "the format changed: bytes differ from golden/{name}"
     );
+}
+
+/// A piece closed and written on again, read while it grows: the close in force, the unclosed tail after it, the
+/// growth a reader notices by its source's size, and the check of each close (`docs/growing_pieces.md`).
+#[test]
+fn a_reader_of_a_growing_piece_takes_the_close_in_force() {
+    let mut w = begin(0);
+    write(&mut w, 0..6);
+    let old = close(w);
+    let closed = old.len() as u64;
+    let (mut w, _) = reopen(&old, 0);
+    write(&mut w, 6..9);
+    let tape = w.sink().tape();
+
+    // --8<-- [start:close_in_force]
+    let r = TapeReader::open(tape.clone()).unwrap();
+    let piece = &r.pieces()[0];
+    assert_eq!(r.closes(0).unwrap().len(), 1, "one close so far");
+    assert_eq!(
+        piece.closed_end(),
+        Some(closed),
+        "the close in force ends here"
+    );
+    assert!(!piece.is_closed(), "blocks follow its tail");
+    assert_eq!(
+        r.unclosed(0).unwrap(),
+        Some(closed..r.len()),
+        "the unclosed tail"
+    );
+    // --8<-- [end:close_in_force]
+
+    write(&mut w, 9..12);
+
+    // --8<-- [start:growth]
+    let grew = r.source().size().unwrap() > r.len();
+    assert!(grew, "the writer appended since the open");
+    let r = TapeReader::open(tape.clone()).unwrap();
+    // --8<-- [end:growth]
+    assert_eq!(ticks(&tape.to_vec().unwrap()), (0..12).collect::<Vec<_>>());
+
+    // --8<-- [start:verify]
+    let v = r.verify(0).unwrap();
+    assert!(v.holds, "the stretch up to the close in force checks");
+    assert_eq!(
+        v.unchecked,
+        Some(closed..r.len()),
+        "no close covers the tail yet"
+    );
+    // --8<-- [end:verify]
+
+    let new = close(w);
+    let r = TapeReader::open(&new[..]).unwrap();
+    let v = r.verify(0).unwrap();
+    assert!(
+        v.holds && v.unchecked.is_none(),
+        "closed again, it checks whole"
+    );
+    assert_eq!(v.stretches, 2, "one stretch per close");
 }

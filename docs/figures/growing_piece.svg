@@ -1,0 +1,39 @@
+<svg class="ww-svg" viewBox="0 0 680 200" width="680" height="200" role="img" aria-label="A piece closed twice and written on again: two stretches, each ended by a close and its tail; the second close is the close in force; the blocks after its tail form the unclosed tail, which grows while the writer writes" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="28" class="small">one piece, in file order</text>
+  <!-- stretch 1 -->
+  <rect x="20.5" y="40" width="20" height="30" rx="2" class="tint-ink"/>
+  <rect x="42.5" y="40" width="60" height="30" rx="2" class="tint-blue"/>
+  <rect x="104.5" y="40" width="60" height="30" rx="2" class="tint-blue"/>
+  <rect x="166.5" y="40" width="40" height="30" rx="2" class="tint-green"/>
+  <text x="186" y="59" text-anchor="middle" class="small">close</text>
+  <rect x="208.5" y="40" width="26" height="30" rx="2" class="tint-green"/>
+  <text x="221" y="59" text-anchor="middle" class="small">tail</text>
+  <!-- stretch 2 -->
+  <rect x="236.5" y="40" width="20" height="30" rx="2" class="tint-amber"/>
+  <rect x="258.5" y="40" width="60" height="30" rx="2" class="tint-blue"/>
+  <rect x="320.5" y="40" width="60" height="30" rx="2" class="tint-blue"/>
+  <rect x="382.5" y="40" width="40" height="30" rx="2" class="tint-green"/>
+  <text x="402" y="59" text-anchor="middle" class="small">close</text>
+  <rect x="424.5" y="40" width="26" height="30" rx="2" class="tint-green"/>
+  <text x="437" y="59" text-anchor="middle" class="small">tail</text>
+  <!-- unclosed tail -->
+  <rect x="452.5" y="40" width="20" height="30" rx="2" class="tint-amber"/>
+  <rect x="474.5" y="40" width="60" height="30" rx="2" class="tint-blue"/>
+  <rect x="536.5" y="40" width="60" height="30" rx="2" class="tint-blue"/>
+  <rect x="598.5" y="40" width="40" height="30" rx="2" class="hollow dash line"/>
+  <text x="618" y="59" text-anchor="middle" class="soft small">…</text>
+  <!-- braces -->
+  <path d="M20 80 v6 h214 v-6" class="line"/>
+  <text x="127" y="102" text-anchor="middle" class="small">stretch 1</text>
+  <path d="M236 80 v6 h214 v-6" class="line"/>
+  <text x="343" y="102" text-anchor="middle" class="small">stretch 2</text>
+  <path d="M452 80 v6 h186 v-6" class="accent-line"/>
+  <text x="545" y="102" text-anchor="middle" class="accent small">unclosed tail, growing</text>
+  <!-- the close in force -->
+  <path d="M402 150 V76" class="accent-line"/>
+  <path d="M402 72 l-4 8 h8 Z" class="accent-line head"/>
+  <text x="402" y="166" text-anchor="middle" class="accent small">the close in force: the last whole tail</text>
+  <path d="M451 126 V76" class="line dash"/>
+  <text x="456" y="134" class="small mono">closed_end</text>
+  <text x="20" y="190" class="soft small">An append head (amber) opens each later stretch. A reader takes every whole block of the unclosed tail, never as damage.</text>
+</svg>

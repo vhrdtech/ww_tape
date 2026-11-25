@@ -50,9 +50,8 @@ tiles take 4 bits.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/plate_tiles.svg"
-<figcaption>Left: the plate's 12 tiles with their coordinates and tile numbers, and a box query over rows 40 to 56 and
-columns 20 to 60, which meets 2 tiles. Right: the levels of space overviews, each half the size of the one before.
-Drawn by <code>ww_tape_figures</code> from the plate's layout.</figcaption>
+<figcaption>The plate's 12 tiles with their coordinates and tile numbers, and a box query over rows 40 to 56 and
+columns 20 to 60, which meets 2 tiles. Drawn by <code>ww_tape_figures</code> from the plate's layout.</figcaption>
 </figure>
 
 A writer takes whole readings of the plate. Its [`GridHandle`] splits each reading into the open chunk of every tile,
@@ -102,6 +101,12 @@ from node 9, when the spot has left the tile. The heater's tile stays between 40
 A viewer that draws the whole plate in 8 columns of pixels needs far fewer cells than the plate has. The writer
 therefore keeps [[space overviews|space overview]]. Overview level `k` halves each downsampled axis `k` times.
 It keeps every reading.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/plate_levels.svg"
+<figcaption>The plate's levels of space overviews to scale, each half the size of the one before on both axes. Drawn
+by <code>ww_tape_figures</code> from the plate's layout.</figcaption>
+</figure>
 
 Each cell of a level holds the smallest value, the largest value and the mean of the cells it covers. A tile's chunk
 and its overview chunks go to the tape as one unit. A reader never sees a tile chunk without its overviews, because a

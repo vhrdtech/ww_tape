@@ -6,6 +6,7 @@
 //! - `puts.svg`: a state track put before every block of data, and the few puts that write: the first record, its
 //!   copy and the record again once the first lies more than `near` behind.
 //! - `grids.svg`: series chunks on their grids: chunks of one grid, lost samples, and a gap to a new grid.
+//! - `plate_tiles.svg`, `plate_levels.svg`: the thermal plate's tiles with a box query, and its space overview levels.
 //! - `records_vs_chunk.svg`: the drive's first 96 CAN frames as a records block and as an events chunk, to scale.
 //! - `clock_map.svg`: the drive's clock map from the board's µs to the host's ns, and a second segment after a step.
 //! - `checkpoints.svg`: a closed piece of the drive, its checkpoints pointing back, the close and the tail.
@@ -105,6 +106,7 @@ pub fn figures() -> anyhow::Result<Vec<(String, String)>> {
         ("puts.svg", puts::puts()?),
         ("grids.svg", grids::grids()?),
         ("plate_tiles.svg", plate::plate_tiles()?),
+        ("plate_levels.svg", plate::plate_levels()?),
         (
             "records_vs_chunk.svg",
             records_vs_chunk::records_vs_chunk()?,

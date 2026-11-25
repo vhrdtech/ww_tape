@@ -169,7 +169,9 @@ fn relation_columns_and_ranges_read_as_written() {
             unreachable!("decoded() gives a track")
         };
         let stored = StoredRelations::of(&def);
+        // --8<-- [start:relation_column]
         let source = RelationColumn::read(&chunk, stored, 0).unwrap().unwrap();
+        // --8<-- [end:relation_column]
         let key = RelationColumn::read(&chunk, stored, 2).unwrap().unwrap();
         assert!(
             RelationColumn::read(&chunk, stored, 1).unwrap().is_none(),
@@ -183,10 +185,12 @@ fn relation_columns_and_ranges_read_as_written() {
             (0..key.len()).map(|i| key.get(i)).collect::<Vec<_>>(),
             *keys
         );
+        // --8<-- [start:lower_bound]
         // a source item's children: two lower bounds
         let probe = sources[sources.len() / 2];
         let from = source.lower_bound(probe).unwrap();
         let to = source.lower_bound(probe + 1).unwrap();
+        // --8<-- [end:lower_bound]
         assert_eq!(
             from..to,
             sources.partition_point(|v| *v < probe)..sources.partition_point(|v| *v <= probe)

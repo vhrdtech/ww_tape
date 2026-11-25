@@ -50,6 +50,7 @@ fn write(dir: &Path) -> Vec<PathBuf> {
 fn verify_each_parallel_holds_the_same_as_one_piece_at_a_time() {
     let dir = scratch("check_verify");
     let paths = write(&dir);
+    // --8<-- [start:verify_parallel]
     let refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
 
     let seq: Vec<_> = verify_each(&refs).into_iter().map(|r| r.unwrap()).collect();
@@ -57,6 +58,7 @@ fn verify_each_parallel_holds_the_same_as_one_piece_at_a_time() {
         .into_iter()
         .map(|r| r.unwrap())
         .collect();
+    // --8<-- [end:verify_parallel]
 
     assert!(seq.iter().all(|v| v.holds), "every piece verify() holds");
     assert_eq!(

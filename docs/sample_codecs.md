@@ -40,6 +40,9 @@ the [`GridHandle`] the codec of the column, and then only the samples of each se
 The head's first and last tick come from the grid, by [`SeriesGrid::chunk_ticks`], and every sample's tick follows from
 them. The chunk stores no time per sample. The column's codec is the recorder's choice, here [`Codec::DELTA`].
 
+Where a chunk starts a new grid, the writer marks the chunk, and its index entry carries the mark. A reader thus
+knows from the index alone where the sample times stop following on from the chunk before.
+
 A codec works on groups of 128 samples. Every group restarts its prediction, so a reader decodes any range from the
 start of its group, and damage costs only the groups it touches. A chunk of several channels, such as I and Q, codes
 each channel as a lane of its own. [Sample codecs](format.md#sample-codecs) lists every codec by number.
