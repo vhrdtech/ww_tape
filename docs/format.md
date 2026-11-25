@@ -1936,8 +1936,8 @@ the final index as it goes. A piece holds up when every check passes:
    incomplete exactly where a damaged block a resume kept, or the head, leaves units out.
 5. Each monotone relation starts each chunk at or above the chunk before it in the piece, except at a chunk marked
    `FLAG_RELATION_BREAK` (`ReadError::RelationOrder`).
-6. A series chunk of level 0 is marked `FLAG_GRID_START` exactly where it is due: its grid or scale changes, or it
-   comes out of sample order ([Grid starts](#grid-starts), `ReadError::GridStart`).
+6. A series chunk of level 0 carries `FLAG_GRID_START` exactly where one is due ([Grid starts](#grid-starts),
+   `ReadError::GridStart`).
 
 The fields of check 2 are the offset, length, kind, track, items and ticks, and a chunk's unit hash and range
 relation's range. The reader computes the unit hash from the chunk's bytes and the range from its relation column.
@@ -2192,9 +2192,11 @@ mark takes two places:
   relation break takes;
 - bit 3 of its index entry's flags (`IndexEntry::grid_start`).
 
+##### Where a mark is due
+
 A writer marks a series chunk of level 0 by one rule, and verify checks the same rule. It runs in file order over the
-chunks of one track and tile in the piece, against the **newest** of them so far in sample order, the one whose
-samples end last. A chunk is due a mark in three cases:
+chunks of one track and tile in the piece. Each chunk is checked against the **newest** chunk so far in sample order:
+the one whose samples end last. A chunk is due a mark in three cases:
 
 - its track and tile have no chunk before it;
 - it starts before the newest chunk's samples end: it comes out of sample order;
@@ -2219,6 +2221,8 @@ A relay (`relay_block`) passes on another writer's chunks, which may have lost o
 what is due on this tape. The restamp rewrites the header, the head CRC and the block CRC, and nothing else. A chunk
 resent with the last one's id takes that chunk's place, its mark due against the chunks before it.
 
+##### Reading the timeline
+
 `TapeReader::series_timeline` builds the timeline from the entries in sample order. A chunk goes on from the grid of
 its tile's chunk before it when three things hold:
 
@@ -2226,15 +2230,21 @@ its tile's chunk before it when three things hold:
 - it follows that chunk with no samples between, and comes after every chunk taken so far in the file;
 - its first and last tick are its samples' on that grid.
 
-Any other chunk's head is read: the first of the piece, a marked one, one after lost samples, one before a chunk
-already taken in the file, and one whose ticks don't fit. In a piece a scan read (an unclosed piece past its last
-checkpoint), the entries of a grid track carry no tile number. The reader reads such a chunk's head, for its tile. Over ten hours at 48 kHz in 1 MiB chunks, the timeline reads one head per grid or scale, per piece and per
-lost chunk.
+The reader reads any other chunk's head:
+
+- the first of the piece, and one after lost samples;
+- a marked one;
+- one before a chunk already taken in the file;
+- one whose ticks don't fit.
+
+In an unclosed piece past its last checkpoint, a grid track's entries carry no tile number: the reader reads their
+heads for it. Over ten hours at 48 kHz in 1 MiB chunks, the timeline reads one head per grid or scale, per piece and
+per lost chunk.
 
 The ticks don't guard against a mark left out, since a new grid may keep a chunk's first and last tick. Take 48 kHz
-on a 1 ns clock, a period of 62500/3: a grid restarted at sample 4 on its own tick keeps them for a chunk of 8 samples,
-and moves sample 6 one tick earlier. A mark left out, or added where none is due, reads without a panic, and
-`TapeReader::verify` refuses it (`ReadError::GridStart`). Verify is the guard against a wrong mark.
+on a 1 ns clock, a period of 62500/3. A grid restarted at sample 4 on its own tick keeps them for a chunk of 8 samples,
+and moves sample 6 one tick earlier. A mark left out, or added where none is due, reads without a panic.
+`TapeReader::verify`, the guard against a wrong mark, refuses it (`ReadError::GridStart`).
 
 ### 12.3 From a wire batch to chunk columns {#from-a-wire-batch-to-chunk-columns}
 
