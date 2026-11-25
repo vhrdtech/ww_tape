@@ -157,9 +157,9 @@ A put is idempotent, so the producer keeps no memory of what it put before. The 
 each one-second [[block]], 900 times while it writes the first piece. Only six of those puts write, as `cargo run -p
 example_drive` prints.
 
-These are idle at the start, its copies at 1 second and 41 seconds, run at minute 1 and its copies at 61 and 97 seconds.
-Each first copy comes with the first put once the record lies 4 KiB behind. The piece ends at about 28 MiB, before the
-record of run lies 32 MiB behind, so no other put writes.
+These are idle at the start, its copies at 1 and 41 seconds, run at minute 1 and its copies at 61 and 97 seconds. Each
+first copy comes with the first put once the record lies 4 KiB behind. The piece ends at about 28 MiB, before the record
+of run lies 32 MiB behind, so no other put writes.
 
 The writer puts [[definitions]] the same way before every block of data, by the [[layout]]'s own policy. The drawing
 shows the rule shrunk, so that a whole cycle fits on one line.

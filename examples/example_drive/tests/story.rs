@@ -147,7 +147,7 @@ fn rounded_on_the_pages(
         (
             "definitions.md",
             format!(
-                "idle at the start, its copies at {} second and {} seconds, run at minute {} and its copies at {} and {} seconds",
+                "idle at the start, its copies at {} and {} seconds, run at minute {} and its copies at {} and {} seconds",
                 s(wrote[1]),
                 s(wrote[2]),
                 s(wrote[3]) / 60,

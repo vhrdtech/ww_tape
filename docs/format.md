@@ -925,9 +925,10 @@ Take a track defined twice whose first block of records follows the head's layou
 | data | none | the track's first records |
 | puts | `FLAG_REPEAT`, `FLAG_TWICE` | the clock, the track: the copy |
 
-Only the first record of a definition in a piece gets a copy. A clock may lie once in the piece already, put for a
-track that asked for nothing. The first use by a track that asked then writes it once more. The copies of `copies`
-come on top, counted past those two records, the first of them `copy_first` after the record written twice.
+Only the first record of a definition in a piece gets a copy. A clock may lie once in the piece already, put for a track
+that asked for nothing. The first use by a track that asked then writes it once more. The copies of `copies` come on
+top, counted past those two records, the first of them `copy_first` after the record written twice. Such a definition so
+lies three times in the piece 4 KiB after its first record.
 
 Each record takes its own state entry. A cut carries such a definition twice too. Its block of carried definitions
 belongs to the run that the piece head's puts start, and its copy follows that run.
@@ -1003,6 +1004,9 @@ A group's keyed records go into blocks of keyed puts of their own (kind 16), amo
 and the definitions they need go into blocks of puts one after the other, every block but the last marked
 `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of puts, each block of a
 group marked `FLAG_GROUP` (bit 8) and its first block `FLAG_GROUP_START` (bit 9).
+
+The first copies due when a group is written ([Puts and copies](#puts-and-copies)) go into the group's blocks too. A
+reader that drops the group drops those copies with it. The records they copy then stand alone until a later copy.
 
 The flag only marks. A reader that doesn't know it reads the blocks as any blocks of puts. It loses nothing a crash
 leaves, since a group is a run. A reader that knows it also drops a damaged group whole ([Marking blocks of puts](#marking-blocks-of-puts)).
