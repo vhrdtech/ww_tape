@@ -5,7 +5,8 @@ level: basic
 # Beyond a torn block
 
 Most crashes tear one block, which the [[resume]] of [When the power fails](crashes.md) cuts off. Some crashes leave
-more behind: a group of puts half written, or a chain caught between two pieces. Damage may also look like a torn end. What does a resume do then, and how does a [[producer]] know that its own resume works?
+more behind: a group of puts half written, or a chain caught between two pieces. Damage may also look like a torn end.
+What does a resume do then, and how does a [[producer]] know that its own resume works?
 
 ## A torn group of puts
 
@@ -27,7 +28,8 @@ may also put or delete keys of a keyed [[state track]], such as the entries of a
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/torn_group.svg"
 <figcaption>A crash in the last block of a group. The two blocks before it are whole, but the group lacks its end, so
-the resume drops them with the torn block. Given again, the group writes the bytes of a run without the crash.</figcaption>
+the resume drops them with the torn block. Given again, the group writes the bytes of a run without the
+crash.</figcaption>
 </figure>
 
 A crash inside the group leaves marked blocks at the end of the piece and no last one. A reader of the piece before
@@ -85,9 +87,9 @@ A chain therefore gains a piece only at a [[cut]]. A recorder that opens the cha
 ## Trying crashes in a test
 
 A crash is easy to rehearse, because a [[resume]] works on any [[sink]]. A [`MemSink`] keeps a [[piece]] in memory. A
-test writes a small piece there and copies each prefix of its bytes into a new sink. Each prefix is what a crash at
-that byte would leave. It resumes the sink with [`TapeWriter::resume_on`], gives the lost calls again and compares the result with
-the piece written whole:
+test writes a small piece there and copies each prefix of its bytes into a new sink. Each prefix is what a crash at that
+byte would leave. It resumes the sink with [`TapeWriter::resume_on`], gives the lost calls again and compares the result
+with the piece written whole:
 
 ```rust
 --8<-- "ww_tape_tests/tests/it/crashes.rs:every_byte"

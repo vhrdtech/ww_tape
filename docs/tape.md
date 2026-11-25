@@ -20,9 +20,9 @@ endurance bench, and a host records it over USB. The recording has five tracks:
 | `phase_a` | the phase current, in milliamperes as 16-bit fixed point | 25 000 a second | series chunks |
 | `temp` | the board's temperature | once a second | records blocks |
 
-Slow tracks share [[records blocks]], in which every [[record]] carries its own track, time and length. A fast track gets
-[[chunks]] of its own, in which the times and values lie in [[columns]]. A [[block]] of either kind checks itself, so
-a [[reader]] can trust it, or skip it, without reading anything else.
+Slow tracks share [[records blocks]], in which every [[record]] carries its own track, time and length. A fast track
+gets [[chunks]] of its own, in which the times and values lie in [[columns]]. A [[block]] of either kind checks itself,
+so a [[reader]] can trust it, or skip it, without reading anything else.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/tape_map.svg"

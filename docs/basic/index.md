@@ -4,9 +4,9 @@ level: basic
 
 # Basic
 
-The Basic part teaches what you need to record data on a [[tape]] and read it back. After it, you can put events,
-states and sampled signals on tracks of their own. You can write them from several threads into a [[chain]] of files. You
-can then find one second of a long recording with a few small reads, and resume the recording after a crash.
+The Basic part teaches what you need to record data on a [[tape]] and read it back. After it, you can put events, states
+and sampled signals on tracks of their own. You can write them from several threads into a [[chain]] of files. You can
+then find one second of a long recording with a few small reads, and resume the recording after a crash.
 
 The part assumes that you know Rust and have read the [Introduction](../index.md). It assumes nothing about the
 format: each chapter builds on the chapters before it, so read them in order. Every page in this part has the Basic

@@ -90,9 +90,9 @@ minutes at full rate.</figcaption>
 </figure>
 
 A sync after every block loses only the [[torn block]], the 1263 bytes a resume cuts off. It pays with about 8530 waits
-for the disk. The default here loses only the torn block too, with 2222 syncs: its last sync fell just before the crash. Without syncs, the crash may lose
-all of piece 2: 420 s of the run. A recorder of a slow, precious stream syncs after every block; one of a fast stream
-keeps the default.
+for the disk. The default here loses only the torn block too, with 2222 syncs: its last sync fell just before the crash.
+Without syncs, the crash may lose all of piece 2: 420 s of the run. A recorder of a slow, precious stream syncs after
+every block; one of a fast stream keeps the default.
 
 ### A quiet input
 

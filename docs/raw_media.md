@@ -80,9 +80,9 @@ failed:
 
 ## Writing a tape onto a card
 
-A tape on a raw medium is written by the same [[writer]] as a file. The drive's recorder for the card sets the [[layout]]
-with [`Layout::on_sd_card`], and [`Drive::on_sd_card`] in `example_drive` does the same. Four things differ from a
-file:
+A tape on a raw medium is written by the same [[writer]] as a file. The drive's recorder for the card sets the
+[[layout]] with [`Layout::on_sd_card`], and [`Drive::on_sd_card`] in `example_drive` does the same. Four things differ
+from a file:
 
 | On a raw medium | So that |
 |---|---|

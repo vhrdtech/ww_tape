@@ -5,7 +5,8 @@ level: advanced
 # Checking many pieces at once
 
 A long recording is a chain of [[pieces]]. Checking it piece by piece reads every byte on one thread. Each piece reads
-alone, so a reader can verify one piece, or hash one track's chunks in it, without the others. An archive can therefore check its pieces in parallel.
+alone, so a reader can verify one piece, or hash one track's chunks in it, without the others. An archive can therefore
+check its pieces in parallel.
 
 ## What runs at once
 

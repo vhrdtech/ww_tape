@@ -210,9 +210,9 @@ A writer into a growing memory sink spends more, since the sink copies its bytes
 
 ### Reading a track's timeline
 
-A reader finds a series track's timeline in its index. It reads [[chunk heads]] only where a
-[grid starts](format.md#grid-starts), a piece starts or samples are lost. `just bench-chunks` reads the timeline of 256 chunks of 1 MiB from memory,
-unaligned and aligned to 4 KiB.
+A reader finds a series track's timeline in its index. It reads [[chunk heads]] only where a [grid
+starts](format.md#grid-starts), a piece starts or samples are lost. `just bench-chunks` reads the timeline of 256 chunks
+of 1 MiB from memory, unaligned and aligned to 4 KiB.
 
 --8<-- "docs/plots/bench_chunks_timeline-0.txt"
 
@@ -247,7 +247,8 @@ default policies: a near of 32 MiB, and a copy 1 MiB after the newest record.
 --8<-- "docs/plots/bench_tracks_puts.txt"
 
 A put that finds its item near costs almost nothing. The bench writes a definition 60 KiB long again and again, each
-time within its near. The writer hashes nothing again: it compares the hash it computed once, when the application defined the item.
+time within its near. The writer hashes nothing again: it compares the hash it computed once, when the application
+defined the item.
 
 --8<-- "docs/plots/bench_tracks_idle.txt"
 

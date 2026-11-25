@@ -24,9 +24,9 @@ names the file. Then it opens the file and prints one line for each [[track]]:
 --8<-- "docs/generated/first_tape.txt"
 ```
 
-The counts follow from the drive's rates, which [What a tape holds](tape.md) lists. A second holds three log lines,
-one temperature, 1 000 frames and 25 000 [[samples]]. The mode is idle, because the drive starts to run only after its first minute. A test checks that the program prints these lines, so they
-change with the code that makes them.
+The counts follow from the drive's rates, which [What a tape holds](tape.md) lists. A second holds three log lines, one
+temperature, 1 000 frames and 25 000 [[samples]]. The mode is idle, because the drive starts to run only after its first
+minute. A test checks that the program prints these lines, so they change with the code that makes them.
 
 ## The definitions come first
 

@@ -122,8 +122,8 @@ shows. A summary block states its scale, so it reads without the chunks.
 ## Writing summaries
 
 The crate `ww_tape_summary` builds the trees as the items arrive: an [`EventTree`] for an event track, a
-[`SeriesSummaries`] for a series. A recorder that writes the file itself starts one for `phase_a` with the track's first grid and
-period:
+[`SeriesSummaries`] for a series. A recorder that writes the file itself starts one for `phase_a` with the track's first
+grid and period:
 
 ```rust
 --8<-- "examples/example_drive/src/record.rs:summaries"

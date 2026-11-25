@@ -93,10 +93,10 @@ block landed:
 | [`TapeWriter::write_chunk`] | a [`ww_tape::Placed`] whose [`Placed::unit`] is the chunk's [[unit hash]] |
 | [`PieceChain::write_chunk`] | a [`ChunkPlaced`]: the same fields, and the sequence number of the piece the chunk landed in |
 
-The writer states a chunk's unit hash and does not verify it. A writer in the same process thus folds [[range
-hashes]] without reading the piece back. A chain's call may [[cut]] to a new piece first, so its caller learns where the chunk
-went. Through a mux, a [`RecordsHandle`] sends a block's bytes, and the mux's [`ProgressWatch`] tells the piece and
-the bytes written.
+The writer states a chunk's unit hash and does not verify it. A writer in the same process thus folds [[range hashes]]
+without reading the piece back. A chain's call may [[cut]] to a new piece first, so its caller learns where the chunk
+went. Through a mux, a [`RecordsHandle`] sends a block's bytes, and the mux's [`ProgressWatch`] tells the piece and the
+bytes written.
 
 The recorder encodes its chunks as the pages on codecs show:
 

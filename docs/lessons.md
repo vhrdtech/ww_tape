@@ -68,16 +68,16 @@ Correction thus belongs to the medium, as [When bytes go bad](damage.md) explain
   of LTO.
 - [ECMA-321] Ecma International,
   [ECMA-321](https://ecma-international.org/publications-and-standards/standards/ecma-321/): SLDC.
-- [JESD84-A441] JEDEC, JESD84-A441: the eMMC standard, version 4.41. JEDEC
-  hands it out free after a sign-in, so it has no link here.
-- [LTFS] SNIA,
-  [The LTFS Format Specification, version 2.5.1](https://www.snia.org/sites/default/files/technical-work/ltfs/release/SNIA-LTFS-Format-2-5-1-Standard.pdf),
+- [JESD84-A441] JEDEC, JESD84-A441: the eMMC standard, version 4.41. JEDEC hands it out free after a sign-in, so it has
+  no link here.
+- [LTFS] SNIA, [The LTFS Format Specification, version
+  2.5.1](https://www.snia.org/sites/default/files/technical-work/ltfs/release/SNIA-LTFS-Format-2-5-1-Standard.pdf),
   §5.4.2 and §5.4.3.
 - [Micron TN-29-19] Micron, technical note TN-29-19: NAND Flash 101. Micron hands it out after a sign-in on its site, so
   it has no link here.
 - [ONFI 6.0] ONFI, [the ONFI specification, revision 6.0](https://onfi.org/files/ONFI_6_0_Final.pdf).
-- [SD 9.10] SD Association, the Physical Layer Simplified Specification, version 9.10, on
-  [its simplified specifications page](https://www.sdcard.org/downloads/pls/).
+- [SD 9.10] SD Association, the Physical Layer Simplified Specification, version 9.10, on [its simplified specifications
+  page](https://www.sdcard.org/downloads/pls/).
 - [UBI] Linux kernel,
   [`drivers/mtd/ubi/ubi-media.h`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/mtd/ubi/ubi-media.h).
 - [UBIFS] Linux kernel,

@@ -114,9 +114,9 @@ take it. Chunks then still place themselves by track id, item number and tick. W
 reader cannot turn ticks into seconds or bytes into values.
 
 An item of a keyed [[track]] and a record of a group of [[puts]] get copies only at uses ([Puts and
-copies](format.md#puts-and-copies)). Copies take state entries of the piece's [index policy](carried_room.md). In a piece
-whose state entries are full, the writer skips the copy rather than refuse a call. Such a piece may name a definition,
-the [[layout]] or the producer once, after its head.
+copies](format.md#puts-and-copies)). Copies take state entries of the piece's [index policy](carried_room.md). In a
+piece whose state entries are full, the writer skips the copy rather than refuse a call. Such a piece may name a
+definition, the [[layout]] or the producer once, after its head.
 
 ### Lookups after a stopped scan
 

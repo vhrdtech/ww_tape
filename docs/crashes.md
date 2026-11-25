@@ -75,8 +75,8 @@ the crash, and [`PieceInfo::cut`] says where the good blocks end:
 ```
 
 Everything before that offset reads as it would in a closed file. That covers the [[definitions]], the log lines, the
-[[CAN]] frames and the [[summaries]] written so far. The piece has no [[content hash]] to check, because the [[close record]]
-that would hold it was never written. Its missing tail is how a reader tells that the file was not closed.
+[[CAN]] frames and the [[summaries]] written so far. The piece has no [[content hash]] to check, because the [[close
+record]] that would hold it was never written. Its missing tail is how a reader tells that the file was not closed.
 
 ## Resuming the file
 
@@ -112,11 +112,12 @@ compares it with one written whole.
 ### Puts that go with a lost block
 
 Before a [[block]] of data, the [[writer]] [[puts]] the [[definitions]] and [[state items]] that the block needs. It
-skips those of which a copy lies close behind. Such puts belong with the block after them, so the writer marks them with the flag
-`FLAG_WITH_NEXT`. When the crash tears the block, the [[resume]] cuts off its puts too.
+skips those of which a copy lies close behind. Such puts belong with the block after them, so the writer marks them with
+the flag `FLAG_WITH_NEXT`. When the crash tears the block, the [[resume]] cuts off its puts too.
 
 The recorder then gives the call for the block again, and the writer writes the same puts and the same block. A put
 that finds its [[item]] close behind writes nothing, so the recorder never needs to know which puts reached the disk.
 It puts again what it uses, as it did before the crash.
 
-A crash can also tear a group of puts or fall between two pieces of a chain. Damage can look like a torn end. [Beyond a torn block](resume_cases.md) shows what a resume does in each case.
+A crash can also tear a group of puts or fall between two pieces of a chain. Damage can look like a torn end. [Beyond a
+torn block](resume_cases.md) shows what a resume does in each case.

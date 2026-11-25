@@ -86,7 +86,8 @@ This rule gives the format its shape:
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/append_only.svg"
 <figcaption>Every pointer in a piece points back. Each checkpoint names the one before it, the tail names the close,
-and the close names the final index. The next piece appears only by its id. Nothing written earlier waits for a later byte.</figcaption>
+and the close names the final index. The next piece appears only by its id. Nothing written earlier waits for a later
+byte.</figcaption>
 </figure>
 
 Append-only writing suits every medium a tape targets. A NAND flash page takes one program, and an SD card is fastest

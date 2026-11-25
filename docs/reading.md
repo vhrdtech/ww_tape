@@ -160,8 +160,8 @@ index to the one block it needs:
     ```
 
 At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:36 lies about 12 MB behind. That
-record is the [[state copy]] which the [[writer]] adds after the record the cut carried into the last [[piece]]. At the chunk
-from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies about 2 KB behind.
+record is the [[state copy]] which the [[writer]] adds after the record the cut carried into the last [[piece]]. At the
+chunk from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies about 2 KB behind.
 
 The number of `mode` is only the file's name for the track, so the reader first finds it by its key among the
 definitions in force. With that, both lookups together read about 5.7 KB in 10 reads. Each record lies within [[near]],

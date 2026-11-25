@@ -4,9 +4,9 @@ level: nomicon
 
 # When carried definitions don't fit
 
-A new piece carries the definitions of the chain's tracks ([The definitions a new piece carries](carried_definitions.md)).
-Each one takes an index entry, and the index policy bounds the entries of a piece. This page says how much room the
-definitions get, what a cut leaves out past it and which calls the writer refuses.
+A new piece carries the definitions of the chain's tracks ([The definitions a new piece
+carries](carried_definitions.md)). Each one takes an index entry, and the index policy bounds the entries of a piece.
+This page says how much room the definitions get, what a cut leaves out past it and which calls the writer refuses.
 
 ## The room
 

@@ -70,7 +70,8 @@ The writer keeps the newest item of each state track for this, learned from ever
 
 `just bench-carried` measures what a carried state costs in two chains:
 
-- a chain that puts each of `n` state tracks once in its first piece and cuts, so the next piece holds one records block;
+- a chain that puts each of `n` state tracks once in its first piece and cuts, so the next piece holds one records
+  block;
 - the baseline: the same chain with `n` stream tracks that gave data, which carries the definitions alone.
 
 --8<-- "docs/plots/bench_carried_state.txt"
