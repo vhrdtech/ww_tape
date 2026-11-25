@@ -271,6 +271,7 @@ pub use reader::{
 };
 
 mod event;
+#[cfg(feature = "alloc")]
 mod group_marks;
 pub use event::{EventRecord, EventRecordError};
 pub mod body;
