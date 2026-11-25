@@ -1,0 +1,50 @@
+<svg class="ww-svg" viewBox="0 0 680 230" width="680" height="230" role="img" aria-label="A reused raw card, read from the left. Today's session holds blocks with one session tag, a padded page the reader skips as a gap, and a block written twice, of which the reader takes the later copy. After the last block comes erased space of 00 or FF bytes, then blocks of an earlier session with another tag, which are stale data. Each mark names the store that met the problem first: UBI and LTO for session tags, NAND page rules for padding, LTO for rewrites, NAND, SD and eMMC for erased values, LTO for the end of the data" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="22" class="soft small">a reused raw card, read from the left</text>
+  <!-- today's session -->
+  <rect x="20.5" y="70" width="44" height="34" rx="2" class="tint-blue"/>
+  <rect x="66.5" y="70" width="58" height="34" rx="2" class="tint-blue"/>
+  <rect x="126.5" y="70" width="36" height="34" rx="2" class="faint"/>
+  <rect x="126.5" y="70" width="36" height="34" rx="2" class="hatch" fill="none"/>
+  <rect x="164.5" y="70" width="50" height="34" rx="2" class="tint-blue"/>
+  <rect x="216.5" y="70" width="40" height="34" rx="2" class="tint-blue"/>
+  <rect x="258.5" y="70" width="40" height="34" rx="2" class="tint-blue"/>
+  <rect x="300.5" y="70" width="46" height="34" rx="2" class="tint-blue"/>
+  <text x="42.5" y="92" text-anchor="middle" class="small mono">B</text>
+  <text x="95.5" y="92" text-anchor="middle" class="small mono">B</text>
+  <text x="189.5" y="92" text-anchor="middle" class="small mono">B</text>
+  <text x="236.5" y="92" text-anchor="middle" class="small mono">B 7</text>
+  <text x="278.5" y="92" text-anchor="middle" class="small mono">B 7</text>
+  <text x="323.5" y="92" text-anchor="middle" class="small mono">B</text>
+  <!-- erased -->
+  <rect x="348.5" y="70" width="110" height="34" rx="2" class="faint"/>
+  <text x="403.5" y="92" text-anchor="middle" class="small mono soft">00 or FF</text>
+  <!-- stale -->
+  <rect x="460.5" y="70" width="56" height="34" rx="2" class="tint-amber"/>
+  <rect x="518.5" y="70" width="70" height="34" rx="2" class="tint-amber"/>
+  <rect x="590.5" y="70" width="70" height="34" rx="2" class="tint-amber"/>
+  <text x="488.5" y="92" text-anchor="middle" class="small mono">A</text>
+  <text x="553.5" y="92" text-anchor="middle" class="small mono">A</text>
+  <text x="625.5" y="92" text-anchor="middle" class="small mono">A</text>
+  <!-- top labels -->
+  <path d="M20 58 H346" class="thin"/>
+  <text x="183" y="50" text-anchor="middle" class="small">today's session: one session tag, B</text>
+  <path d="M460 58 H660" class="thin"/>
+  <text x="560" y="50" text-anchor="middle" class="small">stale data: another tag, A</text>
+  <!-- bottom marks -->
+  <path d="M144 106 V130" class="thin"/>
+  <text x="144" y="146" text-anchor="middle" class="small">a padded page</text>
+  <text x="144" y="162" text-anchor="middle" class="small soft">read as a gap</text>
+  <text x="144" y="178" text-anchor="middle" class="small soft">NAND, UBIFS</text>
+  <path d="M257 106 V130" class="thin"/>
+  <text x="257" y="146" text-anchor="middle" class="small">block 7 twice</text>
+  <text x="257" y="162" text-anchor="middle" class="small soft">the later copy counts</text>
+  <text x="257" y="178" text-anchor="middle" class="small soft">LTO</text>
+  <path d="M403 106 V130" class="thin"/>
+  <text x="403" y="146" text-anchor="middle" class="small">erased space</text>
+  <text x="403" y="162" text-anchor="middle" class="small soft">either value is blank</text>
+  <text x="403" y="178" text-anchor="middle" class="small soft">NAND, SD, eMMC</text>
+  <path d="M347 40 V200" class="accent-line dash"/>
+  <text x="347" y="216" text-anchor="middle" class="small accent">the end of the data: blank space, then another tag</text>
+  <text x="560" y="146" text-anchor="middle" class="small soft">tags tell sessions apart</text>
+  <text x="560" y="162" text-anchor="middle" class="small soft">LTO, UBI</text>
+</svg>

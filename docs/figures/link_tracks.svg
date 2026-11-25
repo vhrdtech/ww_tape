@@ -1,0 +1,65 @@
+<svg class="ww-svg" viewBox="0 0 680 236" width="680" height="236" role="img" aria-label="Three tracks of one receive queue. The frames track holds each frame as an event: its arrival tick and its bytes as the payload, numbered 0 to 6. The ipv4 track holds 12 bytes of decoded IPv4 header per frame and the l4 track 8 bytes of TCP or UDP header. Each decoded item keeps its frame's item number in the relation frame, which only grows. Frame 4 carries no IPv4, so the two decoded tracks skip its number" xmlns="http://www.w3.org/2000/svg">
+  <text x="96" y="20" class="soft small">events: a tick and a payload each, item numbers 0 to 6</text>
+  <text x="20" y="44" class="small strong mono">frames</text>
+  <text x="20" y="60" class="small soft">its bytes</text>
+  <text x="20" y="124" class="small strong mono">ipv4</text>
+  <text x="20" y="140" class="small soft">12 bytes</text>
+  <text x="20" y="192" class="small strong mono">l4</text>
+  <text x="20" y="208" class="small soft">8 bytes</text>
+  <rect x="96.5" y="30" width="36" height="34" rx="2" class="tint-blue"/>
+  <text x="114.0" y="52" text-anchor="middle" class="small mono">0</text>
+  <rect x="138.5" y="30" width="70" height="34" rx="2" class="tint-blue"/>
+  <text x="173.0" y="52" text-anchor="middle" class="small mono">1</text>
+  <rect x="214.5" y="30" width="36" height="34" rx="2" class="tint-blue"/>
+  <text x="232.0" y="52" text-anchor="middle" class="small mono">2</text>
+  <rect x="256.5" y="30" width="36" height="34" rx="2" class="tint-blue"/>
+  <text x="274.0" y="52" text-anchor="middle" class="small mono">3</text>
+  <rect x="298.5" y="30" width="60" height="34" rx="2" class="tint-blue"/>
+  <text x="328.0" y="52" text-anchor="middle" class="small mono">4</text>
+  <rect x="364.5" y="30" width="36" height="34" rx="2" class="tint-blue"/>
+  <text x="382.0" y="52" text-anchor="middle" class="small mono">5</text>
+  <rect x="406.5" y="30" width="100" height="34" rx="2" class="tint-blue"/>
+  <text x="456.0" y="52" text-anchor="middle" class="small mono">6</text>
+  <rect x="98.5" y="106" width="32" height="28" rx="2" class="tint-green"/>
+  <text x="114.0" y="124" text-anchor="middle" class="small mono">0</text>
+  <rect x="98.5" y="174" width="32" height="28" rx="2" class="tint-purple"/>
+  <text x="114.0" y="192" text-anchor="middle" class="small mono">0</text>
+  <path d="M114.0 104 V72" class="thin"/>
+  <path d="M114.0 66 l-3.5 7 h7 Z" class="thin head"/>
+  <rect x="157.5" y="106" width="32" height="28" rx="2" class="tint-green"/>
+  <text x="173.0" y="124" text-anchor="middle" class="small mono">1</text>
+  <rect x="157.5" y="174" width="32" height="28" rx="2" class="tint-purple"/>
+  <text x="173.0" y="192" text-anchor="middle" class="small mono">1</text>
+  <path d="M173.0 104 V72" class="thin"/>
+  <path d="M173.0 66 l-3.5 7 h7 Z" class="thin head"/>
+  <rect x="216.5" y="106" width="32" height="28" rx="2" class="tint-green"/>
+  <text x="232.0" y="124" text-anchor="middle" class="small mono">2</text>
+  <rect x="216.5" y="174" width="32" height="28" rx="2" class="tint-purple"/>
+  <text x="232.0" y="192" text-anchor="middle" class="small mono">2</text>
+  <path d="M232.0 104 V72" class="thin"/>
+  <path d="M232.0 66 l-3.5 7 h7 Z" class="thin head"/>
+  <rect x="258.5" y="106" width="32" height="28" rx="2" class="tint-green"/>
+  <text x="274.0" y="124" text-anchor="middle" class="small mono">3</text>
+  <rect x="258.5" y="174" width="32" height="28" rx="2" class="tint-purple"/>
+  <text x="274.0" y="192" text-anchor="middle" class="small mono">3</text>
+  <path d="M274.0 104 V72" class="thin"/>
+  <path d="M274.0 66 l-3.5 7 h7 Z" class="thin head"/>
+  <text x="328.0" y="124" text-anchor="middle" class="small soft">no</text>
+  <text x="328.0" y="140" text-anchor="middle" class="small soft">IPv4</text>
+  <rect x="366.5" y="106" width="32" height="28" rx="2" class="tint-green"/>
+  <text x="382.0" y="124" text-anchor="middle" class="small mono">5</text>
+  <rect x="366.5" y="174" width="32" height="28" rx="2" class="tint-purple"/>
+  <text x="382.0" y="192" text-anchor="middle" class="small mono">5</text>
+  <path d="M382.0 104 V72" class="thin"/>
+  <path d="M382.0 66 l-3.5 7 h7 Z" class="thin head"/>
+  <rect x="440.5" y="106" width="32" height="28" rx="2" class="tint-green"/>
+  <text x="456.0" y="124" text-anchor="middle" class="small mono">6</text>
+  <rect x="440.5" y="174" width="32" height="28" rx="2" class="tint-purple"/>
+  <text x="456.0" y="192" text-anchor="middle" class="small mono">6</text>
+  <path d="M456.0 104 V72" class="thin"/>
+  <path d="M456.0 66 l-3.5 7 h7 Z" class="thin head"/>
+  <text x="524" y="116" class="small">each decoded item keeps</text>
+  <text x="524" y="132" class="small">its frame's number in the</text>
+  <text x="524" y="148" class="small">relation <tspan class="mono">frame</tspan>, which</text>
+  <text x="524" y="164" class="small">only grows</text>
+</svg>

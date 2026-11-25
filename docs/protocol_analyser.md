@@ -24,8 +24,8 @@ A capture thread takes the frames in batches, as a network card hands them over,
 ```
 
 The handle copies the batch into its open [[events chunk]] and completes the chunk at 1 MiB of frames. It codes the
-[[payload]] column with the track's payload codec, here `Raw`, and hashes it on the capture thread ([why raw](#compressing-the-payloads)). A tool that already writes the pcap format could store those
-records instead, as a `Foreign` item with the media type `application/vnd.tcpdump.pcap` ([Tracks](tracks.md)).
+[[payload]] column with the track's payload codec, here `Raw`, and hashes it on the capture thread
+([why raw](#compressing-the-payloads)). A tool that already writes the pcap format could store those records instead, as a `Foreign` item with the media type `application/vnd.tcpdump.pcap` ([Tracks](tracks.md)).
 
 ??? example "What the example uses here: `Link`"
 
@@ -35,12 +35,15 @@ records instead, as a `Foreign` item with the media type `application/vnd.tcpdum
 
 ## Decoded layers as tracks
 
-A decoder reads each frame's IPv4 header and its TCP or UDP header. It keeps a few fields of each. From the IPv4 header
-it keeps the addresses, the protocol, the time to live and the length. From the transport header it keeps the ports, the
-flags and the payload length.
+A decoder reads each frame's IPv4 header and its TCP or UDP header, and keeps a few fields of each. Each layer goes
+into a [[track]] of its own:
 
-Each layer goes into a [[track]] of its own, `ipv4` and `l4`. A reader looking for one flow's packets then reads 12 or 8
-bytes per frame instead of the whole frame.
+| Track | Fields kept | Bytes per frame |
+|---|---|---|
+| `ipv4` | the addresses, the protocol, the time to live and the length | 12 |
+| `l4` | the ports, the flags and the payload length | 8 |
+
+A [[reader]] looking for one flow's packets then reads 12 or 8 bytes per frame instead of the whole frame.
 
 A decoded header must lead back to its frame. Each item of `ipv4` and `l4` keeps its frame's [[item number]] in a
 relation named `frame`:
@@ -59,11 +62,20 @@ The numbers only grow, so the relation is a [[monotone relation]]. The index the
 largest frame number, and a reader finds the headers of a given frame without reading other chunks. A frame without
 IPv4, one in a thousand here, has no header item, so the two tracks skip its number.
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/link_tracks.svg"
+<figcaption>The three tracks of a receive queue. A decoded header points back at its frame by item number, and a frame
+without IPv4 leaves a hole in both decoded tracks.</figcaption>
+</figure>
+
 ## What the link takes on a tape
 
-The link carries the simple mix of frame lengths that network tests use: 7 frames of 60 bytes, 4 of 590 and 1 of
-1514. Three flows in four are TCP and the rest UDP. The payloads are random bytes, as encrypted traffic is, so they do
-not compress. Each direction runs at the line rate, 10 Gbps of frames, their preambles and gaps included.
+The link carries a synthetic traffic, fixed so that every run sees the same frames:
+
+- the simple mix of frame lengths that network tests use: 7 frames of 60 bytes, 4 of 590 and 1 of 1514;
+- three flows in four TCP and the rest UDP;
+- random payloads, as encrypted traffic has, which do not compress;
+- in each direction the line rate, 10 Gbps of frames, their preambles and gaps included.
 
 `cargo run --release -p example_ethernet --bin ethernet_sizes` records 10 ms of the link into one chain and reads it
 back:
@@ -85,14 +97,20 @@ The pieces held in memory form the **memory window**: the tape of the capture he
 piece holds the same tracks, blocks and summaries a piece in a file holds, and the tracks run across the pieces. The
 oldest pieces leave memory as the capture goes on.
 
-A mux writes its chain from one thread, which copies every byte of the capture into memory. One such thread for both
-ports keeps the link's pace with little to spare, as the bench below shows. So each port goes into a chain of its own,
-with a mux of its own and a triage thread of its own ([`RamCapture::chains`]).
-
 A triage thread reads each chain's window while the capture goes on. It waits on the mux's [`ProgressWatch`] and opens
 each piece as it closes, a [`TapeReader`] over the bytes in memory without a copy. The analyser decides whether the
 piece holds something worth keeping. A kept piece is copied whole to the chain's own directory of piece files, where it
 reads alone. Every other piece leaves memory unwritten ([`MemPieces::remove`]).
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/memory_window.svg"
+<figcaption>One chain's memory window. The triage reads each closed piece in place; a piece with a reset goes to disk
+with one piece on each side, and the rest leave memory unwritten.</figcaption>
+</figure>
+
+A mux writes its chain from one thread, which copies every byte of the capture into memory. One such thread for both
+ports keeps the link's pace with little to spare, as the bench below shows. So each port goes into a chain of its own,
+with a mux of its own and a triage thread of its own ([`RamCapture::chains`]).
 
 The chunks of a piece are independent, so the analyser decodes them in parallel on a rayon pool, shared by the chains'
 triages. By default the pool has 2 threads a chain ([`RamCapture::triage_threads`]). Nothing keeps the pool off the
@@ -122,6 +140,12 @@ what connects them:
 --8<-- "examples/example_ethernet/src/main.rs:main"
 ```
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/link_pipeline.svg"
+<figcaption>The threads of one port with a chain per port. Frames flow left to right; only kept pieces and the
+results reach the disk.</figcaption>
+</figure>
+
 [`RamCapture::start`] starts the capture threads, the muxes and a triage thread per chain, and returns at once. The
 [`RamRunning`] it gives hands out the memory window while the capture runs: per chain a [`MemChain`], its pieces in
 memory and the [`ProgressWatch`] of its mux. A viewer in another thread follows the window from it, as `follow` does
@@ -137,10 +161,15 @@ frames of a port. The analyser decodes every frame of each piece and tests its f
 --8<-- "examples/example_ethernet/src/ram.rs:look"
 ```
 
-Its findings go to a second chain, the results, which a mux of its own writes to disk beside the kept pieces. Each
-receive queue has a track `resets`, one item per reset with its IPv4 and TCP headers. Like a decoded header, a reset
-keeps its frame's number in the relation `frame`. The frame lies in the kept piece the analyser found it in. Each chain
-has a track `kept`, which names each kept piece of the chain with the span of time it covers.
+Its findings go to a second chain, the results, which a mux of its own writes to disk beside the kept pieces. The
+results hold two kinds of track:
+
+| Track | One per | An item |
+|---|---|---|
+| `resets` | receive queue | a reset with its IPv4 and TCP headers, and its frame's number in the relation `frame` |
+| `kept` | chain | a kept piece of the chain, with the span of time it covers |
+
+A reset's frame lies in the kept piece the analyser found it in.
 
 The kept pieces of a chain form a chain with holes, where the pieces left memory. Each piece reads alone, and the
 results say why it was kept. The test `tests/ethernet_ram.rs` checks that the kept pieces hold the frames the link sent,
@@ -159,27 +188,32 @@ disk.
 
 --8<-- "docs/plots/bench_cases_machine.txt"
 
-"Capture ms" is the time until every frame was in memory. The column "Of the pace" is the seconds of the link captured
-per second of that time: a value of 1 or more keeps up with the link. "Wall ms" adds the time the triage took to read
-the last pieces. "Tape MB per s" is what a second of the link takes in memory. "Window s" is how many seconds of the
-link half the machine's memory holds: how long a verdict may wait.
+The columns of the window table read as follows:
+
+| Column | Means |
+|---|---|
+| Capture ms | the time until every frame was in memory |
+| Of the pace | the seconds of the link captured per second of that time; 1 or more keeps up with the link |
+| Wall ms | the capture time plus the time the triage took to read the last pieces |
+| Tape MB per s | what a second of the link takes in memory |
+| Window s | how many seconds of the link half the machine's memory holds: how long a verdict may wait |
 
 In one chain, the mux's writing thread sets the pace: more receive queues do not raise it. A chain per port splits the
 copying over two writing threads, and with 4 queues a port the capture runs ahead of the link.
 
 --8<-- "docs/plots/bench_ethernet_triage.txt"
 
-"Triage threads" is the size of the pool, marked where it is the default.
+The largest capture runs again with 1, 2 and 4 triage threads, and with every core of the machine. One thread decodes
+the chunks one after the other, as a triage without a pool does. Compare the rows of one capture: "Capture ms" in the
+first table shows what each size of the pool costs the capture.
 
-The largest capture runs again with 1, 2 and 4 threads, and with every core of the machine. One thread decodes the
-chunks one after the other, as a triage without a pool does.
-
-"Triage MB/s" is what one chain's triage reads a second. Its "Of the pace" is the seconds of the link the slowest triage
-reads per second of its work: 1 or more keeps up. Compare the rows of one capture: "Capture ms" in the first table
-shows what each size of the pool costs the capture.
-
-"Kept %" is the share of the capture's bytes that reaches the kept store. "To disk MB per s" is what the disk writes per
-second of the link, the results included.
+| Column | Means |
+|---|---|
+| Triage threads | the size of the pool, marked where it is the default |
+| Triage MB/s | what one chain's triage reads a second |
+| Of the pace | the seconds of the link the slowest triage reads per second of its work; 1 or more keeps up |
+| Kept % | the share of the capture's bytes that reaches the kept store |
+| To disk MB per s | what the disk writes per second of the link, the results included |
 
 ## Writing every frame to disk
 
@@ -203,17 +237,22 @@ keeps.
 
 ## Compressing the payloads
 
-A [[track]]'s writer chooses how each chunk codes its payload column. `Raw` runs no encoder. `Auto` tries LZ4 and keeps
-it when it is smaller ([Choosing the codec](format.md#choosing-the-payload-codec)). The capture above records the
-`frames` track `Raw`, because its payloads are random bytes, as encrypted traffic is. The `ipv4` and `l4` tracks keep
-`Auto`: their repeated headers do compress.
+A [[track]]'s [[writer]] chooses how each chunk codes its payload column
+([Choosing the codec](format.md#choosing-the-payload-codec)):
+
+| Codec | What it does | Used here for |
+|---|---|---|
+| `Raw` | runs no encoder | `frames`, whose payloads are random bytes, as encrypted traffic is |
+| `Auto` | tries LZ4 and keeps it when it is smaller | `ipv4` and `l4`, whose repeated headers do compress |
 
 `just bench-ethernet` records the link with both choices. It also records a second mix of payloads, made by
-`PayloadMix::Plain`: plaintext protocols (HTTP, JSON, log lines and SQL) drawn from a small vocabulary. The mix is synthetic. It stands
+`PayloadMix::Plain`: plaintext protocols (HTTP, JSON, log lines and SQL) drawn from a small vocabulary. The mix is
+synthetic. It stands
 for the traffic of an unencrypted network, where each frame repeats the headers of its neighbours.
 
-The run writes into a store that keeps no bytes, with 2 receive queues a port in one chain. "CPU ns per frame" counts every thread of the
-process, the one that makes the frames included, so the difference between two rows is what the codec costs.
+The run writes into a store that keeps no bytes, with 2 receive queues a port in one chain. "CPU ns per frame" counts
+every thread of the process, the one that makes the frames included. The difference between two rows is thus what the
+codec costs.
 
 --8<-- "docs/plots/bench_ethernet_payload.txt"
 

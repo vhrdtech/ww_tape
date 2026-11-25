@@ -1,0 +1,39 @@
+<svg class="ww-svg" viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="WireWeaver gives tapes two things: shrink_wrap, the encoding of each item of an events track, and API bundles, which a tape stores so a reader names its tracks. WireWeaver's link tap writes tapes and its ww tool reads them. logring runs on the device itself and keeps the newest data in a ring on an SD card or a flash chip; a tape keeps a whole recording on a host" xmlns="http://www.w3.org/2000/svg">
+  <!-- WireWeaver -->
+  <rect x="20.5" y="20" width="220" height="210" rx="4" class="tint-blue"/>
+  <text x="130" y="42" text-anchor="middle" class="strong">WireWeaver</text>
+  <text x="130" y="60" text-anchor="middle" class="small soft">typed APIs between devices and hosts</text>
+  <rect x="36.5" y="76" width="188" height="36" rx="3" class="faint"/>
+  <text x="48" y="92" class="small mono">shrink_wrap</text>
+  <text x="48" y="106" class="small soft">the encoding of an item</text>
+  <rect x="36.5" y="120" width="188" height="36" rx="3" class="faint"/>
+  <text x="48" y="136" class="small">API bundles</text>
+  <text x="48" y="150" class="small soft">types and names of an API</text>
+  <rect x="36.5" y="164" width="188" height="24" rx="3" class="faint"/>
+  <text x="48" y="181" class="small">link tap: writes tapes</text>
+  <rect x="36.5" y="196" width="188" height="24" rx="3" class="faint"/>
+  <text x="48" y="213" class="small"><tspan class="mono">ww</tspan>: reads tapes</text>
+  <!-- arrows to tape -->
+  <path d="M226 94 C258 94 262 110 284 110" class="line"/>
+  <path d="M226 138 C256 138 262 122 284 122" class="line"/>
+  <path d="M226 176 C258 176 262 140 284 136" class="line"/>
+  <path d="M290 116 l-8 -4 v8 Z" class="line head"/>
+  <path d="M290 128 l-8 -4 v8 Z" class="line head"/>
+  <path d="M290 136 l-8 -3 v7 Z" class="line head"/>
+  <path d="M292 160 C262 170 258 208 226 208" class="line"/>
+  <path d="M226 208 l8 -4 v8 Z" class="line head"/>
+  <!-- tape -->
+  <rect x="294.5" y="80" width="140" height="90" rx="4" class="tint-green"/>
+  <text x="364.5" y="104" text-anchor="middle" class="strong">a tape</text>
+  <text x="364.5" y="124" text-anchor="middle" class="small">a whole recording</text>
+  <text x="364.5" y="140" text-anchor="middle" class="small">mostly on a host</text>
+  <text x="364.5" y="156" text-anchor="middle" class="small soft">this book</text>
+  <!-- logring -->
+  <rect x="470.5" y="80" width="190" height="90" rx="4" class="tint-amber"/>
+  <text x="565.5" y="104" text-anchor="middle" class="strong">logring</text>
+  <text x="565.5" y="124" text-anchor="middle" class="small">the newest data, in a ring</text>
+  <text x="565.5" y="140" text-anchor="middle" class="small">on the device's SD or flash</text>
+  <text x="565.5" y="156" text-anchor="middle" class="small soft">no heap, little RAM</text>
+  <path d="M436 125 H468" class="thin dash"/>
+  <text x="452" y="196" text-anchor="middle" class="small soft">both hold tracks of typed items with times</text>
+</svg>

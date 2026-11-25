@@ -9,49 +9,54 @@ and code, and how its code and figures stay true. A reader of the book can skip 
 
 ## How a chapter reads
 
-The book is about ww_tape: what a tape is, how it works and why it is built the way it is. Examples show a point and
-then step aside. No chapter follows a plot, and no character, such as an engineer, carries it.
+The book is about ww_tape: what a [[tape]] is, how it works and why it is built the way it is. Examples show a point
+and then step aside. No chapter follows a plot, and no character, such as an engineer, carries it.
 
 A chapter answers one question, and its title names it: "When the power fails", not "Resuming". It opens with its
 subject and that question, in plain terms that a reader new to the book follows. The reader then knows why the
 chapter matters before it explains anything.
 
-An example arrives as the first concrete case, a few sentences in, and never as the first line. A chapter has no
-road-map sentence such as "This chapter says what a tape is": the opening shows the subject instead of announcing it.
+Each part of a chapter has its own shape:
 
-Why and what come before how. Each new idea gets a concrete case, usually from the running example. The case states
-its setup in one sentence where it is used, as in "The drive's fault lies in its last piece". It never opens with a
-scene, as in "An engineer opens the piece".
+| Part | How it reads |
+|---|---|
+| Opening | the subject and its question; no road-map sentence such as "This chapter says what a tape is" |
+| First example | a few sentences in, never the first line; its setup in one sentence, as in "The drive's fault lies in its last piece" |
+| New idea | why and what before how, then a concrete case; never a scene, as in "An engineer opens the piece" |
+| Mechanism | a figure right after the sentence that needs it |
+| Paragraph | one idea and its reason, in two to five sentences |
+| List or table | a list for parallel items, a table for a comparison; reasoning stays in prose |
+| Reference detail | caps, constants, field lists and the edge cases of a refusal go to the [format reference](format.md), linked by anchor |
+| End | the last fact, or one sentence that leads to the next chapter; no list of further pages |
 
-Where an idea has a mechanism, a figure follows right after the sentence that needs it.
-
-A paragraph carries one idea and its reason, in two to five sentences. A list holds parallel items only, and a table
-holds a comparison only. Reasoning stays in prose.
-
-Reference detail goes to the [format reference](format.md) and the chapter links it by anchor. Caps, constants, field
-lists and the edge cases of a refusal are such detail. A chapter names a constant only when the reader picks its
-value.
-
-A chapter ends on its last fact, or on one sentence that leads to the next chapter. It has no list of further pages.
+A chapter names a constant only when the reader picks its value. Everything else about it is reference detail.
 
 ## The running example
 
-The book draws most of its examples from one recording, so that a reader learns its setup once. A motor controller
-board, the drive, runs for an hour on an endurance bench. A host records it over USB into a chain of pieces.
-[What a tape holds](tape.md) introduces it and lists its five tracks, and a chapter links that
-table instead of repeating it. Other examples, such as a radio capture, join where the drive has no fitting case.
+Most chapters draw their examples from one recording, so that a reader learns its setup once. A motor controller
+board, the drive, runs for an hour on an endurance bench. A host records it over USB into a [[chain]] of [[pieces]].
+[What a tape holds](tape.md) introduces it and lists its five tracks, and a chapter links that table instead of
+repeating it.
 
-The recording has a few facts that examples rely on. The board counts time in microseconds since boot and the host in
-nanoseconds, and a clock map joins the two. At minute 37 the host loses power while it writes piece 2, and at minute
-52 the board faults on overcurrent. A chapter uses such a fact where it shows a point, not as an event in a story.
+The recording has a few facts that examples rely on:
 
-A number in an example comes from running code, never from a hand calculation. The bytes a crash loses and the bytes
-per frame are such numbers.
+- The board counts time in microseconds since boot and the host in nanoseconds, and a [[clock map]] joins the two.
+- At minute 37 the host loses power while it writes piece 2.
+- At minute 52 the board faults on overcurrent.
 
-The crate `example_drive` records the drive's hour, and `cargo run -p example_drive` prints the example's
-numbers.
-Figures draw from a scaled run, which has a fraction of the data and of every byte policy. A test calls the same
-code:
+A chapter uses such a fact where it shows a point, not as an event in a story. Where the drive has no fitting case, a
+chapter takes the example crate that fits:
+
+| Crate | Case | Used by |
+|---|---|---|
+| `example_drive` | the drive's hour, a crash at any byte, the resume | most chapters |
+| `example_rf` | a radio capture into a piece or two chains | [series](series.md) |
+| `example_ethernet` | a 10 Gbps link over receive queues and muxes | [the protocol analyser](protocol_analyser.md) |
+| `example_wideband` | a 1 GS/s receiver in channels | [the wideband receiver](wideband.md) |
+
+A number in an example comes from running code, never from a hand calculation. `cargo run -p example_drive` prints the
+drive's numbers, such as the bytes a crash loses. Figures draw from a scaled run, which has a fraction of the data and
+of every byte policy. A test calls the same code:
 
 ```rust
 --8<-- "ww_tape_tests/tests/it/book_pages.rs:story"
@@ -86,26 +91,34 @@ level: basic
 ---
 ```
 
-The value is `basic`, `advanced` or `nomicon`. The parts Basic, Advanced and Nomicon each hold pages of their own
-level only, so a reader who clicks next never steps down. The Reference and Articles shelves come after them, and
-their pages keep any level. `vz check` holds the navigation to `book_checks.toml` and fails a step down.
+The value is `basic`, `advanced` or `nomicon`. The parts of the navigation form a reading ramp, and each part holds
+pages of its own level only. A reader who clicks next thus never steps down. The shelves come after the ramp, and
+their pages keep any level.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/book_levels.svg"
+<figcaption>The navigation: the ramp rises from Introduction to Nomicon, and the Reference and Articles shelves follow
+it. <code>vz check</code> holds the navigation to <code>book_checks.toml</code>.</figcaption>
+</figure>
 
 ## Terms and code links
 
 A term the book defines has one entry in `docs/glossary.toml`: its name, its other forms, one sentence and the
-chapter that explains it. The page [Glossary](glossary.md) lists every entry. In prose, `[[piece]]` marks the term,
-and `[[the last file|piece]]` shows other words for it. Mark a term at its first use in each section, not at every
-use.
+chapter that explains it. The page [Glossary](glossary.md) lists every entry. The book uses one name for each thing.
+Where two words could name one thing, the glossary entry decides, and the other word goes into its forms.
 
-A name in square brackets and backticks links code. ``[`TapeWriter::resume_on`]`` links an item, ``[`crashes.rs`]``
-a file, and ``[`crashes.rs:resume`]`` a marked section of a file. The reader sees the code in a card and opens its
-lines on GitHub.
+Marks in prose turn into cards that the reader opens under the pointer:
+
+| Mark | Links |
+|---|---|
+| `[[piece]]` | the term, at its first use in each section, not at every use |
+| `[[the last file\|piece]]` | the term, shown in other words |
+| ``[`TapeWriter::resume_on`]`` | an item of the code |
+| ``[`crashes.rs`]`` | a file |
+| ``[`crashes.rs:resume`]`` | a marked section of a file, with its lines on GitHub |
 
 `just book-refs` checks every mark and link, and every build runs it. An unknown term, or a name that no item
 matches, fails the build. A renamed item thus fails the book in the same change that renames it.
-
-The book uses one name for each thing. Where two words could name one thing, the glossary entry decides, and the other
-word goes into its forms.
 
 ## Abbreviations
 
@@ -123,8 +136,17 @@ place, and prose that spells out one of either.
 
 ## Code on a page
 
-Code on a page always comes from code that the tests compile and run. A test marks a section with
-`// --8<-- [start:NAME]` and `// --8<-- [end:NAME]` lines, and the page includes that section in a `rust` block:
+Code on a page always comes from code that the tests compile and run. The same holds for a program's output and for
+a figure that shows bytes. Each kind has its own source and its own check.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/book_sources.svg"
+<figcaption>Where each kind of content comes from. Nothing on a page is typed by hand except prose and drawings of a
+mechanism.</figcaption>
+</figure>
+
+A test marks a section with `// --8<-- [start:NAME]` and `// --8<-- [end:NAME]` lines, and the page includes that
+section in a `rust` block:
 
 ````markdown
 ```rust
@@ -150,21 +172,26 @@ page includes one in a `text` block, as [A first tape](first_tape.md) does.
 
 A figure stands right after the sentence that needs it. Its caption states what the reader should take from it.
 
-A figure that shows bytes or numbers is generated. `ww_tape_figures` draws it from blocks that ww_tape writes, and
-`just book-figures` writes it into `docs/plots`. A test fails when a drawn figure differs from the file in git. The
-caption names the generator, and also what it shrank, such as checkpoints every 4 KiB instead of every 4 MiB.
+| Kind | Made by | Lives in | Checked by |
+|---|---|---|---|
+| bytes or numbers | `ww_tape_figures`, from blocks that ww_tape writes (`just book-figures`) | `docs/plots` | a test that fails when a drawn figure differs from git |
+| a mechanism | hand, as an SVG with the classes of `figures.css` | `docs/figures` | the strict build |
 
-A drawing by hand is an SVG file in `docs/figures`. Both kinds go into the page through a `--8<--` line inside a
-`figure` element, so they follow the light and dark scheme.
+The caption of a drawn figure names the generator, and also what it shrank, such as checkpoints every 4 KiB instead of
+every 4 MiB. Both kinds go into the page through a `--8<--` line inside a `figure` element, so they follow the light
+and dark scheme.
 
 ## Checks
 
-`just book-check` first checks the book's frame with `vz check`, the book kit's check. The frame is the navigation
-against `book_checks.toml`. A page may not step down a level, must carry a level and appears once. A bare `rust` block
-fails beyond the count waived there, and `just test` runs the same check.
+`just book-check` runs three steps, and `just test` runs the first one too:
 
-The build then runs with warnings as errors, and the prose lints of `spirit_level.toml` follow. The lints hold a
-paragraph to five sentences and a sentence to 25 words. A stretch of prose ends within 400 words at a heading, figure,
-table or code block.
+1. `vz check`, the book kit's check, holds the navigation to `book_checks.toml`. A page may not step down a level,
+   must carry a level and appears once. A bare `rust` block fails.
+2. The build runs with warnings as errors, so a link to a missing page, anchor or figure fails.
+3. The prose lints of `spirit_level.toml` run at deny: five sentences to a paragraph and 25 words to a sentence.
+
+The reading lints hold a page to the shape of the table under [How a chapter reads](#how-a-chapter-reads). A run of
+prose ends within 350 words at a list, figure, table or code block. A page has one such element per 120 words. A
+page longer than 500 words has a figure, and one more for every 600 words after.
 
 The format reference is exempt from the reading time of a guide page, since a reader looks things up there.

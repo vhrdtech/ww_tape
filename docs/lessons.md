@@ -4,56 +4,62 @@ level: nomicon
 
 # Lessons from tape and flash
 
-Tape drives and flash memory met the problems of a [[raw medium]] long before this format did. They met data of an
+Tape drives and flash memory met the problems of a [[raw medium]] long before this format did. They found data of an
 earlier life behind the current end, erased space in the middle and writes retried after an error. Each rule of [Where
-the data ends on a raw card](raw_media.md) follows one of their solutions. The format takes from each what fits a
-tape. Each point names its source, listed at the end.
+the data ends on a raw card](raw_media.md) follows one of their solutions, taken as far as it fits a tape. Each point
+names its source, listed at the end.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/lessons.svg"
+<figcaption>The problems on one reused card, each marked with the stores that met it first. The data ends at the first
+blank space that the next blocks do not continue in the same session.</figcaption>
+</figure>
 
 ## Sessions and the end of the data
 
-LTO marks every data set with a write pass number, which grows whenever data is overwritten. A reader
-thus tells current data from residue of an earlier pass [ECMA-319, §13.5.16]. UBI on flash does
-the same with an image sequence number on every eraseblock [UBI].
+A reused medium holds valid data of an earlier write behind the current end. LTO marks every data set with a write pass
+number, which grows whenever data is overwritten [ECMA-319, §13.5.16]. UBI on flash does the same with an image
+sequence number on every eraseblock [UBI].
 
-The [[session tag]] does this job in a tape. It is random, derived from a seed or derived from a piece id, never a
-counter. A wiped card or a device without stored state has no counter to continue.
+| Problem | Earlier solution | A tape's rule |
+|---|---|---|
+| Old data behind the new | a write pass number per data set (LTO), a sequence number per eraseblock (UBI) | a [[session tag]] in every [[block]] header |
+| Where the data ends | data after the end-of-data mark is invalid [ECMA-319, §13.4.3] | blank space and a change of session end it |
 
-LTO declares data recorded after the end-of-data mark inaccessible and invalid [ECMA-319, §13.4.3]. A tape has no
-end-of-data block, since a crash leaves none. Blank space and the session tag mark the end instead, and nothing after it
-is data.
+A [[tape]]'s session tag is random, derived from a seed or derived from a piece id, never a counter. A wiped card or a
+device without stored state has no counter to continue. A tape also has no end-of-data block, since a crash leaves
+none.
 
 ## Erased bytes and gaps
 
-Erased is not always zero. NAND flash erases to 0xFF [Micron TN-29-19]. An SD card reads 0 or
-1 after an erase, by vendor [SD 9.10, §4.3.5.1]. An eMMC device reports which value it uses
-[JESD84-A441]. A tape's blank space is therefore either value.
+Erased is not always zero, and a blank unit is not always the end. A tape's blank space is therefore either value, and
+its [[layout]] says how far a reader looks past it, in units that follow the media.
 
-A blank unit is not always the end. A NAND writer that hits a failed program moves on and leaves erased pages behind.
-UBIFS looks past such units when it scans for the end of the data [UBIFS].
-
-A tape's [[layout]] says how far a reader looks, in units that follow the media. SD allocation units reach 64 MB [SD
-9.10, §4.10.2.4, Table 4-48]. ONFI defines NAND erase blocks and pages [ONFI 6.0, §3.1].
+| Medium | What it does | Source |
+|---|---|---|
+| NAND flash | erases to FFh | [Micron TN-29-19] |
+| SD card | reads 0 or 1 after an erase, by vendor | [SD 9.10, §4.3.5.1] |
+| eMMC | reports which value it uses | [JESD84-A441] |
+| NAND under UBIFS | a failed program leaves erased pages behind, and the scan looks past them | [UBIFS] |
+| SD card | allocation units reach 64 MB | [SD 9.10, §4.10.2.4, Table 4-48] |
+| NAND | erase blocks and pages | [ONFI 6.0, §3.1] |
 
 A NAND page is programmed once. Programming the same part of a page twice without an erase gives indeterminate contents
-[ONFI 6.0, §6.7.1.25]. Micron's MLC example allows one program per page [Micron TN-29-19]. A writer
-on raw NAND therefore pads the rest of the page at each sync, and readers take the padding as a [[gap]].
+[ONFI 6.0, §6.7.1.25]. Micron's MLC example allows one program per page [Micron TN-29-19]. A [[writer]] on raw NAND
+therefore pads the rest of the page at each sync, and a [[reader]] takes the padding as a [[gap]].
 
 ## Rewrites, indexes, compression and correction
 
-LTO rewrites an interrupted data set in its entirety, and the later write counts [ECMA-319, §15.4]. The same block twice
-in a tape is a [[duplicate]], and the reader takes the later copy.
+Four more rules of a tape follow a store that solved the same problem:
 
-Each LTFS index points to itself and to the one before it [LTFS]. An index whose self pointer
-does not match where it was found is data, not an index. A tape's index blocks carry the same two offsets, and a reader
-checks the self offset against where it found the block.
+| Problem | Earlier solution | A tape's rule |
+|---|---|---|
+| A write retried after an error | LTO rewrites the data set whole, and the later write counts [ECMA-319, §15.4] | of a [[duplicate]] block, the reader takes the later copy |
+| An index found by a scan | each LTFS index points to itself and to the one before [LTFS] | an index block carries both offsets, and the reader checks the self offset |
+| Data that does not compress | SLDC switches to copying bytes, so it grows by about 0.05 % instead of 12.5 % [ECMA-321, §7.2] | the writer keeps a block's plain body when coding does not shrink it |
+| Bit errors | ONFI leaves correction to the host controller, per 512 bytes or a larger codeword [ONFI 6.0, §6.7.1.26] | a tape only detects what that correction missed |
 
-SLDC switches to a scheme that copies bytes when compression would grow the data
-[ECMA-321, §7.2]. Incompressible data then grows by about 0.05 % instead of 12.5 %. A tape's writer likewise keeps a
-block's plain body when coding does not shrink it.
-
-ONFI leaves error correction to the host controller, per 512 bytes or per a larger codeword [ONFI 6.0, §6.7.1.26].
-Correction thus belongs to the medium, and a tape only detects what that correction missed, as
-[When bytes go bad](damage.md) explains.
+Correction thus belongs to the medium, as [When bytes go bad](damage.md) explains.
 
 ## Sources
 
