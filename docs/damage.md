@@ -182,20 +182,20 @@ These bytes hold the [[piece head]], the first [[definitions]] and the first blo
 piece from its [[tail]]. By the [[final index]] it reads every block outside the lost bytes, 3443 of the 3448. Five
 blocks are lost:
 
-- the [[puts]] of the layout and the producer;
+- the [[puts]] of the [[layout]] and the producer;
 - the puts of the definitions the piece carries for the tracks its head carries, with the mode's newest item;
 - the records block of minute 45's first second, its log lines and temperatures;
 - the chunk of frames of that second;
 - the chunk of samples that the lost bytes reach into.
 
-Each definition comes from its newest record that reads. The writer gives every definition and every plain state item
-a first [[state copy]] 4 KiB after its first record, without waiting for a use ([`NearPolicy::copy_first`]). The layout
-and the producer's name get theirs the same way. These copies lie past the lost bytes, so every definition of the drive
-is found again, the layout and the producer among them. A [[reader]] scanning past the newest [[checkpoint]] takes its
-gap rules from the layout's copy.
+Each definition comes from its newest record that reads. The writer gives every definition and every plain [[state
+item]] a first [[state copy]] 4 KiB after its first record, without waiting for a use ([`NearPolicy::copy_first`]). The
+layout and the producer's name get theirs the same way. These copies lie past the lost bytes, so every definition of the
+drive is found again, the layout and the producer among them. A [[reader]] scanning past the newest [[checkpoint]] takes
+its gap rules from the layout's copy.
 
-The first copies cost one more record of each definition and item per piece. In the drive's hour, the 40 blocks of
-puts and copies of four pieces take 8.2 kB of 116 MB ([What the writer adds](writing.md#what-the-writer-adds)).
+The drive's hour spends 8.2 kB of its 116 MB on all its puts and copies ([What the writer
+adds](writing.md#what-the-writer-adds)).
 
 The mode is a [[state track]], and a cut carries its newest item beside its definition. That item lay in the lost
 bytes. A reader thus finds no mode in force over the piece's first second, 45:00. The mode's first copy, written before
@@ -214,8 +214,8 @@ reads the piece as unclosed. The [[final index]] ends before the lost bytes and 
 newest index block, with no byte to scan after it. Every one of the 3448 blocks of data reads, and so does every
 definition, but the piece loses its [[content hash]].
 
-Lost bytes that reach into the final index leave the reader the newest [[checkpoint]] before it. The reader then scans
-the blocks after that checkpoint, which costs the time of the scan but no block.
+Lost bytes that reach into the final index leave the reader the newest [[checkpoint]]. The scan of the blocks after it
+costs time but no block.
 
 A piece in the middle of a chain would also lose its close's link to the next piece.
 
@@ -240,13 +240,12 @@ and a Resync walk reads what follows.
 
 ## What the checks cannot do
 
-The checks bound what damage costs, but some damage costs more than one segment. These limits follow from the design.
+Some damage costs more than one [[segment]].
 
 The checks detect damage and never repair it. The block kind [`BlockKind::Parity`] is reserved for parity blocks: no
 writer writes one, and a reader skips one as a kind it does not know.
 
-A damaged chunk head costs the whole chunk. Its CRC finds the damage, but no second copy of the chunk head exists to
-read instead.
+A damaged chunk head costs the whole chunk. Its CRC finds the damage, but no second copy of the head exists.
 
 Salvage can miss small shifts. A flipped bit in a group record can shift a tick or a slope without breaking the order.
 The group then reads shifted and is not marked suspect.
@@ -256,17 +255,14 @@ The content hash needs a close, so an unclosed piece has no hash to check it by.
 A reader scans an unclosed piece without a checkpoint yet, under about 4 MiB, from its start. The scan stops at the
 first bad block, and only a Resync walk reads past it.
 
-A piece that ends less than 4 KiB after its first blocks of data holds each definition once, so one bad sector can
-take a definition. The same holds for a definition first written less than 4 KiB before the piece ends. Chunks then
-still place themselves by track id, item number and tick. Without clock rates and item types, a reader cannot turn ticks
-into seconds or bytes into values.
+A piece that ends less than 4 KiB after a definition's first record holds that definition once. One bad sector there can
+take it. Chunks then still place themselves by track id, item number and tick. Without clock rates and item types, a
+reader cannot turn ticks into seconds or bytes into values.
 
-Some records get no first copy without a use. An item of a keyed track gets its copies only where the producer puts
-it again, and so does a record of a group of puts, whose copy would stand outside its group.
-
-First copies take state entries of the piece's [index policy](carried_definitions.md#when-they-dont-fit). In a
-piece whose state entries are full, the writer skips the copy rather than refuse a call. Such a piece may name a
-definition, the layout or the producer once, after its head.
+An item of a keyed [[track]] and a record of a group of [[puts]] get copies only at uses ([Puts and
+copies](format.md#puts-and-copies)). Copies take state entries of the piece's [index
+policy](carried_definitions.md#when-they-dont-fit). In a piece whose state entries are full, the writer skips the copy
+rather than refuse a call. Such a piece may name a definition, the [[layout]] or the producer once, after its head.
 
 The state lookups go by index entries. A damaged block where a scan stopped has no known kind and no entries. The
 lookups therefore take the newest record before it and report the stretch after it as uncovered by the index.

@@ -150,11 +150,14 @@ close behind.
 
 The first copy needs no use. Once an item's only record lies 4 KiB behind, the next call that writes a block of data
 first writes that copy ([`NearPolicy::copy_first`]). A track whose data has stopped thus still gets a copy of its item
-past the first sector of the piece. Each later copy comes at a use, [`NearPolicy::copy_spacing`] after the newest record.
+past the first sector of the piece. Each later copy comes at a use, [`NearPolicy::copy_spacing`] after the newest
+record.
 
 A put is idempotent, so the producer keeps no memory of what it put before. The drive's recorder puts the mode before
 each one-second [[block]], 900 times while it writes the first piece. Only five of those puts write, as `cargo run -p
-example_drive` prints. They are idle at the start, its copies at 1 second and 41 seconds, run at minute 1 and its second
+example_drive` prints.
+
+These are idle at the start, its copies at 1 second and 41 seconds, run at minute 1 and its second
 copy at 97 seconds. The first copy of run needs no put: the writer writes it 4 KiB after run, before the next chunk.
 The piece ends at about 28 MiB, before the record of run lies 32 MiB behind, so no other put writes.
 

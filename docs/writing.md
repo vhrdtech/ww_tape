@@ -149,8 +149,8 @@ The writer's own blocks hold what a [[reader]] needs to find and understand the 
 | tail | the writer | 4 | 656 |
 
 The writer's own blocks take 3.4 MB of the hour's 116 MB, 2.9 %. Most of that is index: the checkpoints while the pieces
-grow, and each piece's final index. The 40 blocks of puts hold every definition and mode change of four pieces, with their copies, in 8.2
-kB.
+grow, and each piece's final index. The 40 blocks of puts hold every definition and mode change of four pieces, with
+their copies, in 8.2 kB.
 
 ### What the writer checks
 

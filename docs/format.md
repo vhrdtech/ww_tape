@@ -862,7 +862,7 @@ distance is measured to where the data lands.
 For example, a writer puts a track's definition before every block of the track's data.
 
 With the default policy, the writer writes the definition at the first block. It writes a first copy once 4 KiB lie
-behind that record, and a second copy at a use at least 1 MiB after the first copy.
+behind that record. A second copy follows at a use at least 1 MiB after the first.
 
 After that, the writer writes the definition again whenever its newest record lies more than 32 MiB behind.
 
@@ -880,22 +880,23 @@ A put of an item that lies near behind still writes it as a **copy** while two c
   (1 MiB) for each copy after it.
 
 The first copy needs no use. A writer call that writes a run ([Marking blocks of puts](#marking-blocks-of-puts)) first
-writes the first copy of each definition and each plain state item that is due one: its slot holds one record of it in
-the piece, that record is the slot's newest, and it lies at least `copy_first` behind. `defer_block` writes no run and
-so no such copy. The copies go into the call's blocks of puts, ordered by where their record lies, then by slot. A
-call adds only as many as its run has room for under `RUN_BLOCKS_MAX`, keeping `FIRST_COPY_RUN_RESERVE` (64) blocks
-for its own puts and block; the rest come with the next calls. A cut that carries many definitions so writes their
-first copies in its head's run where they fit, and in the runs after it where they do not. A
-track whose data has stopped thus gets its first copy too, 4 KiB past the first sector of the piece. A resume writes
-the first copies that a crash cut off, so the calls given again produce the same bytes.
+writes each first copy that is due. A definition or plain state item is due one when its slot holds a single record of
+it in the piece. That record must be the slot's newest and lie at least `copy_first` behind. `defer_block` writes no run
+and so no such copy.
 
-Two kinds of record get their copies only at uses: an item of a keyed track ([Keyed state
-tracks](#keyed-state-tracks)), and a record of a group of puts ([Groups of puts](#groups-of-puts)), whose copy would
-stand outside its group. Every copy is skipped when the piece's state entries are full: a copy never refuses a call.
+The copies go into the call's blocks of puts, ordered by where their record lies, then by slot. A call adds only as
+many as its run has room for under `RUN_BLOCKS_MAX`. It keeps `FIRST_COPY_RUN_RESERVE` (64) blocks for its own puts and
+block, and the next calls write the rest. A cut carrying many definitions so spreads their first copies over its
+head's run and later runs. A track whose data has stopped still gets its copy.
+
+A resume writes the first copies that a crash cut off, so the calls given again produce the same bytes. Two kinds of
+record get copies only at uses. One is an item of a keyed track ([Keyed state tracks](#keyed-state-tracks)). The other
+is a record of a group of puts ([Groups of puts](#groups-of-puts)), whose copy would stand outside its group. Every copy
+is skipped when the piece's state entries are full: a copy never refuses a call.
 
 A call's puts go into blocks in a fixed order. The first records of definitions written twice at once come first
 ([below](#definitions-written-twice-at-once)). Bundles, schemas and other definitions that fill a slot by their hash
-follow, in blocks of their own, so a reader of the tracks and clocks never reads their bytes. Every other record comes
+follow, in blocks of their own. A reader of the tracks and clocks so never reads their bytes. Every other record comes
 last.
 
 The writer remembers at most `NearPolicy::memory_max` slots and forgets the one written longest ago first. A forgotten
@@ -903,9 +904,9 @@ slot costs one more write, never a wrong read.
 
 #### 5.1.1 Definitions written twice at once {#definitions-written-twice-at-once}
 
-A first copy comes 4 KiB after its record and the blocks of the same call, so a piece that ends sooner holds each
-definition once. One damaged block then loses a track's definition, and with it the track. A track whose
-`defined_twice` is true avoids this. The writer writes every definition the track needs twice: its clock chain, its bundles and its own definition.
+A first copy comes 4 KiB after its record and its call's blocks. A piece that ends sooner holds each definition once.
+One damaged block then loses a track's definition, and with it the track. A track whose `defined_twice` is true avoids
+this. The writer writes every definition the track needs twice: its clock chain, its bundles and its own definition.
 
 The first record of such a definition in a piece goes into a block of puts of its own, marked `FLAG_TWICE` (header
 bit 7) besides `FLAG_REPEAT`. That block belongs to its run of blocks like any block of puts, so it is marked
