@@ -234,18 +234,21 @@ fn the_mux_puts_definitions_inside_a_relayed_unit_without_splitting_it() {
 /// inside the unit.
 #[test]
 fn definitions_carried_after_a_cut_into_a_relayed_unit_go_inside_it() {
-    let (_, units) = relayed_units(false, 2);
+    let (_, units) = relayed_units(false, 3);
     let mem = ww_tape::MemPieces::new();
-    let (mux, relay) = relay_mux(&mem, 2);
+    // a cut once a piece holds 3 chunks: before the third unit, never inside the second
+    let (mux, relay) = relay_mux(&mem, 3);
     relay.send(units[0][0].clone()).unwrap();
     relay.send(units[0][1].clone()).unwrap();
     mux.put_definitions(&[TrackNum::new(EMPTY)]).unwrap();
-    relay.send(units[1][0].clone()).unwrap();
-    relay.send(units[1][1].clone()).unwrap();
+    for u in &units[1..] {
+        relay.send(u[0].clone()).unwrap();
+        relay.send(u[1].clone()).unwrap();
+    }
     drop(relay);
     mux.close().unwrap();
     let p = crate::mux_multi::pieces(&mem);
-    assert_eq!(p.len(), 2, "a cut before the second unit");
+    assert_eq!(p.len(), 2, "a cut before the third unit");
     let first = kinds(&p[0]);
     assert!(
         first

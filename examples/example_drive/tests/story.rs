@@ -45,10 +45,10 @@ fn the_full_hour_is_the_same_every_run_and_tells_the_story() -> Result<(), Error
         "docs/tape.md says {phrase:?}"
     );
 
-    // the mode is put before each one-second block: the first piece's 900, and the first block of the next, whose put
-    // comes before the cut; four puts write: idle, its copy, run at minute 1, its copy
+    // the mode is put before each one-second block: the first piece's 900; the next block's put starts the next piece
+    // by the cut policy; four puts write: idle, its copy, run at minute 1, its copy
     let (puts, wrote) = whole.mode_puts(0);
-    assert_eq!(puts, 901, "one put of the mode a block");
+    assert_eq!(puts, 900, "one put of the mode a block");
     assert_eq!(wrote, [0, 40_000_000, 60_000_000, 96_000_000]);
 
     let story = whole.story()?;

@@ -1421,7 +1421,8 @@ two checkpoints, the final index, the close with its padding, and the 164-byte t
 </figure>
 
 `ww_tape::PieceChain` writes the pieces as `dir/00000000.wwt`, `00000001.wwt` and so on, through
-`ww_tape_fs::FilePieces`. It cuts before a chunk by size, chunk count or age (`CutPolicy`).
+`ww_tape_fs::FilePieces`. It cuts before a chunk or a call of puts by size, chunk count or age (`CutPolicy`). The size counts the final
+index the piece will list.
 
 `TapeWriter::cut_with` cuts by hand.
 
@@ -2422,8 +2423,8 @@ The writer's policies (`WriterOptions`, `PieceChain`'s `ChainOptions`):
 | `NearPolicy::kept_bytes_max` | 64 MiB (`KEPT_BYTES_MAX`) | the bytes of newest state items the writer keeps for a cut to carry |
 | `CutPolicy::bytes`, `chunks`, `interval` | none: 0 or None turns each off | when a chain cuts to a new piece: by size, chunk count or age |
 
-A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`: the chunk that takes it over the limit, the index,
-the close and the tail. A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
+A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`: the chunk that takes it over the limit, the close
+and the tail. A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
 
 A track's state policy (`StatePolicy`) is part of its definition, and track 0's is in the layout:
 

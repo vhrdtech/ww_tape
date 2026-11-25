@@ -26,7 +26,7 @@ use crate::{ChunkHead, ColumnSpec, Definitions, HEADER_LEN, SessionTag};
 /// When a [PieceChain] cuts to a new piece; checked before each chunk. Zero or None turns a limit off.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct CutPolicy {
-    /// Once a piece holds this many bytes.
+    /// Once a piece holds this many bytes, the final index it will list counted ([TapeWriter::closed_bytes]).
     pub bytes: Bytes<u64>,
     /// Once a piece holds this many chunk blocks.
     pub chunks: Count<Chunk, u64>,
@@ -34,7 +34,7 @@ pub struct CutPolicy {
     pub interval: Option<Duration>,
 }
 
-/// What a piece may hold past [CutPolicy::bytes]: the chunk that takes it over the limit, the index, close and tail.
+/// What a piece may hold past [CutPolicy::bytes]: the chunk that takes it over the limit, the close and the tail.
 pub const CUT_SLACK: Bytes<u64> = Bytes::new(1 << 20);
 
 /// Refuse a resumed piece of a chain that kept blocks but no piece head: its head is damaged, and a piece without
@@ -531,7 +531,33 @@ impl<T: PieceStore> PieceChain<T> {
         self.cut_now(defs)
     }
 
-    /// Put a state track's item ([TapeWriter::put]).
+    /// Whether the policy says the current piece is full before a call of puts ([Self::cut_due]), and a call wrote in
+    /// it past its head: a cut then leaves no piece empty. Never inside a run or unit.
+    pub fn puts_cut_due(&self) -> bool {
+        self.cut_due()
+            && self
+                .writer
+                .as_ref()
+                .is_some_and(TapeWriter::wrote_past_head)
+    }
+
+    /// Cut before a call of puts on `tracks` when [Self::puts_cut_due]: refused before the cut when their definitions
+    /// fit no piece; the next piece carries `tracks` first. So a chain of puts alone is cut by its policy too.
+    fn cut_for_puts(
+        &mut self,
+        defs: &Definitions,
+        tracks: &[TrackNum],
+    ) -> Result<(), WriteError<T::Error>> {
+        if !self.puts_cut_due() {
+            return Ok(());
+        }
+        let w = self.writer()?;
+        w.admit_data(defs, tracks)?;
+        w.want(tracks);
+        self.cut_now(defs)
+    }
+
+    /// Put a state track's item ([TapeWriter::put]), in a new piece when [Self::puts_cut_due].
     pub fn put(
         &mut self,
         defs: &Definitions,
@@ -539,35 +565,41 @@ impl<T: PieceStore> PieceChain<T> {
         ticks: i64,
         item: &[u8],
     ) -> Result<bool, WriteError<T::Error>> {
+        self.cut_for_puts(defs, &[track])?;
         self.with_room(defs, |w| w.put(defs, track, ticks, item))
     }
 
     /// Put a group of state tracks' items, taken whole or not at all ([TapeWriter::put_group]). When the piece has no
     /// room for the group's state entries, the chain cuts before it and puts it whole in the new piece: never a cut
-    /// inside it.
+    /// inside it. In a new piece when [Self::puts_cut_due].
     pub fn put_group(
         &mut self,
         defs: &Definitions,
         puts: &[crate::GroupPut<'_>],
     ) -> Result<Vec<bool>, WriteError<T::Error>> {
+        let tracks: Vec<TrackNum> = puts.iter().map(|p| p.track).collect();
+        self.cut_for_puts(defs, &tracks)?;
         self.with_room(defs, |w| w.put_group(defs, puts))
     }
 
-    /// Put a typed item ([TapeWriter::put_item]).
+    /// Put a typed item ([TapeWriter::put_item]), in a new piece when [Self::puts_cut_due].
     pub fn put_item(
         &mut self,
         defs: &Definitions,
         item: &crate::TypedItem<'_>,
     ) -> Result<bool, WriteError<T::Error>> {
+        self.cut_for_puts(defs, &[])?;
         self.with_room(defs, |w| w.put_item(defs, item))
     }
 
-    /// Put the definitions of tracks with no data ([TapeWriter::put_definitions]).
+    /// Put the definitions of tracks with no data ([TapeWriter::put_definitions]), in a new piece when
+    /// [Self::puts_cut_due].
     pub fn put_definitions(
         &mut self,
         defs: &Definitions,
         tracks: &[TrackNum],
     ) -> Result<bool, WriteError<T::Error>> {
+        self.cut_for_puts(defs, tracks)?;
         self.with_room(defs, |w| w.put_definitions(defs, tracks))
     }
 
@@ -597,7 +629,7 @@ impl<T: PieceStore> PieceChain<T> {
             return false;
         }
         let c = self.cut;
-        (c.bytes.get() > 0 && w.bytes() >= c.bytes.get())
+        (c.bytes.get() > 0 && w.closed_bytes() >= c.bytes.get())
             || (c.chunks.get() > 0 && w.chunks() >= c.chunks.get())
             || c.interval
                 .is_some_and(|t| w.clock().passed(self.started, t))

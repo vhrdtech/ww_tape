@@ -1469,10 +1469,26 @@ impl<S: TapeSink> TapeWriter<S> {
         self.bytes
     }
 
+    /// [Self::bytes] and the final index the close lists them in, [ENTRY_LEN](crate::index::ENTRY_LEN) bytes an
+    /// entry: what the piece holds once closed, short of the close and tail. A piece of puts lists an entry for each
+    /// small block, so its final index may outgrow its blocks.
+    pub fn closed_bytes(&self) -> u64 {
+        let entries = u64::try_from(self.indexer.entries().len()).unwrap_or(u64::MAX);
+        let index =
+            entries.saturating_mul(u64::try_from(crate::index::ENTRY_LEN).unwrap_or(u64::MAX));
+        self.bytes.saturating_add(index)
+    }
+
     /// The piece's bytes up to the writer's last sync ([Self::bytes] then): durable once the sink's sync is. 0 before
     /// the first sync.
     pub fn synced_bytes(&self) -> u64 {
         self.synced
+    }
+
+    /// Whether a call wrote in the piece past its head: the layout and the producer are put. A cut now leaves no
+    /// piece empty.
+    pub(crate) fn wrote_past_head(&self) -> bool {
+        self.head_put
     }
 
     /// Whether the piece has a piece head: written by [Self::begin_piece], or read back by a resume.

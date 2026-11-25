@@ -226,6 +226,39 @@ fn writes<T: PieceStore>(work: &Work<T>) -> bool {
     )
 }
 
+/// Before `work`: the rebuild of a resumed piece's trees when it writes; the end of the trees when it puts and the
+/// chain cuts before puts ([PieceChain::puts_cut_due]), so the trees end in the piece their items are in. A failure
+/// stops the chain.
+fn before<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    st: &mut State<'_, T>,
+    work: &Work<T>,
+) {
+    if !writes(work) {
+        return;
+    }
+    rebuilt(chain, defs, st);
+    let puts = matches!(
+        work,
+        Work::Put { .. }
+            | Work::PutGroup { .. }
+            | Work::PutItem { .. }
+            | Work::PutDefinitions { .. }
+    );
+    if puts
+        && st.shared.failure.get().is_none()
+        && chain.puts_cut_due()
+        && let Err(e) = end_trees(chain, defs, st)
+    {
+        if stops(chain, &e) {
+            st.shared.fail(e);
+        } else {
+            Counters::add(&st.shared.counters.refused, 1);
+        }
+    }
+}
+
 /// End the summary trees of the piece and cut to a new one.
 fn cut<T: PieceStore>(
     chain: &mut PieceChain<T>,
@@ -354,9 +387,7 @@ fn place<T: PieceStore>(
     bytes: u64,
 ) -> Option<Exit<T>> {
     let shared = st.shared;
-    if writes(&work) {
-        rebuilt(chain, defs, st);
-    }
+    before(chain, defs, st, &work);
     let failed = shared.failure.get().is_some();
     match work {
         Work::Chunk {

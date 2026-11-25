@@ -140,7 +140,7 @@ fn definitions_put_between_units_leave_each_unit_whole() {
             "each unit's chunks together: {blocks:x?}"
         );
         assert!(blocks[pair[0]].1 & FLAG_WITH_NEXT != 0);
-        assert!(blocks[pair[1]].1 & FLAG_WITH_NEXT == 0);
+        assert_eq!(blocks[pair[1]].1 & FLAG_WITH_NEXT, 0);
     }
 }
 
@@ -196,5 +196,84 @@ fn the_mux_puts_definitions_between_groups_and_refuses_an_unknown_track() {
     assert_eq!(
         crate::mux_definitions::def_records(&p[0], TrackNum::new(2)),
         1
+    );
+}
+
+/// Puts the state-only test makes.
+const STATE_PUTS: u64 = 300_000;
+/// The cut budget of the state-only test.
+const BUDGET: u64 = 1 << 20;
+/// What a piece in memory may hold past [BUDGET]: its close and tail, padded to a page.
+const PAGE: u64 = 4096;
+
+/// A chain of puts alone is cut by its policy: 300 000 puts on one state track under a 1 MiB budget fill pieces of
+/// at most the budget and a page, each naming the track and starting with the state the piece before ended in.
+#[test]
+fn a_state_only_chain_is_cut_by_its_policy() {
+    let mem = MemPieces::new();
+    let mut o = crate::follow::options(0);
+    o.cut.bytes = exact_units::Bytes::new(BUDGET);
+    let mux = TapeMux::create(
+        mem.clone(),
+        crate::follow::OWNER,
+        0,
+        &[],
+        o,
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let ww_tape::Describe::Clock(c) = clock(CLOCK) else {
+        unreachable!("clock() gives a clock")
+    };
+    mux.define_clock(c.spec()).unwrap();
+    let ww_tape::Describe::Track(t) = state(1) else {
+        unreachable!("a track")
+    };
+    let track = mux.define_track(t.spec()).unwrap();
+    let h = mux.state(track).unwrap();
+    for i in 0..STATE_PUTS {
+        h.put(i as i64, &i.to_le_bytes()).unwrap();
+    }
+    drop(h);
+    mux.close().unwrap();
+    let p = crate::mux_multi::pieces(&mem);
+    let lens: Vec<usize> = p.iter().map(Vec::len).collect();
+    assert!(p.len() > 2, "{lens:?}");
+    let slot = ww_tape::Slot::State { track };
+    let mut last: Option<Vec<u8>> = None;
+    for (i, piece) in p.iter().enumerate() {
+        assert!(
+            piece.len() as u64 <= BUDGET + PAGE,
+            "piece {i} of {} bytes",
+            piece.len()
+        );
+        let r = ww_tape::TapeReader::open(&piece[..]).unwrap();
+        let defs = r.definitions_at(0, u64::MAX).unwrap();
+        assert!(
+            defs.items
+                .contains_key(&ww_tape::Slot::Track { number: track }),
+            "piece {i} names the track"
+        );
+        let first = r
+            .state_entries(0)
+            .unwrap()
+            .iter()
+            .filter(|(_, s)| s.slot == slot)
+            .map(|(e, _)| e.offset)
+            .min()
+            .unwrap();
+        let at_start = r.state_at(0, slot, first + 1).unwrap().item.unwrap().item;
+        if let Some(prev) = &last {
+            assert_eq!(
+                &at_start, prev,
+                "piece {i} starts with the state the piece before ended in"
+            );
+        }
+        last = Some(r.state_at(0, slot, u64::MAX).unwrap().item.unwrap().item);
+    }
+    assert_eq!(
+        last,
+        Some((STATE_PUTS - 1).to_le_bytes().to_vec()),
+        "the last put"
     );
 }

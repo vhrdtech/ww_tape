@@ -36,13 +36,13 @@ and that share:
 |---|---:|---:|
 | piece head | 1 | 156 |
 | records blocks of puts and copies | 11 | 1526 |
-| records blocks | 901 | 200107 |
+| records blocks | 900 | 199882 |
 | events chunks | 900 | 2161164 |
 | series chunks | 900 | 25373597 |
 | summary blocks | 735 | 825050 |
 | checkpoints | 6 | 389632 |
-| final index | 1 | 443040 |
-| close | 1 | 2556 |
+| final index | 1 | 442912 |
+| close | 1 | 2909 |
 | tail | 1 | 164 |
 
 How much disk a whole run takes, and what writing it costs, is the subject of [Sizes and

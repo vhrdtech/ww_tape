@@ -6,10 +6,15 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- `PieceChain` cuts before puts too, and `CutPolicy::bytes` counts the final index: the same input cuts elsewhere (WRITE-1).
+
 ### Features
 
 - `TapeMux::put_definitions` puts tracks without data into the chain, again after each cut (MUX-5).
 - `TapeWriter::put_definitions` and `PieceChain::put_definitions` put the definitions of tracks without data (MUX-5).
+- `TapeWriter::closed_bytes` and `PieceChain::puts_cut_due` tell a piece's size once closed and a cut due before puts (WRITE-1).
 
 ### Fixes
 

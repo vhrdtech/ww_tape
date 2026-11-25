@@ -63,13 +63,13 @@ current. The mux turns each into one call of the writer, and adds the [[summary]
 
 | Handle call | Writer call | Count |
 |---|---|---:|
-| [`StateHandle::put`], the mode | [`TapeWriter::put`] | 3600 (9 wrote) |
+| [`StateHandle::put`], the mode | [`TapeWriter::put`] | 3600 (12 wrote) |
 | [`RecordsHandle::send`], log lines and temperatures | [`TapeWriter::write_block`] | 3600 |
 | [`ChunkSender::send`], `can0` | [`TapeWriter::write_chunk`] | 3600 |
 | [`GridHandle::push`], `phase_a` | [`TapeWriter::write_chunk_hashed`] | 3600 |
 | none: the mux's summaries of `phase_a` | [`TapeWriter::defer_block`] | 2948 |
 
-Only 9 of the 3600 puts wrote a record. A put writes its [[state item]] only when no record of the same item lies
+Only 12 of the 3600 puts wrote a record, 3 of them the puts that started pieces 1 to 3 with the mode carried. A put writes its [[state item]] only when no record of the same item lies
 [[near]] behind, as [Definitions and state](definitions.md#near-puts-and-copies) explains. The recorder therefore puts
 the mode before every block and never keeps track of what it put.
 
@@ -138,14 +138,14 @@ The writer's own blocks hold what a [[reader]] needs to find and understand the 
 | Blocks | Made by | Count | Bytes |
 |---|---|---:|---:|
 | piece head | the writer | 4 | 2064 |
-| records blocks of puts and copies | the writer | 32 | 5652 |
+| records blocks of puts and copies | the writer | 32 | 5660 |
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
 | summary blocks | the mux | 2948 | 3301304 |
-| checkpoints | the writer | 24 | 1584128 |
+| checkpoints | the writer | 24 | 1584512 |
 | final index | the writer | 4 | 1772160 |
-| close | the writer | 4 | 11958 |
+| close | the writer | 4 | 11566 |
 | tail | the writer | 4 | 656 |
 
 The writer's own blocks take 3.4 MB of the hour's 116 MB, 2.9 %. Most of that is index: the checkpoints while the pieces
