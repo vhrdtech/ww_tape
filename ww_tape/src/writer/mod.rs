@@ -2757,6 +2757,29 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok(())
     }
 
+    /// The item number the next chunk of track `track` of `defs` starts at: past the last item of the track's chunks
+    /// in this piece, else where the piece head says the track goes on, else 0. A bytes track's next part takes it
+    /// ([BytesWriter::new](crate::bytes_track::BytesWriter::new)); a resumed piece knows it from its blocks, or from
+    /// its head when it holds no chunk of the track.
+    pub fn next_item(&self, defs: &Definitions, track: TrackNum) -> crate::ItemNum {
+        let Some((id, owner)) = defs.track_identity(track) else {
+            return crate::ItemNum::new(0);
+        };
+        let key = (id, OwnerId(owner));
+        if let Some(next) = self.indexer.next_item(key) {
+            return next;
+        }
+        self.head
+            .as_ref()
+            .and_then(|(_, starts)| {
+                starts
+                    .iter()
+                    .find(|t| (t.track_id, t.owner) == key)
+                    .map(|t| t.next_item)
+            })
+            .unwrap_or(crate::ItemNum::new(0))
+    }
+
     /// Whether the last block written belongs with the block after it ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): a
     /// unit is open, and a cut now would split it.
     pub fn unit_open(&self) -> bool {
@@ -2777,6 +2800,25 @@ impl<S: TapeSink> TapeWriter<S> {
         if head.kind == crate::BlockKind::Events {
             defs.check_relation_columns(head.track_number, &specs)
                 .map_err(WriteError::Describe)?;
+        }
+        if defs.track(head.track_number).is_some_and(|t| t.bytes) {
+            crate::bytes_track::check_part_columns(head, columns).map_err(|error| {
+                WriteError::Describe(crate::DescribeError::BytesPart {
+                    track: head.track_number,
+                    error,
+                })
+            })?;
+            // a part numbered below the track's next item would make two parts of one number
+            let next = self.next_item(defs, head.track_number);
+            if head.first_item < next {
+                return Err(WriteError::Describe(crate::DescribeError::BytesPart {
+                    track: head.track_number,
+                    error: crate::bytes_track::PartError::Behind {
+                        part: head.first_item,
+                        next,
+                    },
+                }));
+            }
         }
         // the longest the block can be, its padding at most the alignment
         let chunk_max = crate::chunk::chunk_len(

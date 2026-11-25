@@ -76,6 +76,14 @@ pub(crate) struct Indexer {
 }
 
 impl Indexer {
+    /// The item number past the last of track `key`'s chunks placed in the piece; None when it has none.
+    pub(crate) fn next_item(&self, key: TrackIdent) -> Option<ItemNum> {
+        self.tracks
+            .get(&key)
+            .filter(|t| t.chunks > 0)
+            .map(TrackRange::end_item)
+    }
+
     /// Hash the tracks and mark the entries hashed (`hashed`), or neither: a piece below
     /// [Integrity::Full](crate::Integrity::Full).
     pub(crate) fn set_hashed(&mut self, hashed: bool) {

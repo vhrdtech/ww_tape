@@ -514,6 +514,7 @@ fn place<T: PieceStore>(
                 .map(<[u8]>::to_vec),
         ),
         Work::Definitions { reply } => reply.send(defs.clone()),
+        Work::NextItem { track, reply } => reply.send(chain.next_item(defs, track)),
         Work::Cut { reply } => {
             let r = match shared.failure.get() {
                 Some(f) => Err(MuxError::Failed(f.clone())),

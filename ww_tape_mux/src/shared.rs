@@ -135,6 +135,11 @@ pub(crate) enum Work<T: PieceStore> {
     Definitions {
         reply: ReplyTx<Definitions>,
     },
+    /// The item number the next chunk of a track starts at ([ww_tape::PieceChain::next_item]).
+    NextItem {
+        track: TrackNum,
+        reply: ReplyTx<Option<ww_tape::ItemNum>>,
+    },
     Cut {
         reply: Done<T::Error>,
     },
@@ -254,6 +259,8 @@ pub(crate) struct Shared<T: PieceStore> {
     /// The chain's pieces are of [Integrity::Full](ww_tape::Integrity::Full): a handle hashes each chunk's payload on
     /// its own thread
     pub hash_payloads: bool,
+    /// The bytes tracks a [BytesHandle](crate::BytesHandle) writes, one handle each
+    pub bytes_held: Mutex<std::collections::BTreeSet<TrackNum>>,
 }
 
 impl<T: PieceStore> Shared<T> {
@@ -267,6 +274,7 @@ impl<T: PieceStore> Shared<T> {
             watch: Arc::new(Watch::new()),
             open_chunks: Mutex::new(Vec::new()),
             epoch: Instant::now(),
+            bytes_held: Mutex::new(std::collections::BTreeSet::new()),
         }
     }
 

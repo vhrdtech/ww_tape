@@ -27,7 +27,7 @@ ww_tape = { workspace = true, features = ["std"] }
 ww_tape_mux.workspace = true
 
 [dev-dependencies]
-# tests/follow_heap.rs: the heap a follower holds
+# tests/follow_heap.rs, tests/bytes_heap.rs: the heap a follower, a bytes writer and reader hold
 ww_tape_testalloc.workspace = true
 
 # The workspace lints with unsafe code at deny (the fork handler and the pipe of the open file's lock call libc); keep in step with [workspace.lints]

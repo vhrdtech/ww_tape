@@ -184,6 +184,7 @@ const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-summa
 const GOLDEN_GRID_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-grid-summary.hex");
 const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
 const GOLDEN_KEYED: &str = include_str!("../../ww_tape/golden/v1-keyed.hex");
+const GOLDEN_BYTES: &str = include_str!("../../ww_tape/golden/v1-bytes.hex");
 const GOLDEN_CRC_ONLY: &str = include_str!("../../ww_tape/golden/v1-level-crc-only.hex");
 const GOLDEN_NONE: &str = include_str!("../../ww_tape/golden/v1-level-none.hex");
 /// The golden grids by their count of fixed axes.
@@ -322,6 +323,41 @@ fn golden_keyed() -> Vec<Seed> {
     }
     out
 }
+
+/// Bytes track files as `tape-bytes` inputs: the golden piece, the hostile target's chain, and the first
+/// [BYTES_FILE_SEEDS] hostile chains of a stream; the golden piece as a `tape-reader` input too.
+fn bytes_files() -> Vec<Seed> {
+    let piece = golden(GOLDEN_BYTES).concat();
+    let mut out = vec![
+        seed("tape-reader", "golden-v1-bytes", piece.clone()),
+        seed("tape-bytes", "golden-v1-bytes", piece),
+        seed(
+            "tape-bytes",
+            "chain",
+            crate::hostile::bytes_template().bytes.clone(),
+        ),
+    ];
+    let mut x = 0x6279_7465_7300_0001_u64;
+    for i in 0..BYTES_FILE_SEEDS {
+        let input: Vec<u8> = (0..STREAM_INPUT_LEN)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u8
+            })
+            .collect();
+        out.push(seed(
+            "tape-bytes",
+            format!("chain-hostile-{i:02}"),
+            crate::hostile::bytes(&input),
+        ));
+    }
+    out
+}
+
+/// Hostile chains among the `tape-bytes` seeds.
+const BYTES_FILE_SEEDS: usize = 8;
 
 /// The flag runs columns of the golden series chunks as `tape-flags` inputs: `[count u32][column]`.
 fn golden_flags() -> Vec<Seed> {
@@ -992,6 +1028,7 @@ pub fn all() -> Vec<Seed> {
     out.extend(golden_flags());
     out.extend(golden_grids());
     out.extend(golden_keyed());
+    out.extend(bytes_files());
     out.extend(encoding_seeds());
     out.extend(golden_blocks("tape-summary", "v1-summary", GOLDEN_SUMMARY));
     out.extend(golden_blocks(

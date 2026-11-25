@@ -585,6 +585,66 @@ before the head, and zeros inside the head fill what is left.
 
 Recovery looks for a block at every byte, aligned or not, and takes one only when its CRCs match.
 
+### 3.10 Bytes tracks {#bytes-tracks}
+
+A track of `TrackKind::Bytes` holds values made elsewhere and read whole: a document, a firmware image, a design file. A
+value is written streamed as **parts**, each an events chunk of one item. It ends in a **seal**, a last part holding its
+length and BLAKE3 hash ([`bytes_track` module
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/bytes_track/mod.rs)). No reader reads a value at a byte
+offset: data that needs seeking is a track, and its index does the seeking.
+
+A part's chunk is an events chunk of instants with one item:
+
+```text
+header count   1
+first item     the part's number on the track: parts are numbered on from 0 across the track's pieces, as the
+               items of an events track are
+first tick, last tick, latest end
+               the value's tick, the same in every part of a value
+columns, in this order:
+  Payloads        the part's bytes, Codec::RAW or an lz4 payload codec; first, so in an aligned file the bytes
+                  start on the alignment
+  PayloadLengths  one length, the part's bytes decoded
+  Starts          one tick
+  Flags           one flags word, absent when it is 0 (as in every events chunk)
+```
+
+The flags word marks where a part stands in its value: bit 0 (`PART_FIRST`) on the first part of a value, bit 1
+(`PART_SEAL`) on its seal. A writer writes the other bits 0 and a reader ignores them, so they may only ever mark. A
+future bit that changes how a part reads needs another track kind or the version byte.
+
+A seal's Payloads column is `Codec::RAW` and `SEAL_LEN` (48) bytes:
+
+```text
+ 0 u64  the value's first part: its item number, the value's id (ValueId)
+ 8 u64  the value's length in bytes
+16 [32] BLAKE3 of the value's bytes
+```
+
+A value of no bytes is its seal alone, marked `PART_FIRST` too. A value is whole when its parts are items numbered one
+after the other. They run from a part marked `PART_FIRST` to a seal naming that part, and no other part between them is
+marked `PART_FIRST`. Another part marked `PART_FIRST`, or the end of the track, before the seal is a torn value: a
+crash, or a write given up. A bytes track takes the plain policy and no relations, and holds no records.
+
+The parts of a value are ordinary chunks, not a run of blocks belonging together. A value so has no length limit, and
+the writer places its checkpoints between parts. A cut may fall between two parts, so a value spans pieces.
+
+A reader of a value (`read_value`) finds its parts by their numbers in each piece's index, in two passes. It skips a
+piece whose close, or the next piece's head, says the track's items end before the value. The first pass reads only each
+part's head, its flags and the seal, and keeps only the first part, the last and the seal.
+
+A value is absent when it is torn, its first part is missing, or its parts have a gap. A gap is a piece removed on
+purpose, or a piece file lost. A later piece's head names it by where the track's items go on. The reason is named
+(`Absence::Torn`, `NotFound`, `NotFirst`, `Gap`), and nothing of the value reaches the caller. The parts that decide an
+absence are read whole first, CRCs checked: a damaged one is damage, not an absence.
+
+The second pass walks the index again, reads each part whole, checks its CRCs and hands its bytes on, hashing them. A
+part that doesn't read is named by its piece, offset, part number and where its bytes start in the value. A length or
+hash that differs from the seal's is `ValueError::Mismatch`.
+
+Under `Integrity::None` a piece has no payload CRCs, so only the value's hash catches a changed byte, and the error
+names the value, not the part.
+
 ## 4 Definitions on track 0 {#definitions-on-track-0}
 
 **Definitions** say what a reader needs before the data: the producer, the clocks, the tracks and the API bundles that
@@ -630,7 +690,7 @@ A `TrackDef` holds:
 | `items` | what one item is: a WireWeaver stream's value, a ShrinkWrap value, plain bytes, a number or bytes of a foreign format ([below](#items-of-a-track)) |
 | `label` | a name for people |
 | `repeat` | events or state (`TrackRepeat`, [State tracks](#state-tracks)) |
-| `kind` | events, with or without ends and flags, or a [series](#series-tracks) |
+| `kind` | events, with or without ends and flags, a [series](#series-tracks), or [bytes](#bytes-tracks) |
 | `owner` | 32 opaque bytes that tell apart tracks of one identity ([below](#track-owners)) |
 | `relations` | what its items relate to (`RelationDef`) |
 | `defined_twice` | whether the definitions it needs are written twice at once ([below](#definitions-written-twice-at-once)); false when absent |

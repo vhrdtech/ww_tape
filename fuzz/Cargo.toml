@@ -226,3 +226,17 @@ path = "src/tape_keyed_hostile.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "tape-bytes"
+path = "src/tape_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-bytes-hostile"
+path = "src/tape_bytes_hostile.rs"
+test = false
+doc = false
+bench = false

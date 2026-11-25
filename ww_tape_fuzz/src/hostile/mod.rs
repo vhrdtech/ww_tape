@@ -10,6 +10,7 @@
 //!
 //! The same input gives the same bytes: nothing here reads a clock or a random source.
 
+mod bytes;
 mod chunk;
 mod file;
 mod flags;
@@ -25,6 +26,7 @@ mod state;
 mod summary;
 mod times;
 
+pub use bytes::{BytesAttacked, BytesTemplate, attacked as bytes_attacked, bytes, bytes_template};
 pub use chunk::chunk;
 pub use file::file;
 pub use flags::flags;

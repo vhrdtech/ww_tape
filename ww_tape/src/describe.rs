@@ -812,6 +812,10 @@ pub enum TrackKind<'i> {
     /// Samples at an exact period, no time per sample: in series chunks ([BlockKind::Series](crate::BlockKind::Series)),
     /// each timed and scaled by the [SeriesGrid](crate::series::SeriesGrid) its head carries.
     Series(GridDef<'i>),
+    /// Values of any length, each written streamed as parts and read whole with its hash checked: each part one
+    /// events chunk ([BlockKind::Events](crate::BlockKind::Events)) of one item, the last a seal holding the value's
+    /// length and BLAKE3 hash ([bytes_track](crate::bytes_track)).
+    Bytes,
 }
 
 /// An events track: what its chunks may hold besides starts and payloads.
@@ -893,6 +897,11 @@ impl<'i> TrackDef<'i> {
             TrackKind::Series(s) => Some(s),
             _ => None,
         }
+    }
+
+    /// Whether the track holds values written as parts ([TrackKind::Bytes]).
+    pub fn is_bytes(&self) -> bool {
+        matches!(self.kind, TrackKind::Bytes)
     }
 
     /// The shape of a series track's samples: its items' element by its definition's channels; None for an events

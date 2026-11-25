@@ -116,6 +116,7 @@ pub fn tracks(bytes: &[u8]) -> Result<Vec<Track>, FirstTapeError> {
             (_, TrackKind::Series(_), _) => "series chunks",
             (_, TrackKind::Events(_), 0) => "records",
             (_, TrackKind::Events(_), _) => "events chunks",
+            (_, TrackKind::Bytes, _) => "values in parts",
             (_, TrackKind::Unknown(_), _) => "unknown", // a kind newer than this build
         };
         let items = match def.repeat {
