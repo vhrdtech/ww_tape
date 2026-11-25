@@ -134,6 +134,9 @@ pub enum PartError {
     Seal,
     /// A data part of no bytes.
     Empty,
+    /// A part numbered `part`, below the track's next item `next`: two parts would have one number. Another writer
+    /// of the track, or one started from a stale number ([crate::TapeWriter::next_item]).
+    Behind { part: ItemNum, next: ItemNum },
 }
 
 impl core::fmt::Display for PartError {
@@ -147,6 +150,9 @@ impl core::fmt::Display for PartError {
             Self::Payloads(_) => write!(f, "a part's payload columns don't read"),
             Self::Seal => write!(f, "a seal that doesn't read or names a first part it can't"),
             Self::Empty => write!(f, "a data part of no bytes"),
+            Self::Behind { part, next } => {
+                write!(f, "part {part} below the track's next item {next}")
+            }
         }
     }
 }

@@ -415,6 +415,12 @@ impl<T: PieceStore> PieceChain<T> {
         self.writer.as_mut().ok_or(WriteError::Failed)
     }
 
+    /// The item number the next chunk of track `track` starts at, as the writer of the open piece says
+    /// ([TapeWriter::next_item]); None once the chain failed or closed.
+    pub fn next_item(&self, defs: &Definitions, track: TrackNum) -> Option<crate::ItemNum> {
+        self.writer.as_ref().map(|w| w.next_item(defs, track))
+    }
+
     /// The pieces closed so far, those before a resume included.
     pub fn closed(&self) -> &[ChainPiece<T::Key>] {
         &self.closed

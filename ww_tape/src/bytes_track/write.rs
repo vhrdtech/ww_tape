@@ -120,8 +120,10 @@ pub struct BytesWriter {
 }
 
 impl BytesWriter {
-    /// A writer of the values of bytes track `track` held in `defs`, its next part numbered `next_part`: 0 on a new
-    /// track, else the item number after the track's last part (a resumed chain's).
+    /// A writer of the values of bytes track `track` held in `defs`, its next part numbered `next_part`: the track's
+    /// next item, as [TapeWriter::next_item](crate::TapeWriter::next_item) or
+    /// [PieceChain::next_item](crate::PieceChain::next_item) says. A writer refuses a part numbered below it
+    /// ([PartError::Behind](super::PartError::Behind)), so one track takes one writer at a time.
     pub fn new(
         defs: &Definitions,
         track: TrackNum,

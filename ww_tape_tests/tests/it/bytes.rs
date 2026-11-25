@@ -2,8 +2,8 @@
 //! values across cuts and removed pieces (TRACK-10).
 
 use ww_tape::bytes_track::{
-    Absence, BytesOptions, BytesPart, BytesWriter, PART_FIRST, PART_SEAL, PartDamage, ValueError,
-    ValueId, ValueSeal, WriteValueError, read_value,
+    Absence, BytesOptions, BytesPart, BytesWriter, PART_FIRST, PART_SEAL, PartDamage, PartError,
+    ValueError, ValueId, ValueSeal, WriteValueError, read_value,
 };
 use ww_tape::payloads::PayloadCodec;
 use ww_tape::{
@@ -465,6 +465,61 @@ fn a_value_over_a_removed_or_lost_piece_reads_as_a_gap() {
         other => panic!("{other:?}"),
     }
     assert_eq!(read_from(&kept, later.id).unwrap().0, value(14, 300));
+}
+
+/// A part numbered below its track's next item is refused, so a second writer started from a stale number can't
+/// shadow a value; the chain names the next item, also after a resume whose last piece holds no part.
+#[test]
+fn a_part_below_the_next_item_is_refused() {
+    for tapes in [PieceTapes::One, PieceTapes::Each] {
+        let defs = defs();
+        let (mem, mut c) = chain(options(tapes, Integrity::Full, 1 << 20));
+        assert_eq!(c.next_item(&defs, BYTES), Some(ItemNum::new(0)));
+        let a = put(&mut c, &defs, &mut writer(&defs, 0), 1, &value(21, 3500));
+        assert_eq!(c.next_item(&defs, BYTES), Some(ItemNum::new(5)));
+        let mut stale = writer(&defs, 0);
+        let refused = stale.write_from(2, Chunks(&value(22, 1500)), |p: BytesPart<'_>| {
+            c.write_chunk(&defs, &p.head, p.columns()).map(drop)
+        });
+        match refused {
+            Err(WriteValueError::Write(WriteError::Describe(DescribeError::BytesPart {
+                track,
+                error: PartError::Behind { part, next },
+            }))) => {
+                assert_eq!(track, BYTES);
+                assert_eq!((part, next), (ItemNum::new(0), ItemNum::new(5)));
+            }
+            other => panic!("{tapes:?}: {other:?}"),
+        }
+        let next = c.next_item(&defs, BYTES).unwrap();
+        let b = put(
+            &mut c,
+            &defs,
+            &mut writer(&defs, next.get()),
+            3,
+            &value(23, 1500),
+        );
+        assert_eq!(b.id, ValueId(ItemNum::new(5)));
+        // a cut leaves the last piece without a part; the chain stops there without its close
+        c.cut_now(&defs).unwrap();
+        drop(c);
+        let (c, _) = PieceChain::resume_on(
+            mem.clone(),
+            OWNER,
+            0,
+            options(tapes, Integrity::Full, 1 << 20),
+        )
+        .unwrap();
+        assert_eq!(
+            c.next_item(&defs, BYTES),
+            Some(ItemNum::new(8)),
+            "{tapes:?}"
+        );
+        c.close().unwrap();
+        let files = pieces(&mem);
+        assert_eq!(read_from(&files, a.id).unwrap().0, value(21, 3500));
+        assert_eq!(read_from(&files, b.id).unwrap().0, value(23, 1500));
+    }
 }
 
 /// A part's bytes coded in lz4 read back the same.

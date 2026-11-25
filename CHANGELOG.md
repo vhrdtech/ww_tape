@@ -17,6 +17,7 @@ benchmarks, golden files and book pages.
 - Bytes tracks: a value written streamed as parts, read whole with its BLAKE3 hash checked (TRACK-10).
 - `read_value` reads a value across pieces; a torn value or one over a removed piece reads as absent (TRACK-10).
 - `TapeMux::bytes` gives a `BytesHandle`: a value's parts go through the mux's queue as chunks (TRACK-10).
+- `TapeWriter::next_item` and `PieceChain::next_item` name a track's next item; a bytes part below it is refused (TRACK-10).
 - Fuzz targets `tape-bytes` and `tape-bytes-hostile` check values read from any bytes and from forged parts (TRACK-10).
 
 ## [0.12.0] - 2026-11-25
