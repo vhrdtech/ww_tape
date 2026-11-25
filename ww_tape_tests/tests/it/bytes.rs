@@ -533,6 +533,23 @@ fn a_bytes_track_takes_only_parts() {
         c.write_chunk(&defs, &head, &columns),
         Err(WriteError::Describe(DescribeError::BytesPart { .. }))
     ));
+    // a record on the bytes track
+    let mut buf = [0u8; 256];
+    let clock = ww_tape::ClockNum::new(CLOCK);
+    let mut b = ww_tape::BlockWriter::new(
+        &mut buf,
+        ww_tape::BlockKind::Records,
+        crate::id(0),
+        &[clock],
+    )
+    .unwrap();
+    b.push(BYTES, ww_tape::ClockTime::new(clock, 1), &[b"x"])
+        .unwrap();
+    let len = b.finish();
+    assert!(matches!(
+        c.write_block(&defs, &buf[..len]),
+        Err(WriteError::Describe(DescribeError::WrongKind { .. }))
+    ));
 }
 
 /// A piece holding a value of three parts, a value of no bytes and a torn value, pinned byte for byte.
