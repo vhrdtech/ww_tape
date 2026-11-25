@@ -49,8 +49,8 @@ The writer's settings are its [`WriterOptions`]. Each field has a default that s
 | `sync` | when the writer syncs | [Files and syncing](files.md#how-often-to-sync) |
 | `index` | when the writer places checkpoints | [Anatomy of a piece](anatomy.md#checkpoints-while-the-piece-grows) |
 | `layout` | how blocks are placed, such as payloads on 4 KiB | [Aligned files](#aligned-files) |
-| `producer` | the producer's name | [Definitions and state](definitions.md#the-definitions-an-application-holds) |
-| `near` | how the writer remembers puts and spaces state copies | [Near, puts and copies](definitions.md#near-puts-and-copies) |
+| `producer` | the producer's name | [Definitions](definitions.md#the-definitions-an-application-holds) |
+| `near` | how the writer remembers puts and spaces state copies | [Near, puts and copies](state.md#near-puts-and-copies) |
 | `clock` | the clock that decides when an interval is up | [Files and syncing](files.md#the-writers-clock) |
 
 ## Four calls for data
@@ -70,7 +70,7 @@ current. The mux turns each into one call of the writer, and adds the [[summary]
 | none: the mux's summaries of `phase_a` | [`TapeWriter::defer_block`] | 2948 |
 
 Only 12 of the 3600 puts wrote a record, 3 of them the puts that started pieces 1 to 3 with the mode carried. A put writes its [[state item]] only when no record of the same item lies
-[[near]] behind, as [Definitions and state](definitions.md#near-puts-and-copies) explains. The recorder therefore puts
+[[near]] behind, as [State in force](state.md#near-puts-and-copies) explains. The recorder therefore puts
 the mode before every block and never keeps track of what it put.
 
 ### Records blocks

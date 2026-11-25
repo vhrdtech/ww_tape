@@ -2,18 +2,19 @@
 level: basic
 ---
 
-# Definitions and state
+# Definitions
 
 A [[reader]] that opens a recording in the middle needs facts that were first written long before. It needs to know
-what each [[track]] is, and which values were in force at that point. A [[tape]] therefore keeps such facts close to
-every place that needs them, so that a reader anywhere finds them within 32 MiB.
+what each [[track]] is, which [[clock]] it counts and what its items mean. A [[tape]] states such facts as
+[[definitions]], and keeps them close to every place that needs them.
 
 The drive's fault at minute 52, for example, lies in the last of its four [[pieces|piece]]. A viewer that has only
-that piece needs the [[definitions]] of the drive's tracks and the mode the controller was in, a [[state item]].
+that piece still needs the definitions of the drive's tracks. It finds them inside that piece, within 32 MiB of the
+fault.
 
 ## What a definition says
 
-A [[reader]] needs some facts before the data means anything. A [[definition]] states one of them:
+A [[definition]] states one fact that a reader needs before the data means anything:
 
 - the [[producer]], the program that writes the [[tape]];
 - the [[layout]], how the [[writer]] places [[blocks]];
@@ -23,8 +24,9 @@ A [[reader]] needs some facts before the data means anything. A [[definition]] s
 - a schema of a foreign item format, such as a `.proto` file;
 - a typed item, such as a description of the run.
 
-Each definition is a [[record]] on track 0, the track that holds only definitions. The drive's definitions are its two
-clocks, the map between them and its five tracks.
+Each definition is a [[record]] on track 0, the track that holds only definitions. Records of track 0 carry no time,
+and a [[block]] that holds them holds nothing else. The drive's definitions are its two clocks, the map between them
+and its five tracks.
 
 ## Slots
 
@@ -37,8 +39,8 @@ Each [[definition]] fills a [[slot]] that follows from the definition itself:
 - the [[producer]] and the [[layout]] have one slot each.
 
 A newer [[record]] in a slot replaces the older one for every [[reader]] after it. A reader at a place therefore takes
-the newest record of each slot behind that place, and has every definition in force there. Adding a track an hour into a
-recording costs one record, however many tracks the file already has.
+the newest record of each slot behind that place, and has every definition in force there. Adding a track an hour into
+a recording costs one record, however many tracks the file already has.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/slots.svg"
@@ -47,108 +49,57 @@ later. A reader takes the newest record of each slot behind its place: the outli
 and fills a slot the same way, so this reader reads the mode as run.</figcaption>
 </figure>
 
+Definitions are [[state]]: each stays in force until a newer record of its slot replaces it. The writer keeps them
+close behind every use by the rule that keeps any state close, which [State in force](state.md) explains.
+
 ## The definitions an application holds
 
-The [[definitions]] belong to the application, not to the file. The application keeps the definitions of what it works
-on in a [`struct@Definitions`] container and passes the container with every write. Defining writes nothing to the [[tape]]:
+The [[definitions]] belong to the application, not to the file. The application keeps them in a
+[`struct@Definitions`] container and passes the container with every write. Defining writes nothing to the [[tape]]:
 the [[writer]] places each definition just before the first data that needs it.
 
-[`Definitions::define_clock`] and [`Definitions::define_track`] hold a [[clock]] or a [[track]]. Each returns the
-number it gives, the lowest not yet taken, so the application never picks a number. Defining the same clock key again
-gives the same number back. So does the same track key with the same dimensions, in any order.
-
-A [[resume]] gives the numbers the [[tape]] already holds, in [`Resumed::numbers`]. [`Definitions::with_numbers`] starts
-a container with them, so every clock and track defined again keeps its number and a new one takes a number not yet
-taken. A [[chain]]'s resume reads them from every [[piece]] still there, the last one up to its [[close]],
-also when it starts a new piece. A track or clock defined only in a piece removed since loses its number:
-no piece left names it. [`Resumed::numbers_unread`] counts the definitions the resume could not read, damaged or
-past its budget: a track or clock among them may get a new number.
-
-Each definition is checked against those already held. A track or a map must name clocks that the container holds.
-An [[epoch]] clock must come with its link, which [`Definitions::define_clock_with_maps`] defines with it.
-[`Definitions::define_all`] holds several maps, bundles or schemas at once.
-
-[`Definitions::close`] drops a track, and the clocks, maps and [[bundles]] that no held track names go with it. The
-container reports how many definitions it holds and their size in bytes, and the application decides how many to keep.
-
-The drive holds 8 definitions in 469 bytes. The test below takes them from the example, [[puts]] the mode three times
-and closes a track:
+The drive defines its clocks, the map between them and its tracks this way:
 
 ```rust
---8<-- "ww_tape_tests/tests/it/book_pages.rs:puts"
+--8<-- "examples/example_drive/src/defs.rs:define"
 ```
 
-The [[producer]] and the [[layout]] belong to the writer, which takes them from [`WriterOptions`]. The writer puts them
-after every [[piece head]], before the first block of a file, and when a block starts another [[session]]. It refuses a
-block of definitions that the caller wrote. A [[relay]] that passes on another producer's [[blocks]] uses
-[`TapeWriter::relay_block`], which holds the definitions those blocks carry and puts them by the writer's own rule.
+Each call returns the number it gives, the lowest not yet taken, so the application never picks a number. The same
+clock key, or the same track key with the same dimensions, gets the same number back. A track or a map must name
+clocks that the container holds.
 
-Every call that puts a definition or an item uses the producer and the layout too. They so get copies and are put again
-as the tracks' definitions are, and a piece whose first blocks are lost still names them.
+The container has a call for each way an application changes what it holds:
 
-## State
+| Call | What it does |
+|---|---|
+| [`Definitions::define_clock`], [`Definitions::define_track`] | holds a clock or a track and returns its number |
+| [`Definitions::define_clock_with_maps`] | holds an [[epoch]] clock with the map that links it, which it must come with |
+| [`Definitions::define_all`] | holds several maps, bundles or schemas at once |
+| [`Definitions::close`] | drops a track, and the clocks, maps and bundles that no held track names |
+| [`Definitions::with_numbers`] | starts a container with the numbers a tape already holds |
 
-Most [[tracks]] are streams of [[events]]: a frame received at one [[tick]] says nothing about the next tick. Some
-tracks hold [[state]] instead: an [[item]] that stays in force until the next one replaces it. The drive's `mode` is
-such a [[state track]]: idle from boot, run from minute 1, fault from minute 52. Definitions are state too, on track 0.
+The container reports how many definitions it holds and their size in bytes. The drive holds 8 definitions in 469
+bytes, and the application decides how many to keep.
 
-A [[reader]] at a place needs the item in force there to understand the data after it. A reader that reads a file from
-its start always knows the state, because it has seen every [[record]]. A reader that starts in the middle looks
-backwards for the newest record of the [[slot]]. That works only when the record lies in bytes the reader has.
+### Numbers after a resume
 
-### Why a reader needs state close behind
+A [[resume]] gives the numbers the [[tape]] already holds, in [`Resumed::numbers`]. A container started from them
+keeps every clock and track at its number when the application defines it again. A new clock or track takes a number
+not yet taken.
 
-A [[record]] written once at the start of a week-long file lies a week of bytes away. Three [[readers]] then fail, even
-with unlimited time:
+A [[chain]]'s resume reads the numbers from every [[piece]] still there. A track or clock defined only in a removed
+piece loses its number. [`Resumed::numbers_unread`] counts the definitions the resume could not read, and a track or
+clock among them may get a new number.
 
-1. A reader of a file whose start is damaged: the only record may lie in the damaged bytes.
-2. A reader of one [[piece]] of a long recording: the record lies in a piece it does not have.
-3. A reader that joins a [[live feed]] late: the record went out before it joined.
+### What the writer defines itself
 
-The format therefore keeps every [[state item]] close behind each place that uses it, in the same piece. The first
-reader finds a copy past the damage, and the second finds one inside its piece. The third has every [[item]] once it has
-received that much of the feed.
+The [[producer]] and the [[layout]] belong to the writer, which takes them from [`WriterOptions`]. The writer puts
+them in three places:
 
-<figure class="ww-figure" markdown="0">
---8<-- "docs/figures/state_reader.svg"
-<figcaption>Three readers that start in the middle. Past a damaged start and inside one piece, each finds a record
-of the state within near behind it. A reader that joins a live feed late has every item once it has received near
-bytes.</figcaption>
-</figure>
+- after every [[piece head]];
+- before the first block of a file;
+- when a block starts another [[session]].
 
-## Near, puts and copies
-
-A [[state track]]'s policy, a [`StatePolicy`] in [`TrackRepeat::State`], holds two numbers:
-
-- [[Near]] is how far behind a use the [[item]] must lie in the same [[piece]], 32 MiB by default.
-- `copies` is how many extra [[records]] an item gets after it is first written in a piece, as a guard against damage
-  around one place. The default is one [[state copy]], at least 1 MiB after the first record.
-
-Each time the [[producer]] uses a [[state item]], it [[puts]] the item: it calls [`TapeWriter::put`] at that place. The
-[[writer]] compares the item, by its hash, with the newest record of its [[slot]]. When the same item lies less than
-`near` behind, the put writes nothing. Otherwise the put writes the item again, and a [[reader]] at this place finds it
-close behind.
-
-A put is idempotent, so the producer keeps no memory of what it put before. The drive's recorder puts the mode before
-each one-second [[block]], 900 times while it writes the first piece. Only four of those puts write, as `cargo run -p
-example_drive` prints. They are idle at the start, its copy at 40 seconds, run at minute 1 and its copy at 96 seconds.
-The piece ends at about 28 MiB, before the record of run lies 32 MiB behind, so no other put writes.
-
-The writer puts [[definitions]] the same way before every block of data, by the [[layout]]'s own policy. The drawing
-shows the rule shrunk, so that a whole cycle fits on one line.
-
-<figure class="ww-figure" markdown="0">
---8<-- "docs/plots/puts.svg"
-<figcaption>A state track put before each of 26 blocks of data, of which only four puts write. They are the first, one
-copy 2 KiB on, and the item again each time the newest record lies more than <code>near</code> behind. Drawn by
-<code>ww_tape_figures</code> from the blocks <code>TapeWriter</code> wrote, with near shrunk to 8 KiB and the copy
-spacing to 2 KiB.</figcaption>
-</figure>
-
-A record that a put or a copy writes goes into a block marked [`FLAG_REPEAT`] in its header. A reader that
-already holds the same item in that slot takes the record as nothing new. The writer never writes a state item ahead of
-a use, so a [[track]] whose data has stopped costs nothing until its data continues.
-
-A [[series]] holds no state. Each [[series chunk]] carries its own [[grid]], which gives the [[tick]] of one sample and
-the [[scale]] of the stored numbers. The [[chunk]] places its [[samples]] alone, so nothing needs to stay near it.
-[Anatomy of a piece](anatomy.md) shows where the definitions, the puts and the data sit in a whole piece.
+Every call that puts a definition or an item puts them too, so a piece whose first blocks are lost still names them.
+The writer refuses a block of definitions that the caller wrote. A [[relay]] passes on another producer's [[blocks]]
+through [`TapeWriter::relay_block`], which puts the definitions they carry by the writer's own rule.

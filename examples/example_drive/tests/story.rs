@@ -141,11 +141,11 @@ fn rounded_on_the_pages(
             ),
         ),
         (
-            "definitions.md",
+            "state.md",
             format!("{puts} times while it writes the first piece"),
         ),
         (
-            "definitions.md",
+            "state.md",
             format!(
                 "idle at the start, its copy at {} seconds, run at minute {} and its copy at {} seconds",
                 s(wrote[1]),
@@ -154,7 +154,7 @@ fn rounded_on_the_pages(
             ),
         ),
         (
-            "definitions.md",
+            "state.md",
             format!("ends at about {} MiB", (len + (1 << 19)) >> 20),
         ),
         ("anatomy.md", format!("of the run in about {}", about(len))),

@@ -27,8 +27,10 @@ nav = [
             "basic/index.md",
             { "How a tape is built" = [
                     "tracks.md",
+                    "items.md",
                     "blocks.md",
                     "definitions.md",
+                    "state.md",
                     "anatomy.md"
                 ]
             },

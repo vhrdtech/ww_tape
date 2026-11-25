@@ -10,29 +10,23 @@ holds five streams: log lines, the controller's mode, frames from the vehicle bu
 temperature.
 
 A [[tape]] keeps each stream as a [[track]], and three numbers identify a track: its number, its key and its id. A
-track's timing decides its form: a stream of [[events]] gives each item a time, and a [[series]] samples at a fixed
-period.
+track's timing decides its form. [[Events|event]] carry a time each, and a [[series]] samples at a fixed period. A
+[[bytes track]] holds values that a reader takes whole.
 
 ## Items and tracks
 
-An [[item]] is one value: a frame received on the bus, a temperature reading, a log line. The item of an events track is
-most often a [[WireWeaver value]]. Such a value has a type defined in a WireWeaver API, such as a struct, an enum or a
-number. The tape carries that type's definition and keeps the value in its shrink_wrap encoding.
+An [[item]] is one value: a frame received on the bus, a temperature reading, a log line. A [[track]] is a sequence of
+items of one type over time. The drive has five tracks, one per stream, and [What a tape holds](tape.md) lists them
+with their rates.
 
-A sample of a series is a number in a column instead, coded by ww_tape's series codecs. A [[reader]] that has the
-track's [[definition]] therefore decodes the item years later, without the device that sent it. [WireWeaver and
-logring](related_books.md) introduces both.
+The track's [[definition]] says what its items are, so a reader decodes an item years later without the device that
+sent it. The drive's frames are [[WireWeaver values|WireWeaver value]], each of a type that the drive's API defines.
+Its phase current is numbers in a column. [What a track's items are](items.md) lists every kind of item a track can
+hold.
 
-A track may instead hold plain bytes, numbers of an element the definition describes, or bytes of another format.
-[What a track's items are](#what-a-tracks-items-are) lists the kinds.
-
-A [[track]] is a sequence of items of one type over time. The drive has five tracks, one per stream, and [What a tape
-holds](tape.md) lists them with their rates.
-
-Every item has a time, a whole number of [[ticks]] of the track's [[clock]], which [Clocks and time](clocks.md)
-explains. For the drive, every track counts the board's microsecond timer since boot. How an item keeps its time
-depends on the track's kind, which [Events or series](#events-or-series) explains. An [[event]] stores its own tick.
-A [[sample]] of a series takes its tick from its index.
+Every item has a time, a whole number of [[ticks]] of the track's [[clock]]. For the drive, every track counts the
+board's microsecond timer since boot. An [[event]] stores its own tick, and a [[sample]] of a series takes its tick
+from its index. [Clocks and time](clocks.md) explains clocks.
 
 ## Number, key and id
 
@@ -48,22 +42,20 @@ stands for the track. The values are the drive's <code>can0</code>.</figcaption>
 </figure>
 
 The [[track key]] is a 64-bit hash of where the track comes from in the [[producer]]'s API. The drive's `can0` comes
-from the resource `can0` of the drive's API, so its key is the hash of that path. Two files of the drive give `can0` the
-same key, whichever program wrote them. [`track_key`] computes it as a [`TrackKey`].
+from the resource `can0` of the drive's API, so its key is the hash of that path. Two files of the drive give `can0`
+the same key, whichever program wrote them. [`track_key`] computes it as a [`TrackKey`].
 
 A [[dimension]] is a name and value pair, such as `bench = 2`, that tells apart tracks of one key. Two benches that
-record the same `can0` resource tell their tracks apart by `bench = 1` and `bench = 2`. The [[track id]] is a hash of the key and the
-dimensions, and a track without dimensions has its key as its id. [`describe::track_id`] computes it as a
-[`struct@TrackId`]. A [[chunk]] carries the id, so it names its track even to a reader without the definitions.
+record the same `can0` resource tell their tracks apart by `bench = 1` and `bench = 2`. The [[track id]] is a hash of
+the key and the dimensions, and a track without dimensions has its key as its id. [`describe::track_id`] computes it
+as a [`struct@TrackId`]. A [[chunk]] carries the id, so it names its track even to a reader without the definitions.
 
-The [[track number]] is the small number a track has inside one file. Every [[record]], the form of one event in a
-[[records block]], carries it, because it costs one byte where the id costs eight. The producer never picks it: when it
-defines a track, [`Definitions::define_track`] gives the track the lowest number not yet taken and returns it. The drive
-defines `can0` third, so `can0` is track 3 in the drive's files. Defining the same key and dimensions again gives the
-same number back.
+The [[track number]] is the small number a track has inside one file. Every [[record]] carries it, because it costs
+one byte where the id costs eight. The producer never picks it. [`Definitions::define_track`] gives the track the
+lowest number not yet taken and returns it. The drive defines `can0` third, so `can0` is track 3 in the drive's files.
 
-The track's [[definition]] ties the number to the key and the dimensions, so a reader turns any
-number into an id.
+The track's [[definition]] ties the number to the key and the dimensions, so a reader turns any number into an id.
+This test computes all three names of `can0`:
 
 ```rust
 --8<-- "ww_tape_tests/tests/it/book_pages.rs:track_ids"
@@ -77,43 +69,49 @@ The three names compare like this:
 | track key | a 64-bit hash of the API path | every file of the recording | the track's definition |
 | track id | a 64-bit hash of the key and the dimensions | every file of the recording | chunk heads and index entries |
 
-Track number 0 is special: it holds the definitions themselves. [Definitions and state](definitions.md) explains it.
+Track number 0 is special: it holds the definitions themselves. [Definitions](definitions.md) explains it.
 
 ## Item numbers
 
-Each item of a [[track]] has an [[item number]], which counts the track's [[items]] from 0 over the whole recording. The
-count runs on across files, so item 3 120 000 of `can0` is the same frame in every file that holds the drive's
+Each item of a [[track]] has an [[item number]], which counts the track's [[items]] from 0 over the whole recording.
+The count runs on across files, so item 3 120 000 of `can0` is the same frame in every file that holds the drive's
 recording. That frame is the emergency frame the board sends when it faults at minute 52.
 
 ```rust
 --8<-- "ww_tape_tests/tests/it/book_pages.rs:emergency_frame"
 ```
 
-A [[reader]] addresses an item by its [[track id]] and item number, never by where it lies in a file. A file that keeps
-only some tracks of the recording, or that joins several files into one, moves the bytes. The track id and the item
-number stay the same.
+A [[reader]] addresses an item by its [[track id]] and item number, never by where it lies in a file. A file that
+keeps only some tracks of the recording, or that joins several files into one, moves the bytes. The track id and the
+item number stay the same.
 
-## Events or series
+## Events, series or values { #events-or-series }
 
-A [[track]] keeps its [[items]] in one of two ways, and the [[producer]] picks the way per track.
+A [[track]] keeps its [[items]] in one of three ways, and the [[producer]] picks the way per track. The way follows
+from how the items are timed and how a reader takes them.
+
+| | Events | Series | Bytes track |
+|---|---|---|---|
+| Time | each item has its own start, and maybe an end | the sample's index on a fixed period | one tick per value |
+| Items | any kind: a WireWeaver value, plain bytes, numbers, bytes of a named format | numbers of one element, one or more channels each | values of any length, read whole |
+| A reader takes | any item or range of items | any range of samples | a whole value, its hash checked |
+| Examples | the drive's `log`, `mode`, `can0`, `temp` | the drive's `phase_a` | a firmware image |
+
+### Events
 
 An [[event]] is an item with a time of its own. The drive's frames are events: they arrive when the bus carries them,
-about 1000 a second but never exactly on a beat. Each event keeps its own start [[tick]]. An event may also have an end,
-which makes it a span, such as a run of the controller from start to stop.
+about 1000 a second but never exactly on a beat. Each event keeps its own start [[tick]]. An event may also have an
+end, which makes it a span, such as a run of the controller from start to stop.
+
+Choose events for messages, [[state]] changes, log lines and samples at an irregular rate. An event pays for its time,
+but it never needs a fixed rate. [Events](events.md) shows how a reader reads them.
+
+### Series
 
 A [[series]] is a track of [[samples]] at an exact period of its clock. The drive's phase current is a sample every
-40 µs of the board's timer. A sample needs no time of its own, because its index gives it: sample `i` lies `i` periods after the
-first. The drive's `phase_a` keeps 16-bit integers in steps of 1 mA, and each [[chunk]] of samples states that step
-once.
-
-The period is exact in the device's ticks, and 25 kHz is its nominal rate. The board's crystal runs 20 ppm fast, so its
-40 µs are slightly shorter on the host's clock. The tape keeps the samples on the board's clock, where they are exact.
-A [[clock map]] then places them on the host's time line, and [Clock maps](clocks.md#clock-maps) explains it. Over the
-hour, the board's count runs 72 ms ahead of the host's:
-
-```rust
---8<-- "ww_tape_tests/tests/it/book_pages.rs:drift_hour"
-```
+40 µs of the board's timer. A sample needs no time of its own, because its index gives it: sample `i` lies `i` periods
+after the first. A series costs no bytes for time, and its values pack tightly: the drive's `phase_a` takes about 1.1
+bytes a sample.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/events_series.svg"
@@ -121,56 +119,56 @@ hour, the board's count runs 72 ms ahead of the host's:
 payloads. A series chunk holds only its samples, and the grid in its chunk head times them.</figcaption>
 </figure>
 
-Choose a series when the device samples at a fixed rate and loses no beat that matters. Choose events for everything
-else: messages, [[state]] changes, log lines and samples at an irregular rate. A series costs no bytes for time, and its
-values pack tightly: the drive's `phase_a` takes about 1.1 bytes a sample. An event pays for its time, but it never
-needs a fixed rate.
+Choose a series when the device samples at a fixed rate and loses no beat that matters. The period is exact in the
+device's ticks, and 25 kHz is its nominal rate. The board's crystal runs 20 ppm fast, so its 40 µs are slightly
+shorter on the host's clock.
 
-| | Events | Series |
-|---|---|---|
-| Time | each item has its own start, and maybe an end | the sample's index on a fixed period |
-| Items | events of any kind: a WireWeaver value, plain bytes, numbers, bytes of a named format | samples: numbers of one element, one or more channels each |
-| The drive's tracks | `log`, `mode`, `can0`, `temp` | `phase_a` |
-
-[Blocks](blocks.md) shows the blocks that hold each kind, and [Events](events.md) and [Series](series.md) how a reader
-reads them.
-
-## What a track's items are
-
-A [[reader]] must know what an [[item]]'s bytes mean before it can show a value. The track's [[definition]] says it in
-[`TrackDef::items`], one of the kinds below. A tape keeps an events item's bytes as given and never parses them, so a new
-kind of item needs no new block or codec.
-
-| `Items` | One item is | Example |
-|---|---|---|
-| `WireWeaver` | a value of a stream of a WireWeaver API, in its shrink_wrap encoding | the drive's `mode` |
-| `ShrinkWrap` | a value of a shrink_wrap type from a bundle, outside any API stream | a test bench's result per run |
-| `RawBytes` | plain bytes with no type | frames as a sniffer received them |
-| `Numbers` | one number of an element the definition describes, with an optional unit | the drive's `phase_a` |
-| `Foreign` | bytes of a format with a name, a media type and a version | a pcap capture, `application/vnd.tcpdump.pcap` |
-
-A foreign format may also carry its schema, such as a `.proto` file, inside the tape. The schema is a definition of
-its own, [`Describe::Schema`], named by the BLAKE3 hash of its bytes. A reader years later then decodes the items
-without the program that wrote them.
-
-A newer ww_tape may add a kind of items. An older reader then reads that track's definition with its items marked
-unknown, and every other field intact. A relay still stores the track's events as given.
-
-### Numbers of any element
-
-The items of a [[series]] are always `Numbers`. An [`ElementDesc`] describes one number by its stored bits, its sign
-and its byte order. A float adds its exponent bits, and a pair such as I and Q has two parts. The description also
-names the stored number that stands for zero. A track thus holds numbers as a device sends them, and no predefined
-element has to match.
-
-A low-cost software-defined radio is such a device. It sends 8-bit IQ samples: each sample is two unsigned bytes, I
-then Q, and the value 127.5 stands for zero. The track describes exactly that:
+The tape keeps the samples on the board's clock, where they are exact. A [[clock map]] then places them on the host's
+time line, as [Clock maps](clocks.md#clock-maps) explains. Over the hour, the board's count runs 72 ms ahead of the
+host's:
 
 ```rust
---8<-- "ww_tape_tests/tests/it/iq8.rs:def"
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:drift_hour"
 ```
 
-The writer stores the radio's bytes as sent, two bytes a sample, and a reader decodes them back to the same numbers.
-[`iq8.rs`] writes such a track and reads it back. Summaries take the zero into account: they keep `2·v - 255` for
-each part, so the power of a node is exact. Floats of another layout, such as 16-bit or 8-bit floats, keep their own
-bits the same way. [Items of a track](format.md#items-of-a-track) gives each field's range.
+[Series](series.md) shows how a reader reads samples.
+
+### Values read whole { #values-read-whole }
+
+Some data is made elsewhere and only means something whole: a document, a design file, a firmware image. A reader
+never needs byte 1000 of a firmware image on its own. It needs the image that a board ran, all of it, and proof that
+no byte changed.
+
+A [[bytes track]] holds such data as values. A tuning session of a motor controller, for example, records the firmware
+image it flashes beside the parameters it sets. The crate `example_settings` records such a session, and defines the
+firmware's track as a bytes track:
+
+```rust
+--8<-- "examples/example_settings/src/lib.rs:define"
+```
+
+The writer streams a value as [[parts]], each an events chunk of one item. A last part, the [[seal]], holds the
+value's length and its BLAKE3 hash. [`BytesWriter`] cuts the value into parts, and the chain writes each part as it
+comes:
+
+```rust
+--8<-- "examples/example_settings/src/lib.rs:firmware"
+```
+
+A reader asks for a value by its id, the item number of its first part. [`bytes_track::read_value`] finds the parts in each
+piece's index, reads them in order and checks the hash against the seal:
+
+```rust
+--8<-- "examples/example_settings/src/lib.rs:read_value"
+```
+
+The image of 200 000 bytes takes three parts of 64 KiB, a short last part and the seal. `cargo run -p example_settings`
+prints both sides:
+
+```text
+--8<-- "docs/generated/settings_firmware.txt"
+```
+
+A value is whole or absent, never partial. A crash in the middle of a value leaves parts without a seal, and the reader
+reports the value as torn. A value may span a [[cut]], so a large image goes on in the next [[piece]]. [Bytes
+tracks](format.md#bytes-tracks) gives the parts' layout.

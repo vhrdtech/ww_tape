@@ -105,7 +105,7 @@ fn records_block() {
     // --8<-- [end:records_block]
 }
 
-/// `docs/definitions.md`, section `puts`.
+/// `docs/state.md`, section `puts`.
 #[test]
 fn puts() {
     // --8<-- [start:puts]
