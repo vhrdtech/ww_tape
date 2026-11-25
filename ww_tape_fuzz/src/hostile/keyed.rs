@@ -1,7 +1,8 @@
 //! Keyed state records and their index entries: a piece a cut started, carrying the live keys of a keyed state track,
 //! then written with puts and deletions of keys, alone and in groups of puts. Its keyed blocks, the keyed fields of
 //! its index's state entries (flags, key length, key head, key hash) and its head row's flags take hostile values
-//! behind good CRCs, a keyed block or a block of a group is damaged, or the piece is cut.
+//! behind good CRCs, as do the group marks of a block of a group; a keyed block or a block of a group is damaged, or
+//! the piece is cut.
 
 use std::sync::OnceLock;
 
@@ -271,6 +272,17 @@ fn hit_keyed(d: &mut Draw<'_>, b: &mut [u8]) {
     seal(b);
 }
 
+/// A group's marks flipped in block `b` of a group of puts, its CRC computed again: `FLAG_WITH_NEXT` (header byte 6,
+/// bit 1), `FLAG_GROUP` or `FLAG_GROUP_START` (byte 7, bits 0 and 1). A reader and a resume must decide the group alike.
+fn hit_group_marks(d: &mut Draw<'_>, b: &mut [u8]) {
+    match d.below(3) {
+        0 => b[6] ^= 0x02,
+        1 => b[7] ^= 0x01,
+        _ => b[7] ^= 0x02,
+    }
+    seal(b);
+}
+
 /// Hostile flags in the piece head at the start of `f`, its CRC computed again: in a row (keys carried or not, not
 /// carried, an unknown bit), or the head's own bit 1 (keyed tracks without a row may have keys before the piece).
 fn hit_head_row(d: &mut Draw<'_>, f: &mut [u8]) {
@@ -335,8 +347,9 @@ pub fn attacked(data: &[u8]) -> KeyedAttacked {
     assert!(!groups.is_empty(), "the template puts groups");
     for _ in 0..=d.below(4) {
         // 0: an index's state entry, 1: a keyed block behind a good CRC, 2: damage to one, 3: the piece head's row
-        // flags behind a good CRC, 4: damage to a block of a group of puts
-        let attack = d.below(5);
+        // flags behind a good CRC, 4: damage to a block of a group of puts, 5: a group's marks on one of its blocks
+        // behind a good CRC
+        let attack = d.below(6);
         if attack == 3 {
             hit_head_row(&mut d, &mut f);
             forged = true;
@@ -344,7 +357,7 @@ pub fn attacked(data: &[u8]) -> KeyedAttacked {
         }
         let pick = match attack {
             0 => &indexes,
-            4 => &groups,
+            4 | 5 => &groups,
             _ => &keyed,
         };
         let Some((at, len, _)) = pick.get(d.below(pick.len().max(1))) else {
@@ -354,12 +367,13 @@ pub fn attacked(data: &[u8]) -> KeyedAttacked {
         match attack {
             0 => hit_entry(&mut d, b),
             1 => hit_keyed(&mut d, b),
+            5 => hit_group_marks(&mut d, b),
             _ => {
                 let i = d.below(b.len());
                 b[i] ^= d.u8() | 1;
             }
         }
-        forged |= attack < 2;
+        forged |= attack < 2 || attack == 5;
     }
     if d.bool() {
         let cut = d.below(f.len() + 1);
