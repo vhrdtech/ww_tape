@@ -6,6 +6,10 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Features
+
+- Book: built with the book kit vhrd-zensical 0.3.1 (BOOK-8).
+
 ## [0.15.0] - 2026-11-25
 
 ### Breaking

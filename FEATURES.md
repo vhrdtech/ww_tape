@@ -474,10 +474,16 @@ The pages in `docs/`.
 
 - ✅ **BOOK-7 The book kit from PyPI**
 
-  The justfile pins `vhrd-zensical[zensical]==0.2.1` from PyPI, not the git tag: `just book-check` installs a wheel
-  and compiles nothing.
+  The justfile pins `vhrd-zensical[zensical]` at one version from PyPI, not a git tag: `just book-check` installs a
+  wheel and compiles nothing.
 
   Read more: [For writers](docs/writers.md).
+
+- 🚧 **BOOK-8 The book in parts by reading level**
+
+  The book runs Introduction, Basic, Advanced and Nomicon, then the Reference and Articles shelves. `vz check` keeps the order from `book_checks.toml`: no step down a level, a level on every page, no bare `rust` fence, no stale generated file. It runs in `just test` and `just book-check`.
+
+  Open: every `rust` block an include of a compiled source, every shown output written by a test, and the prose lints at zero.
 
 ## Example and cases (`EX`)
 
