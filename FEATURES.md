@@ -227,7 +227,7 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   The writer checks the head of a chunk it encodes, not the encoded bytes. A block the caller encoded is read once, with its CRCs checked. On a 1 MiB series chunk this costs 466 µs past the encoding.
 
-  Read more: [What the writer checks](docs/writing.md#what-the-writer-checks).
+  Read more: [What the writer checks](docs/writer_adds.md#what-the-writer-checks).
 
 - ✅ **WRITE-5 Pieces in memory**
 

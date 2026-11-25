@@ -105,7 +105,7 @@ then:
 ```
 
 `tick` syncs the waiting blocks once the interval is up, even when no block comes. With [`IndexPolicy::interval`] set,
-it also places a [[checkpoint]] when that interval is up. In an [aligned file](writing.md#aligned-files), that
+it also places a [[checkpoint]] when that interval is up. In an [aligned file](aligned.md#aligned-files), that
 checkpoint waits for the gap before the next chunk's payload. [`TapeWriter::sync`] syncs at once.
 
 ### The writer's clock

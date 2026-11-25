@@ -1,0 +1,39 @@
+<svg class="ww-svg" viewBox="0 0 680 220" width="680" height="220" role="img" aria-label="A piece as it grows from left to right: piece head, data, checkpoint 1, data, checkpoint 2, data, final index, close and tail. Checkpoint 2 points back at checkpoint 1, the tail points back at the close, the close at the final index, and the close names the next piece by its id only." xmlns="http://www.w3.org/2000/svg">
+  <!-- the piece -->
+  <rect x="20.5" y="80" width="40" height="34" rx="2" class="tint-teal"/>
+  <text x="40" y="101" text-anchor="middle" class="small">head</text>
+  <rect x="60.5" y="80" width="110" height="34" rx="2" class="tint-blue"/>
+  <text x="115" y="101" text-anchor="middle" class="small">data</text>
+  <rect x="170.5" y="80" width="40" height="34" rx="2" class="tint-ink"/>
+  <text x="190" y="101" text-anchor="middle" class="small">cp 1</text>
+  <rect x="210.5" y="80" width="110" height="34" rx="2" class="tint-blue"/>
+  <text x="265" y="101" text-anchor="middle" class="small">data</text>
+  <rect x="320.5" y="80" width="40" height="34" rx="2" class="tint-ink"/>
+  <text x="340" y="101" text-anchor="middle" class="small">cp 2</text>
+  <rect x="360.5" y="80" width="80" height="34" rx="2" class="tint-blue"/>
+  <text x="400" y="101" text-anchor="middle" class="small">data</text>
+  <rect x="440.5" y="80" width="80" height="34" rx="2" class="tint-ink"/>
+  <text x="480" y="101" text-anchor="middle" class="small">final index</text>
+  <rect x="520.5" y="80" width="50" height="34" rx="2" class="tint-green"/>
+  <text x="545" y="101" text-anchor="middle" class="small">close</text>
+  <rect x="570.5" y="80" width="40" height="34" rx="2" class="tint-green"/>
+  <text x="590" y="101" text-anchor="middle" class="small">tail</text>
+  <!-- the file grows -->
+  <path d="M618 97 H652" class="line dash"/>
+  <path d="M660 97 l-8 -4 v8 Z" class="line head"/>
+  <text x="640" y="130" text-anchor="middle" class="soft small">grows</text>
+  <!-- checkpoint 2 points back at checkpoint 1 -->
+  <path d="M340 78 Q265 30 194 74" class="line"/>
+  <path d="M190 78 l3 -9 l5 6 Z" class="line head"/>
+  <text x="265" y="40" text-anchor="middle" class="small">each checkpoint names the one before</text>
+  <!-- the tail points back at the close, the close at the final index -->
+  <path d="M590 116 Q568 146 549 120" class="line"/>
+  <path d="M545 116 l8 3 l-5 6 Z" class="line head"/>
+  <path d="M540 116 Q512 156 484 120" class="line"/>
+  <path d="M480 116 l8 3 l-5 6 Z" class="line head"/>
+  <text x="520" y="168" text-anchor="middle" class="small">the tail names the close, the close the final index</text>
+  <!-- the close names the next piece by id -->
+  <path d="M545 78 V56" class="thin dash"/>
+  <text x="545" y="48" text-anchor="middle" class="small">next piece: its id, not its hash</text>
+  <text x="20" y="200" class="soft small">no byte waits for a later one: a crash leaves nothing pointing at bytes never written</text>
+</svg>

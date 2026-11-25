@@ -195,7 +195,7 @@ boundary, and the new file shares the disk blocks of the three.</figcaption>
 The kernel clones only ranges that start on a block boundary in both files, 4 KiB on common setups. `cp --reflink`, the
 `FICLONERANGE` call and `copy_file_range` clone, and `std::io::copy` uses `copy_file_range` between files on Linux.
 Every closed piece ends on a boundary, so pieces clone back to back with nothing between them. In an [aligned
-file](writing.md#aligned-files), the payloads keep their alignment too.
+file](aligned.md#aligned-files), the payloads keep their alignment too.
 
 ## Clones and subsets of a file
 

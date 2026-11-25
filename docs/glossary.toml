@@ -153,7 +153,7 @@ chapter = "../pieces/"
 name = "deferred block"
 forms = ["deferred blocks"]
 short = "A small block, such as summaries, that the writer holds back for a gap before a chunk's payload in an aligned file."
-chapter = "../writing/"
+chapter = "../aligned/"
 
 [[term]]
 name = "definition"
