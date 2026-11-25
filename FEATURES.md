@@ -482,10 +482,13 @@ The pages in `docs/`.
 - ✅ **BOOK-8 The book in parts by reading level**
 
   The book runs Introduction, Basic, Advanced and Nomicon, then the Reference and Articles shelves. Each part opens with
-  a landing page. `vz check` keeps the order from `book_checks.toml`: no step down a level, a level on every page, no
-  bare `rust` fence, no stale generated file. It runs in `just test` and `just book-check`. Every `rust` block is an
-  include of a section of a test that runs, and every program output a page shows is written by a test into
-  `docs/generated/`. The pages meet spl's reading lints, apart from a snippet include that spl counts as prose.
+  a landing page.
+
+  - `vz check` keeps the order from `book_checks.toml` in `just test` and `just book-check`: no step down a level, a
+    level on every page, no bare `rust` fence, no stale generated file.
+  - Every `rust` block includes a section of a test that runs.
+  - Tests write every program output a page shows into `docs/generated/`.
+  - The pages meet spl's reading lints, apart from a snippet include that spl counts as prose.
 
   Read more: [For writers](docs/writers.md).
 
