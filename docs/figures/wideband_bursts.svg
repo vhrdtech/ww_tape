@@ -1,0 +1,55 @@
+<svg class="ww-svg" viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="Burst detection from summary nodes, drawn as a sketch. Each bar is one summary node of level 0, the largest power of 1024 samples of a channel. Quiet nodes stay below the threshold POWER_MIN; a run of consecutive loud nodes above it is one burst, from the first loud node's start to the last loud node's end. A burst that crosses the end of a piece is carried over and ends at the next quiet node of the next piece" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="20" class="soft small">largest power of each level-0 summary node, 1 024 samples each (a sketch)</text>
+  <rect x="30" y="153" width="11" height="47" class="tint-blue"/>
+  <rect x="44" y="142" width="11" height="58" class="tint-blue"/>
+  <rect x="58" y="143" width="11" height="57" class="tint-blue"/>
+  <rect x="72" y="156" width="11" height="44" class="tint-blue"/>
+  <rect x="86" y="149" width="11" height="51" class="tint-blue"/>
+  <rect x="100" y="141" width="11" height="59" class="tint-blue"/>
+  <rect x="114" y="145" width="11" height="55" class="tint-blue"/>
+  <rect x="128" y="140" width="11" height="60" class="tint-blue"/>
+  <rect x="142" y="72" width="11" height="128" class="accent"/>
+  <rect x="156" y="88" width="11" height="112" class="accent"/>
+  <rect x="170" y="71" width="11" height="129" class="accent"/>
+  <rect x="184" y="90" width="11" height="110" class="accent"/>
+  <rect x="198" y="145" width="11" height="55" class="tint-blue"/>
+  <rect x="212" y="152" width="11" height="48" class="tint-blue"/>
+  <rect x="226" y="143" width="11" height="57" class="tint-blue"/>
+  <rect x="240" y="153" width="11" height="47" class="tint-blue"/>
+  <rect x="254" y="154" width="11" height="46" class="tint-blue"/>
+  <rect x="268" y="138" width="11" height="62" class="tint-blue"/>
+  <rect x="282" y="145" width="11" height="55" class="tint-blue"/>
+  <rect x="296" y="143" width="11" height="57" class="tint-blue"/>
+  <rect x="310" y="143" width="11" height="57" class="tint-blue"/>
+  <rect x="324" y="145" width="11" height="55" class="tint-blue"/>
+  <rect x="338" y="148" width="11" height="52" class="tint-blue"/>
+  <rect x="352" y="140" width="11" height="60" class="tint-blue"/>
+  <rect x="366" y="156" width="11" height="44" class="tint-blue"/>
+  <rect x="380" y="83" width="11" height="117" class="accent"/>
+  <rect x="394" y="70" width="11" height="130" class="accent"/>
+  <rect x="408" y="86" width="11" height="114" class="accent"/>
+  <rect x="422" y="74" width="11" height="126" class="accent"/>
+  <rect x="436" y="78" width="11" height="122" class="accent"/>
+  <rect x="450" y="67" width="11" height="133" class="accent"/>
+  <rect x="464" y="160" width="11" height="40" class="tint-blue"/>
+  <rect x="478" y="139" width="11" height="61" class="tint-blue"/>
+  <rect x="492" y="158" width="11" height="42" class="tint-blue"/>
+  <rect x="506" y="155" width="11" height="45" class="tint-blue"/>
+  <rect x="520" y="142" width="11" height="58" class="tint-blue"/>
+  <rect x="534" y="159" width="11" height="41" class="tint-blue"/>
+  <rect x="548" y="151" width="11" height="49" class="tint-blue"/>
+  <path d="M24 200 H562" class="thin"/>
+  <path d="M24 118 H562" class="accent-line dash"/>
+  <text x="570" y="114" class="small mono accent">POWER_MIN</text>
+  <text x="570" y="130" class="small soft">1.5 million</text>
+  <path d="M420.5 40 V222" class="line dash"/>
+  <text x="414.5" y="44" text-anchor="end" class="small">end of piece 4</text>
+  <text x="426.5" y="44" class="small">piece 5</text>
+  <path d="M142 66 V60 H195 V66" class="thin"/>
+  <path d="M380 66 V60 H461 V66" class="thin"/>
+  <text x="142" y="54" class="small">one burst</text>
+  <text x="420.5" y="236" text-anchor="middle" class="small">a burst across two pieces is carried over</text>
+  <text x="30" y="218" class="small soft">quiet: carriers and noise</text>
+  <text x="570" y="170" class="small">a run of loud</text>
+  <text x="570" y="186" class="small">nodes is one burst</text>
+</svg>
