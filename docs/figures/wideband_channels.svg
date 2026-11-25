@@ -1,0 +1,57 @@
+<svg class="ww-svg" viewBox="0 0 680 290" width="680" height="290" role="img" aria-label="How the band spreads over threads. The receiver splits the band into channels of equal rate. Each channel is a series track iq with a producer thread of its own, whose grid handle packs the samples at 12 bits, hashes them and computes the summary leaves on that thread. Channel k sends its chunks to mux k mod m; each mux places them on its one writing thread into a chain of its own, in memory or on a disk of its own" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="20" class="soft small">8 channels, 2 muxes: channel k goes to mux k % 2</text>
+  <rect x="20.5" y="40" width="70" height="230" rx="4" class="tint-purple"/>
+  <text x="55.5" y="150" text-anchor="middle" class="small strong">the band</text>
+  <text x="55.5" y="166" text-anchor="middle" class="small soft">1 GS/s</text>
+  <path d="M92 52 H112" class="thin"/>
+  <rect x="114.5" y="40" width="220" height="24" rx="3" class="tint-blue"/>
+  <text x="124" y="56" class="small">channel 0: thread, <tspan class="mono">GridHandle</tspan></text>
+  <path d="M336 52 C380 52 380 96 426 96" class="line"/>
+  <path d="M92 81 H112" class="thin"/>
+  <rect x="114.5" y="69" width="220" height="24" rx="3" class="tint-blue"/>
+  <text x="124" y="85" class="small">channel 1: thread, <tspan class="mono">GridHandle</tspan></text>
+  <path d="M336 81 C380 81 380 206 426 206" class="line"/>
+  <path d="M92 110 H112" class="thin"/>
+  <rect x="114.5" y="98" width="220" height="24" rx="3" class="tint-blue"/>
+  <text x="124" y="114" class="small">channel 2: thread, <tspan class="mono">GridHandle</tspan></text>
+  <path d="M336 110 C380 110 380 96 426 96" class="line"/>
+  <path d="M92 139 H112" class="thin"/>
+  <rect x="114.5" y="127" width="220" height="24" rx="3" class="tint-blue"/>
+  <text x="124" y="143" class="small">channel 3: thread, <tspan class="mono">GridHandle</tspan></text>
+  <path d="M336 139 C380 139 380 206 426 206" class="line"/>
+  <path d="M92 168 H112" class="thin"/>
+  <rect x="114.5" y="156" width="220" height="24" rx="3" class="tint-blue"/>
+  <text x="124" y="172" class="small">channel 4: thread, <tspan class="mono">GridHandle</tspan></text>
+  <path d="M336 168 C380 168 380 96 426 96" class="line"/>
+  <path d="M92 197 H112" class="thin"/>
+  <rect x="114.5" y="185" width="220" height="24" rx="3" class="tint-blue"/>
+  <text x="124" y="201" class="small">channel 5: thread, <tspan class="mono">GridHandle</tspan></text>
+  <path d="M336 197 C380 197 380 206 426 206" class="line"/>
+  <path d="M92 226 H112" class="thin"/>
+  <rect x="114.5" y="214" width="220" height="24" rx="3" class="tint-blue"/>
+  <text x="124" y="230" class="small">channel 6: thread, <tspan class="mono">GridHandle</tspan></text>
+  <path d="M336 226 C380 226 380 96 426 96" class="line"/>
+  <path d="M92 255 H112" class="thin"/>
+  <rect x="114.5" y="243" width="220" height="24" rx="3" class="tint-blue"/>
+  <text x="124" y="259" class="small">channel 7: thread, <tspan class="mono">GridHandle</tspan></text>
+  <path d="M336 255 C380 255 380 206 426 206" class="line"/>
+  <path d="M432 96 l-8 -4 v8 Z" class="line head"/>
+  <rect x="434.5" y="70" width="90" height="52" rx="4" class="tint-teal"/>
+  <text x="479.5" y="92" text-anchor="middle" class="small strong">mux 0</text>
+  <text x="479.5" y="109" text-anchor="middle" class="small soft">one thread</text>
+  <path d="M526 96 H546" class="line"/>
+  <path d="M552 96 l-8 -4 v8 Z" class="line head"/>
+  <rect x="554.5" y="70" width="106" height="52" rx="4" class="tint-green"/>
+  <text x="607.5" y="92" text-anchor="middle" class="small">chain 0</text>
+  <text x="607.5" y="109" text-anchor="middle" class="small soft">memory or disk 0</text>
+  <path d="M432 206 l-8 -4 v8 Z" class="line head"/>
+  <rect x="434.5" y="180" width="90" height="52" rx="4" class="tint-teal"/>
+  <text x="479.5" y="202" text-anchor="middle" class="small strong">mux 1</text>
+  <text x="479.5" y="219" text-anchor="middle" class="small soft">one thread</text>
+  <path d="M526 206 H546" class="line"/>
+  <path d="M552 206 l-8 -4 v8 Z" class="line head"/>
+  <rect x="554.5" y="180" width="106" height="52" rx="4" class="tint-green"/>
+  <text x="607.5" y="202" text-anchor="middle" class="small">chain 1</text>
+  <text x="607.5" y="219" text-anchor="middle" class="small soft">memory or disk 1</text>
+  <text x="224" y="286" text-anchor="middle" class="small soft">packs at 12 bits, hashes, summary leaves</text>
+</svg>

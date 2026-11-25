@@ -12,63 +12,106 @@ repo_url = "https://github.com/vhrdtech/ww_tape"
 repo_name = "vhrdtech/ww_tape"
 edit_uri = "edit/main/docs/"
 
-# Six parts in the order a reader needs them; each part lists its basic chapters first, then the advanced and nomicon
-# ones (docs/levels.md). A chapter not yet written is a stub that links the pages holding its material.
+# The reading ramp: Introduction, Basic, Advanced and Nomicon, each part one reading level, so next never steps down
+# (docs/levels.md); then the Reference and Articles shelves, whose pages keep their own level. `vz check`
+# (book_checks.toml) fails a nav that steps down, a page without a level and a page listed twice.
 nav = [
-    { "Start" = [
+    { "Introduction" = [
             "index.md",
+            "levels.md",
             "tape.md",
             "first_tape.md"
         ]
     },
-    { "How a tape is built" = [
-            "tracks.md",
-            "blocks.md",
-            "definitions.md",
-            "anatomy.md",
-            "clocks.md"
+    { "Basic" = [
+            "basic/index.md",
+            { "How a tape is built" = [
+                    "tracks.md",
+                    "items.md",
+                    "blocks.md",
+                    "definitions.md",
+                    "state.md",
+                    "anatomy.md"
+                ]
+            },
+            { "Writing" = [
+                    "writing.md",
+                    "writer_adds.md",
+                    "aligned.md",
+                    "writing_thread.md",
+                    "mux_queue.md",
+                    "files.md",
+                    "pieces.md",
+                    "old_pieces.md",
+                    "crashes.md",
+                    "resume_cases.md"
+                ]
+            },
+            { "Reading" = [
+                    "reading.md",
+                    "events.md",
+                    "series.md",
+                    "summaries.md"
+                ]
+            },
+            { "Damage" = [
+                    "damage.md",
+                    "reading_past_damage.md",
+                    "damaged_pieces.md",
+                    "integrity.md"
+                ]
+            }
         ]
     },
-    { "Writing" = [
-            "writing.md",
-            "writing_thread.md",
-            "own_chunks.md",
-            "files.md",
-            "pieces.md",
-            "crashes.md",
-            "columns.md",
-            "sample_codecs.md",
-            "live_feeds.md"
+    { "Advanced" = [
+            "advanced/index.md",
+            { "Time" = [
+                    "clocks.md"
+                ]
+            },
+            { "Writing in depth" = [
+                    "own_chunks.md",
+                    "columns.md",
+                    "sample_codecs.md",
+                    "live_feeds.md"
+                ]
+            },
+            { "Reading in depth" = [
+                    "growing_pieces.md",
+                    "grids.md"
+                ]
+            },
+            { "Copies and media" = [
+                    "copies.md",
+                    "check_pieces.md",
+                    "raw_media.md",
+                    "raw_gaps.md"
+                ]
+            }
         ]
     },
-    { "Reading" = [
-            "reading.md",
-            "events.md",
-            "series.md",
-            "summaries.md",
-            "grids.md",
-            "copies.md"
+    { "Nomicon" = [
+            "nomicon/index.md",
+            "carried_definitions.md",
+            "carried_room.md",
+            "track_hashes.md",
+            "lessons.md"
         ]
     },
-    { "Damage and media" = [
-            "damage.md",
-            "integrity.md",
-            "check_pieces.md",
-            "raw_media.md"
-        ]
-    },
-    { "Numbers and reference" = [
+    { "Reference" = [
+            "reference/index.md",
             "glossary.md",
-            "related_books.md",
-            "lessons.md",
-            "levels.md",
-            "writers.md",
             "sizes.md",
-            "protocol_analyser.md",
-            "wideband.md",
             "format.md",
+            "related_books.md",
+            "writers.md",
             { "Features and roadmap" = "https://github.com/vhrdtech/ww_tape/blob/main/FEATURES.md" },
             { "Changelog" = "https://github.com/vhrdtech/ww_tape/blob/main/CHANGELOG.md" }
+        ]
+    },
+    { "Articles" = [
+            "protocol_analyser.md",
+            "wideband.md"
         ]
     }
 ]

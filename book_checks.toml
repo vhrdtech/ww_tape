@@ -1,0 +1,22 @@
+# The book's frame, checked by `vz check` (`just book-check`, and `just test`).
+# `[[part]]`: the reading ramp, in nav order; every page of a part has its level, so next never steps down.
+# `outside`: the top-level nav sections after the ramp, whose pages may have any level.
+# No `[bare_fences]`: every `rust` block of the book is an include of a compiled source.
+
+outside = ["Reference", "Articles"]
+
+[[part]]
+title = "Introduction"
+level = "basic"
+
+[[part]]
+title = "Basic"
+level = "basic"
+
+[[part]]
+title = "Advanced"
+level = "advanced"
+
+[[part]]
+title = "Nomicon"
+level = "nomicon"

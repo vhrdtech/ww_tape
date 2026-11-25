@@ -1,4 +1,4 @@
-//! An 8-bit IQ radio's samples as a series track (docs/tracks.md, "What a track's items are"): the definition
+//! An 8-bit IQ radio's samples as a series track (docs/items.md, "Numbers of any element"): the definition
 //! describes the element, and the samples are stored as the radio sends them, with no new element or codec.
 
 use ww_tape::ItemNum;

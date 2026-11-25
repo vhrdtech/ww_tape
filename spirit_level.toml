@@ -504,11 +504,13 @@ example_drive = { layer = "examples" }
 example_ethernet = { layer = "examples" }
 example_images = { layer = "examples" }
 example_rf = { layer = "examples" }
+example_settings = { layer = "examples" }
 example_thermal = { layer = "examples" }
 example_wideband = { layer = "examples" }
 ww_tape_fuzz = { layer = "fuzz" }
 ww_tape_tests = { layer = "tests" }
 ww_tape_testalloc = { layer = "tests", unsafe = true }
+ww_tape_book_outputs = { layer = "tests" }
 ww_tape_bench_report = { layer = "benches" }
 ww_tape_bench = { layer = "benches" }
 ww_tape_benchmarks = { layer = "benches" }

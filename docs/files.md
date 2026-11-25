@@ -24,7 +24,7 @@ module `writer` opens a [`TapeWriter`] on a path in one of four ways:
 A recorder starts with [`writer::create`] and its [[sync policy]]. A host program usually also gives the writer its
 clock, which decides when a time interval is up:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/durable.rs:create"
 ```
 
@@ -42,7 +42,7 @@ Two writers appending to one file would interleave their [[blocks]] into a file 
 therefore holds a [[lock]] on the open file itself. A second writer of the same file is refused with
 [`FsError::Locked`], whether it runs in the same process or another:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/durable.rs:locked"
 ```
 
@@ -90,9 +90,9 @@ minutes at full rate.</figcaption>
 </figure>
 
 A sync after every block loses only the [[torn block]], the 1263 bytes a resume cuts off. It pays with about 8530 waits
-for the disk. The default here loses only the torn block too, with 2222 syncs: its last sync fell just before the crash. Without syncs, the crash may lose
-all of piece 2: 420 s of the run. A recorder of a slow, precious stream syncs after every block; one of a fast stream
-keeps the default.
+for the disk. The default here loses only the torn block too, with 2222 syncs: its last sync fell just before the crash.
+Without syncs, the crash may lose all of piece 2: 420 s of the run. A recorder of a slow, precious stream syncs after
+every block; one of a fast stream keeps the default.
 
 ### A quiet input
 
@@ -100,12 +100,12 @@ keeps the default.
 unsynced until the next block. A producer whose input may stop for a while therefore calls [`TapeWriter::tick`] now and
 then:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/durable.rs:tick"
 ```
 
 `tick` syncs the waiting blocks once the interval is up, even when no block comes. With [`IndexPolicy::interval`] set,
-it also places a [[checkpoint]] when that interval is up. In an [aligned file](writing.md#aligned-files), that
+it also places a [[checkpoint]] when that interval is up. In an [aligned file](aligned.md#aligned-files), that
 checkpoint waits for the gap before the next chunk's payload. [`TapeWriter::sync`] syncs at once.
 
 ### The writer's clock
@@ -139,7 +139,7 @@ tail. And the close is written so that a whole close never names bytes that miss
 3. It writes the [[close]], padded so that the piece ends on a 4 KiB boundary, then the [[tail]].
 4. It syncs the file again.
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/durable.rs:close"
 ```
 
@@ -152,7 +152,7 @@ were on the disk before it. A file without a whole close and tail at its end was
 [`writer::append`] opens a closed file again and adds a new piece after the last one, in a new [[session]]. The pieces
 before stay as they were, to the byte:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/durable.rs:append"
 ```
 

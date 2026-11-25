@@ -4,17 +4,18 @@ level: advanced
 
 # Sizes and speeds
 
-The drive's endurance run lasts an hour, and the bench host keeps every run. Before the next campaign the team asks two
-questions: how much disk a run takes, and whether the host keeps up. This chapter answers both from measured numbers.
-
-In short, the drive's hour takes 110 MiB, and the phase current makes up most of it. The host records the hour far
-faster than the drive runs it.
+A recorder is planned around two questions: how much disk a recording takes, and whether the host keeps up with it.
+This page answers both from measured numbers, first for the drive's hour and then for each part of the writer and the
+reader. The drive's hour takes 110 MiB, and the phase current makes up most of it. The host records the hour far faster
+than the drive runs it.
 
 ## Where the numbers come from
 
-Every number on this page comes from a bench in the repository. `just bench-book` runs them all at release and writes
-each report as JSON into `docs/bench/`. `just book-figures` then draws the charts and tables of this page from those
-files. A test fails when a chart differs from its report, or when this page's text writes a number no report holds.
+Every number on this page comes from a bench in the repository, by way of three steps:
+
+1. `just bench-book` runs every bench at release and writes each report as JSON into `docs/bench/`.
+2. `just book-figures` draws the charts and tables of this page from those files.
+3. A test fails when a chart differs from its report, or when this page's text writes a number no report holds.
 
 A report names the commit and the build it ran, and the machine and the load average before and after each table.
 Load slows a time, but never changes a size.
@@ -47,8 +48,10 @@ its chunks, against the same item stored raw.
 --8<-- "docs/plots/bench_drive_items.txt"
 
 A sample of `phase_a` costs 1.1 bytes against its 2 raw bytes. A frame of `can0` costs 2.3 bytes against its 20 raw
-bytes. To predict another recording's size, multiply each stream's rate by its bytes per item. Then add the shares of
-the summaries and the index that the table above gives for the drive.
+bytes. Another recording's size follows from the same tables:
+
+1. Multiply each stream's rate by its bytes per item.
+2. Add the shares of the summaries and the index that the table of the drive's bytes gives.
 
 ### How long the hour takes to record
 
@@ -72,9 +75,14 @@ uses three kinds of data: the motor simulation of `motor_sim`, a recorded speech
 ADC turned into floats. The [format reference](format.md#float-codecs-measured) describes
 each data set.
 
-The bench also runs four float codecs the format doesn't have. Gorilla stores each float as
-the XOR of its bits with the float before it, and Chimp is a refined Gorilla. `FLOAT_DELTA` and
-`FLOAT_DELTA2` apply `DELTA` and `DELTA2` to the floats' bits in an order that sorts like the numbers.
+The bench also runs four float codecs the format doesn't have, to show what ALP is up against:
+
+| Codec | How it stores a float |
+|---|---|
+| Gorilla | the XOR of its bits with the float before it |
+| Chimp | as Gorilla, refined |
+| `FLOAT_DELTA` | `DELTA` over the floats' bits, in an order that sorts like the numbers |
+| `FLOAT_DELTA2` | `DELTA2` over the same bits |
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/sample_codecs.svg"
@@ -178,8 +186,8 @@ On `i16` the AVX2 kernel reaches 8400 MB/s, against 1500 MB/s one statistic at a
 
 ## What the writer spends
 
-The writer's own cost per chunk is a copy, the CRCs and the [[content hash]]. `just
-bench-chunks` measures each part on a series chunk of 1 MiB, which holds 524 288 `i16` samples.
+The writer's own cost per chunk has three parts: a copy, the CRCs and the [[content hash]]. `just bench-chunks`
+measures each part on a series chunk of 1 MiB, which holds 524 288 `i16` samples.
 
 --8<-- "docs/plots/bench_chunks_machine.txt"
 
@@ -192,15 +200,19 @@ legend. The content hash takes most of <code>TapeWriter::write_chunk</code>. Dra
 
 --8<-- "docs/plots/bench_chunks_writer.txt"
 
-[`TapeWriter::write_chunk`] takes about 890 µs per chunk, and the hash takes 580 µs of that. Besides the hash, the
-writer spends 320 µs per MiB. The copy with its CRCs takes 170 µs, and a reader checks the CRCs of the whole block in
-130 µs. A writer into a growing memory sink spends more: the sink copies its bytes as it grows.
+[`TapeWriter::write_chunk`] takes about 890 µs per chunk, and the hash takes 580 µs of that:
+
+- the content hash: 580 µs;
+- the rest of the writer: 320 µs per MiB, of which the copy with its CRCs takes 170 µs;
+- a reader's check of the CRCs of the whole block: 130 µs.
+
+A writer into a growing memory sink spends more, since the sink copies its bytes as it grows.
 
 ### Reading a track's timeline
 
-A reader finds a series track's timeline in its index, with [[chunk heads]] read only where a
-[grid starts](format.md#grid-starts). `just bench-chunks` reads the timeline of 256 chunks of 1 MiB from memory,
-unaligned and aligned to 4 KiB.
+A reader finds a series track's timeline in its index. It reads [[chunk heads]] only where a [grid
+starts](format.md#grid-starts), a piece starts or samples are lost. `just bench-chunks` reads the timeline of 256 chunks
+of 1 MiB from memory, unaligned and aligned to 4 KiB.
 
 --8<-- "docs/plots/bench_chunks_timeline-0.txt"
 
@@ -235,8 +247,8 @@ default policies: a near of 32 MiB, and a copy 1 MiB after the newest record.
 --8<-- "docs/plots/bench_tracks_puts.txt"
 
 A put that finds its item near costs almost nothing. The bench writes a definition 60 KiB long again and again, each
-time within its near. The writer hashes nothing again:
-it compares the hash it computed once, when the application defined the item.
+time within its near. The writer hashes nothing again: it compares the hash it computed once, when the application
+defined the item.
 
 --8<-- "docs/plots/bench_tracks_idle.txt"
 
@@ -277,12 +289,13 @@ just jobs=4 bench-book   # every bench at release, into docs/bench/*.json
 just book-figures        # the charts and tables of this page, from those files
 ```
 
-Each bench runs on one core, except the RF chain with its worker threads. `bench-book` refuses a tree with changes,
-since a report names its commit. The RF chain needs as many GiB of free disk as `rf_gib` names, in `rf_dir` under
-`target/` by default.
+The run has a few conditions:
+
+- Each bench runs on one core, except the RF chain with its worker threads.
+- `bench-book` refuses a tree with changes, since a report names its commit.
+- The RF chain needs as many GiB of free disk as `rf_gib` names, in `rf_dir` under `target/` by default.
 
 Run the recipe on a quiet machine, and compare the load average under each table with your own run. `--help` lists
 each bench's settings.
 
-After a rerun, `cargo nextest run -p ww_tape_figures` names each number of this page that changed. The page
-[Numbers](numbers.md) points the anchors of an older index of numbers here.
+After a rerun, `cargo nextest run -p ww_tape_figures` names each number of this page that changed.

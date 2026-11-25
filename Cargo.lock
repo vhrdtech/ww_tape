@@ -525,6 +525,7 @@ dependencies = [
  "shrink_wrap",
  "tokio",
  "ww_tape",
+ "ww_tape_book_outputs",
  "ww_tape_fs",
  "ww_tape_mux",
  "ww_tape_summary",
@@ -563,6 +564,15 @@ dependencies = [
  "ww_tape",
  "ww_tape_fs",
  "ww_tape_mux",
+]
+
+[[package]]
+name = "example_settings"
+version = "0.16.0"
+dependencies = [
+ "shrink_wrap",
+ "ww_tape",
+ "ww_tape_book_outputs",
 ]
 
 [[package]]
@@ -1509,6 +1519,10 @@ dependencies = [
  "ww_tape_summary",
  "ww_tape_testalloc",
 ]
+
+[[package]]
+name = "ww_tape_book_outputs"
+version = "0.16.0"
 
 [[package]]
 name = "ww_tape_codecs"

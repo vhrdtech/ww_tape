@@ -9,14 +9,7 @@ covers definitions, state, the index and the end of a piece.
 
 Later sections cover resuming after a crash, reading by position, sessions and damage, and the codecs of chunk columns.
 
-The chapters of the book explain the format with examples, starting at [Tapes](index.md). Pages of earlier editions
-point to where their sections went:
-
-- [Tape concepts](concepts.md) and [Records, tracks and clocks](records_and_clocks.md);
-- [Events and series](events_and_series.md);
-- [Sessions, pieces and chains](sessions_and_pieces.md) and [Pieces and files](pieces_and_files.md);
-- [Sinks, files and locks](sinks_and_locks.md) and [Syncing, cuts and relays](syncing_and_cuts.md);
-- [Damage and recovery](recovery.md).
+The chapters of the book explain the format with examples, starting at [Tapes](index.md).
 
 The byte layouts on this page are copied from the module docs of the crate `ww_tape`, and a test checks that they match.
 
@@ -1151,7 +1144,7 @@ only there may be stale too, so the key reads as not whole. A first piece holds 
 a piece whose head has no row of the track, unless the head sets flag bit 1
 ([After damage inside a piece](#after-damage-inside-a-piece)).
 
-A keyed track is never left out of a cut ([Carried definitions](carried_definitions.md#when-they-dont-fit)). The
+A keyed track is never left out of a cut ([When carried definitions don't fit](carried_room.md)). The
 writer refuses a `put_key` that would make the carry too large for a piece. Its `InputError::CarryFull` names the
 limit (`CarryLimit`):
 
@@ -1708,7 +1701,7 @@ piece has no tail is open: it is being written, or a crash cut it off.
 
 A close record may name pieces of its chain that were removed on purpose. Each takes 56 bytes after the track rows:
 its sequence number, id and content hash. `check_chain` links over such pieces. A chain whose first pieces are named so
-reads as removed, not head cut ([Pieces removed on purpose](pieces.md#pieces-removed-on-purpose)).
+reads as removed, not head cut ([Pieces removed on purpose](old_pieces.md#pieces-removed-on-purpose)).
 
 ### 8.1 The chain report {#the-chain-report}
 

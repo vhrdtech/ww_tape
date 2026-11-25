@@ -63,12 +63,14 @@ fn an_empty_tracks_definitions_are_in_every_piece_once() {
     )
     .unwrap();
     let senders = define(&mux);
+    // --8<-- [start:put_definitions]
     let empty = define_empty(&mux, EMPTY, false);
     let twice = define_empty(&mux, TWICE, true);
     send(&senders[0], 0, 0);
     mux.put_definitions(&[empty, twice]).unwrap();
     send(&senders[0], 0, 1);
     mux.put_definitions(&[empty]).unwrap();
+    // --8<-- [end:put_definitions]
     mux.cut().unwrap();
     send(&senders[0], 0, 2);
     mux.cut().unwrap();

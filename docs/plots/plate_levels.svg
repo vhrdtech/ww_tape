@@ -1,0 +1,22 @@
+<svg class="ww-svg" viewBox="0 0 611 275.6" width="611" height="275.6" role="img" aria-label="the plate's overview levels" xmlns="http://www.w3.org/2000/svg">
+<text x="20.0" y="24.0" text-anchor="start" class="strong">Space overview levels of the plate, to scale: level, then rows × columns of cells</text>
+<rect x="20.0" y="56.0" width="204.8" height="153.6" rx="0" class="tint-blue line"/>
+<text x="20.0" y="229.6" text-anchor="start" class="small">0</text>
+<text x="20.0" y="247.6" text-anchor="start" class="soft small">96 × 128</text>
+<rect x="240.8" y="56.0" width="102.4" height="76.8" rx="0" class="tint-teal line"/>
+<text x="240.8" y="229.6" text-anchor="start" class="small">1</text>
+<text x="240.8" y="247.6" text-anchor="start" class="soft small">48 × 64</text>
+<rect x="359.2" y="56.0" width="51.2" height="38.4" rx="0" class="tint-teal line"/>
+<text x="359.2" y="229.6" text-anchor="start" class="small">2</text>
+<text x="359.2" y="247.6" text-anchor="start" class="soft small">24 × 32</text>
+<rect x="426.4" y="56.0" width="25.6" height="19.2" rx="0" class="tint-teal line"/>
+<text x="426.4" y="229.6" text-anchor="start" class="small">3</text>
+<text x="426.4" y="247.6" text-anchor="start" class="soft small">12 × 16</text>
+<rect x="486.4" y="56.0" width="12.8" height="9.6" rx="0" class="tint-teal line"/>
+<text x="486.4" y="229.6" text-anchor="start" class="small">4</text>
+<text x="486.4" y="247.6" text-anchor="start" class="soft small">6 × 8</text>
+<rect x="546.4" y="56.0" width="6.4" height="4.8" rx="0" class="tint-teal line"/>
+<text x="546.4" y="229.6" text-anchor="start" class="small">5</text>
+<text x="546.4" y="247.6" text-anchor="start" class="soft small">3 × 4</text>
+<text x="20.0" y="267.6" text-anchor="start" class="soft small">level k: every downsampled axis halved k times; each cell holds the smallest, largest and mean value</text>
+</svg>

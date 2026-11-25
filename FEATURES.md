@@ -135,7 +135,7 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   A record's time is a signed 64-bit tick count of its track's clock. Times are deltas per clock, so a block reads alone and holds no wall time. A clock has a stable key and an exact rate and resolution. A clock map turns one clock's ticks into another's with a named rounding. A track names its clock, its dimensions and its item type, and a typed item carries any WireWeaver value by that type.
 
-  Read more: [Clocks and ticks](docs/records_and_clocks.md#clocks-and-ticks).
+  Read more: [Clocks and ticks](docs/clocks.md#clocks-and-ticks).
 
 - ✅ **TRACK-2 Track identity by name path** · `v0.5`
 
@@ -147,13 +147,13 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Definitions are plain records on track 0: the producer, the layout, bundles, clocks, maps, tracks and typed items. Each has a slot, and the newest record per slot counts. The application holds its definitions and passes them with each write; data of a track it does not hold is refused. A state item is put again only where the same item does not lie close behind. The index lists state records, so a reader looks state up anywhere, damage included.
 
-  Read more: [Definitions on track 0](docs/blocks.md#definitions-on-track-0), [State tracks](docs/tape.md#state-tracks-and-near-use); `just bench-tracks` measures the cost. Fuzz target `tape-state-hostile`.
+  Read more: [Definitions](docs/definitions.md#what-a-definition-says), [State tracks](docs/tape.md#state-tracks-and-near-use); `just bench-tracks` measures the cost. Fuzz target `tape-state-hostile`.
 
 - ✅ **TRACK-4 What a track's items are**
 
   A track's definition says what its items are (`Items`): a WireWeaver stream's values, a ShrinkWrap type, plain bytes, numbers or a foreign format. A foreign format has a name, a media type and a version, and may carry its schema in the tape. Numbers are of an element the definition describes, of any width and byte order; series samples are numbers too. `Items` is evolvable: a variant from a newer ww_tape reads as unknown, and the rest of the definition stays intact.
 
-  Read more: [What a track's items are](docs/tracks.md#what-a-tracks-items-are), [Items of a track](docs/format.md#items-of-a-track). Tests `raw.rs`, `iq8.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
+  Read more: [What a track's items are](docs/items.md#what-a-tracks-items-are), [Items of a track](docs/format.md#items-of-a-track). Tests `raw.rs`, `iq8.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
 
 - ✅ **TRACK-5 Definitions carried into each new piece**
 
@@ -165,7 +165,7 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Every call that puts a definition or a state item also keeps track 0's copies of the layout and the producer. The first copy comes 4 KiB on (TRACK-12), later ones 1 MiB apart. Losing a piece's first blocks so loses neither, and a scan past the newest checkpoint takes its gap rules from the copy. A raw-media walk that starts before the first copy gets them from `OpenOptions::layout`.
 
-  Read more: [When bytes go bad](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`.
+  Read more: [When bytes go bad](docs/damaged_pieces.md#the-first-4-kib-lost). Tests `head_copies.rs`.
 
 - 🚧 **TRACK-7 Track and clock numbers given by the definitions**
 
@@ -207,7 +207,7 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Losing a piece's first 4 KiB so loses no definition. A raw-media walk past the loss reads past gaps without `OpenOptions::layout`. Later copies come at uses 1 MiB apart; `StatePolicy::DEFAULT.copies` is 2. Keyed items and group records get copies at uses only. A piece that ends within 4 KiB of its first data holds each definition once.
 
-  Read more: [Puts and copies](docs/format.md#puts-and-copies), [The first 4 KiB lost](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`, `definitions_twice.rs`, example_drive `damage.rs`.
+  Read more: [Puts and copies](docs/format.md#puts-and-copies), [The first 4 KiB lost](docs/damaged_pieces.md#the-first-4-kib-lost). Tests `head_copies.rs`, `definitions_twice.rs`, example_drive `damage.rs`.
 
 ## Writer (`WRITE`)
 
@@ -235,7 +235,7 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   The writer checks the head of a chunk it encodes, not the encoded bytes. A block the caller encoded is read once, with its CRCs checked. On a 1 MiB series chunk this costs 466 µs past the encoding.
 
-  Read more: [What the writer checks](docs/writing.md#what-the-writer-checks).
+  Read more: [What the writer checks](docs/writer_adds.md#what-the-writer-checks).
 
 - ✅ **WRITE-5 Pieces in memory**
 
@@ -261,13 +261,13 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   A close can name pieces of its chain that were removed on purpose, by sequence number, id and close hash. `TapeWriter::record_removed` appends these rows to the chain's last piece, and every later close of that piece names them again. The chain check links over the hole (`ChainLink::Removed`) when both ends match the rows. Removing the piece that holds the rows means naming them again.
 
-  Read more: [Pieces removed on purpose](docs/pieces.md#pieces-removed-on-purpose). Golden file `v1-removed.hex`.
+  Read more: [Pieces removed on purpose](docs/old_pieces.md#pieces-removed-on-purpose). Golden file `v1-removed.hex`.
 
 - ✅ **WRITE-16 Resume after removed pieces**
 
   A chain resumes from its lowest piece at hand, so retention and a writer that restarts work together. A hole in the middle is walked over when the closes at hand name its pieces as removed on purpose. Any other hole is refused. `PieceChain::remove` removes closed pieces in one call. It names them in the piece written, closes and syncs it (`TapeWriter::close_and_go_on`), then takes the pieces out of the store.
 
-  Read more: [Removing pieces while the chain is written](docs/pieces.md#removing-pieces-while-the-chain-is-written). Tests `ww_tape_tests/tests/it/chain_removal.rs`.
+  Read more: [Removing pieces while the chain is written](docs/old_pieces.md#removing-pieces-while-the-chain-is-written). Tests `ww_tape_tests/tests/it/chain_removal.rs`.
 
 - ✅ **WRITE-17 Groups of puts taken whole**
 
@@ -277,7 +277,7 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   A chain cuts before a group, never inside it, and `GroupHandle` sends one through the mux. A relay holds each producer's group until its last block and writes it whole; it drops none without an error. A group's block of definitions written twice at once is one of its blocks; the copy follows the group. Followers hold the places of a run's blocks, at most `RUN_BLOCKS_MAX`, not their bytes.
 
-  Read more: [Groups of puts](docs/format.md#groups-of-puts), [A torn group of puts](docs/crashes.md#a-torn-group-of-puts). Tests `ww_tape_tests/tests/it/groups.rs`, `ww_tape_fs/tests/follow_heap.rs`.
+  Read more: [Groups of puts](docs/format.md#groups-of-puts), [A torn group of puts](docs/resume_cases.md#a-torn-group-of-puts). Tests `ww_tape_tests/tests/it/groups.rs`, `ww_tape_fs/tests/follow_heap.rs`.
 
 ## Writing from many threads (`MUX`)
 
@@ -303,7 +303,7 @@ The writing thread and its handles, in the crate `ww_tape_mux`.
 
   Open: a typed handle's drop still sends blocking, so async code ends a handle with `finish_async`.
 
-  Read more: [Threads and tasks](docs/writing_thread.md#threads-and-tasks). Tests `mux_async.rs` on tokio's two schedulers and smol.
+  Read more: [Threads and tasks](docs/mux_queue.md#threads-and-tasks). Tests `mux_async.rs` on tokio's two schedulers and smol.
 
 - ✅ **MUX-4 A producer's own chunks, receipts and carried items**
 
@@ -333,7 +333,7 @@ Reading by position, checks and hashes, hostile bytes and live chains, in the cr
 
   Every reader takes damaged or hostile bytes without a panic, an overflow or an unbounded allocation. A number read from a block reaches a length or a loop only through a named cap. The crate docs list the caps in one table. Clippy's panic-class lints are denied, and each exception names its invariant. Every decoder has a fuzz target that builds valid blocks with hostile fields, and their seeds replay in `just test`.
 
-  Read more: [What the checks cannot do](docs/damage.md#what-the-checks-cannot-do).
+  Read more: [What the checks cannot do](docs/damaged_pieces.md#what-the-checks-cannot-do).
 
 - ✅ **READ-3 Range hashes from the index**
 
@@ -462,7 +462,7 @@ The pages in `docs/`.
 
 - 🚧 **BOOK-2 A book that teaches the format**
 
-  The book runs in six parts in dependency order, each page with a reading level, from a first tape through building, writing, reading and damage. Glossary terms and code links carry a card on hover, and a stale name fails `just book-check`. The pages' `rust` blocks run as doctests, their figures are drawn from real blocks, and their numbers come from bench reports. A format reference with numbered sections holds the detail.
+  The book runs in parts by reading level: a first tape, then building, writing, reading and damage, then options and internals. Glossary terms and code links carry a card on hover, and a stale name fails `just book-check`. The pages' `rust` blocks are sections of tests that run, their figures are drawn from real blocks, and their numbers come from bench reports. A format reference with numbered sections holds the detail.
 
   Open: the chapters that are still stubs, tested code in every guide chapter, and screenshots of autorange and damage once eventfull draws them.
 
@@ -482,8 +482,21 @@ The pages in `docs/`.
 
 - ✅ **BOOK-7 The book kit from PyPI**
 
-  The justfile pins `vhrd-zensical[zensical]==0.2.1` from PyPI, not the git tag: `just book-check` installs a wheel
-  and compiles nothing.
+  The justfile pins `vhrd-zensical[zensical]` at one version from PyPI, not a git tag: `just book-check` installs a
+  wheel and compiles nothing.
+
+  Read more: [For writers](docs/writers.md).
+
+- ✅ **BOOK-8 The book in parts by reading level**
+
+  The book runs Introduction, Basic, Advanced and Nomicon, then the Reference and Articles shelves. Each part opens with
+  a landing page.
+
+  - `vz check` keeps the order from `book_checks.toml` in `just test` and `just book-check`: no step down a level, a
+    level on every page, no bare `rust` fence, no stale generated file.
+  - Every `rust` block includes a section of a test that runs.
+  - Tests write every program output a page shows into `docs/generated/`.
+  - The pages meet spl's reading lints, apart from a snippet include that spl counts as prose.
 
   Read more: [For writers](docs/writers.md).
 

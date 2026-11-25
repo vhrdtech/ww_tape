@@ -1,27 +1,19 @@
-//! The program of the chapter "A first tape" prints what the page shows (`first_tape.out`, included there), and the
-//! file it writes is a closed piece that verifies.
+//! The program of the chapter "A first tape" prints what the page shows (`docs/generated/first_tape.txt`, included
+//! there), and the file it writes is a closed piece that verifies.
 #![allow(clippy::expect_used, reason = "tests fail by panicking")]
-
-use std::path::Path;
 
 use example_drive::Drive;
 use example_drive::first_tape::{FirstTapeError, run};
 use ww_tape::TapeReader;
 
 #[test]
-fn the_first_tape_prints_what_the_page_shows() -> Result<(), FirstTapeError> {
+fn book_output_first_tape() -> Result<(), FirstTapeError> {
     let dir = std::env::temp_dir().join(format!("example_drive-first-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(FirstTapeError::Io)?;
     let path = dir.join("drive.wwt");
     _ = std::fs::remove_file(&path);
     let report = run(&path, &Drive::full().minutes(1))?;
-    let want =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/first_tape.out"))
-            .map_err(FirstTapeError::Io)?;
-    assert_eq!(
-        report, want,
-        "tests/first_tape.out is what the program prints: copy it from `cargo run -p example_drive --bin first_tape`"
-    );
+    ww_tape_book_outputs::check("first_tape.txt", &report);
 
     let bytes = std::fs::read(&path).map_err(FirstTapeError::Io)?;
     let reader = TapeReader::open(&bytes[..])?;

@@ -4,11 +4,12 @@
 //! - `event_times.svg`: bytes per event and the time to find a tick, per workload and codec.
 //! - `chunk_cost.svg`: what the writer spends on a 1 MiB series chunk, by part.
 //! - `drive_sizes.svg`: where the bytes of the drive's hour go.
+//! - `archive_parallel.svg`: checking a set of piece files one at a time and in parallel, per operation.
 //! - `bench_*.txt`: the tables the pages include, each with the bench and the load average it ran at.
 //! - `bench_machine.txt`: the machine, build and commit every report of "Sizes and speeds" ran but the chunks report,
 //!   and the range of the load average.
 //! - `bench_chunks_machine.txt`: the same for the chunks report of "Sizes and speeds", rerun on its own.
-//! - `bench_handles_machine.txt`: the same for the handles report of "Writing from many threads".
+//! - `bench_handles_machine.txt`: the same for the handles report of "Back-pressure, errors and speed".
 //! - `bench_read_check_machine.txt`: the same for the read_check report of "When bytes go bad".
 //! - `bench_levels_machine.txt`: the same for the levels report of "Fewer checks, sealed later".
 //! - `bench_archive_parallel_machine.txt`: the same for the archive_parallel report of "Checking many pieces at once".
@@ -345,6 +346,54 @@ fn drive_sizes(r: &Reports) -> anyhow::Result<String> {
     .svg())
 }
 
+/// The archive bench's three operations, as the report names their tables, and how a row of the chart names each.
+const ARCHIVE_OPS: [(&str, &str); 3] = [
+    ("verify", "verify, Full"),
+    ("range_hash", "range hash, CrcOnly"),
+    ("resume", "resume, unclosed"),
+];
+
+fn archive_parallel(r: &Reports) -> anyhow::Result<String> {
+    let mut rows = Vec::new();
+    let mut rate = Vec::new();
+    let mut tags = Vec::new();
+    let mut load = String::new();
+    for (id, name) in ARCHIVE_OPS {
+        let t = table(&r.archive_parallel, id)?;
+        ensure!(
+            t.rows.len() == 2,
+            "table {id}: one row one at a time, one in parallel"
+        );
+        let mut rr = Vec::new();
+        let mut tt = Vec::new();
+        for row in &t.rows {
+            rr.push(Some(value(t, row, "GB/s at the median")?));
+            let speedup = value(t, row, "Speedup at the median")?;
+            tt.push((speedup != 1.0).then(|| format!("{speedup:.2}×")));
+        }
+        rows.push(name.to_owned());
+        rate.push(rr);
+        tags.push(tt);
+        if load.is_empty() {
+            load = note(&r.archive_parallel, t);
+        }
+    }
+    Ok(Chart {
+        label: "Checking a set of piece files one at a time and in parallel: GB/s at the median run, with the speedup at the parallel bar".to_owned(),
+        rows,
+        series: series(&[("one piece at a time", "tint-ink"), ("in parallel (rayon)", "blue")]),
+        panels: vec![Panel {
+            axis: "GB/s at the median run".to_owned(),
+            log: false,
+            digits: 2,
+            values: rate,
+            tags,
+        }],
+        note: load,
+    }
+    .svg())
+}
+
 /// A number as a page shows it: whole numbers of five digits or more in groups of three, split by spaces.
 pub(crate) fn shown(c: &Cell) -> String {
     match c {
@@ -468,6 +517,7 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         ("event_times.svg".to_owned(), event_times(&r)?),
         ("chunk_cost.svg".to_owned(), chunk_cost(&r)?),
         ("drive_sizes.svg".to_owned(), drive_sizes(&r)?),
+        ("archive_parallel.svg".to_owned(), archive_parallel(&r)?),
         ("bench_machine.txt".to_owned(), machine(&r)?),
         (
             "bench_chunks_machine.txt".to_owned(),

@@ -1,0 +1,4 @@
+| Walk over the flipped piece | Blocks it hands out | Where it ends |
+|---|---:|---|
+| `Recovery::Prefix` | 1158 | stops at the damaged chunk, about 9.7 MB in |
+| `Recovery::Resync` | 3459 | reads to the end, the damaged chunk among its blocks, with 0 reports |

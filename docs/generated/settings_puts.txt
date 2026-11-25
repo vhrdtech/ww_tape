@@ -1,0 +1,9 @@
+    0 ms  limit/current_ma = 12000                             written
+    0 ms  pid/kp = 0.80                                        written
+    0 ms  pid/ki = 0.05                                        written
+    0 ms  debug/trace = on                                     written
+    0 ms  profile = gentle                                     written
+ 1000 ms  pid/kp = 0.80                                        nothing new
+ 2000 ms  delete debug/trace                                   written
+ 3000 ms  group: profile = fast, pid/kp = 1.20, pid/ki = 0.09  written
+ 5000 ms  limit/current_ma = 15000                             written

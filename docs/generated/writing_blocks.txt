@@ -1,0 +1,12 @@
+| Blocks | Made by | Count | Bytes |
+|---|---|---:|---:|
+| piece head | the writer | 4 | 2064 |
+| records blocks of puts and copies | the writer | 43 | 8306 |
+| records blocks | the recorder | 3600 | 811071 |
+| events chunks | the recorder | 3600 | 8400924 |
+| series chunks | the recorder | 3600 | 99617283 |
+| summary blocks | the mux | 2948 | 3301304 |
+| checkpoints | the writer | 24 | 1590400 |
+| final index | the writer | 4 | 1778048 |
+| close | the writer | 4 | 13528 |
+| tail | the writer | 4 | 656 |

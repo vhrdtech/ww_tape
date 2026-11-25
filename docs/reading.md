@@ -14,6 +14,12 @@ The example is a query on the drive's recording for the second around the fault 
 is a chain of four [[pieces]], about 116 MB in all. Every number below comes from [`src/fault.rs`]. This program
 runs each step on that recording and counts the bytes it reads. `cargo run -p example_drive` prints them.
 
+??? example "What `cargo run -p example_drive` prints for the query"
+
+    ```text
+    --8<-- "docs/generated/fault.txt"
+    ```
+
 ## Byte sources
 
 A [[reader]], [`TapeReader`], reads a [[tape]] through a [[byte source]]: anything with a length that reads bytes at an
@@ -53,13 +59,13 @@ For the drive's chain, opening reads about 19 KB in 28 reads, and [`TapeReader::
 which ticks the track's [[chunks]] cover in that piece. The program picks the piece whose row reaches 52:00, without
 another read:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:open"
 ```
 
 ??? example "What the example uses here: `fault_us`, `key`, `Opened`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:fault_us_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"
@@ -89,13 +95,13 @@ together. An entry says where the block is and what it holds, so a reader picks 
 index's directory and that track's list, each checked by its own CRC. It never walks the
 file. The example asks for `phase_a` in the second either side of the fault:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:find"
 ```
 
 ??? example "What the example uses here: `fault_us`, `key`, `Found`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:fault_us_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"
@@ -141,21 +147,21 @@ and the `mode` track says what the controller was doing.
 has an index entry of its own, which holds its slot and the hash of its item. The lookup therefore goes through the
 index to the one block it needs:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:mode"
 ```
 
 ??? example "What the example uses here: `number_of`, `InForce`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:number_of_item"
 
     --8<-- "examples/example_drive/src/fault.rs:in_force_item"
     ```
 
 At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:36 lies about 12 MB behind. That
-record is the [[state copy]] which the [[writer]] adds after the record the cut carried into the last [[piece]]. At the chunk
-from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies about 2 KB behind.
+record is the [[state copy]] which the [[writer]] adds after the record the cut carried into the last [[piece]]. At the
+chunk from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies about 2 KB behind.
 
 The number of `mode` is only the file's name for the track, so the reader first finds it by its key among the
 definitions in force. With that, both lookups together read about 5.7 KB in 10 reads. Each record lies within [[near]],

@@ -11,7 +11,9 @@
 use example_capture::about;
 use example_drive::fault::Fault;
 use example_drive::writing::Writing;
-use example_drive::{Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story, parts};
+use example_drive::{
+    Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story, parts, parts_table,
+};
 use ww_tape::reader::Found;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -178,15 +180,11 @@ fn first_salvaged(drive: &Drive, d: &Damaged) -> Result<Salvaged, Error> {
 }
 
 /// The blocks of `piece` by part, and the share the parts a reader finds its way with take.
-fn print_blocks(piece: &[u8]) -> Result<(), Error> {
+fn print_blocks(piece: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
     let parts = parts(piece)?;
     println!("Piece 0, {} bytes, by its blocks:", piece.len());
     println!();
-    println!("| Blocks | Count | Bytes |");
-    println!("|---|---:|---:|");
-    for p in &parts {
-        println!("| {} | {} | {} |", p.name, p.count, p.bytes);
-    }
+    print!("{}", parts_table(&parts)?);
     let structure: u64 = parts
         .iter()
         .filter(|p| p.is_structure())

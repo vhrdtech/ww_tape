@@ -25,7 +25,7 @@ The archived last piece then takes damage three ways: a flipped bit, its first 4
 
 `tests/story.rs` checks three things. The full hour is the same every run, and its crash lands where the story says. A scaled run resumes from a crash at any byte.
 
-`tests/writing.rs` pins the numbers of the book's writing chapters in `tests/writing.out`. They are the calls and the blocks they make, the hour in an aligned file and the columns per codec. They also cover the crash per sync policy, the cut, the chain without its first piece, and the relay.
+`tests/writing.rs` pins the numbers of the book's writing chapters in `docs/generated/writing.txt`. They are the calls and the blocks they make, the hour in an aligned file and the columns per codec. They also cover the crash per sync policy, the cut, the chain without its first piece, and the relay.
 
 `tests/damage.rs` checks what each damage costs and that a reader of the raw card never takes the earlier run for data.
 

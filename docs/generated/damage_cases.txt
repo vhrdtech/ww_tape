@@ -1,0 +1,5 @@
+| Damage | The reader finds the piece by | Content hash | Blocks that read | Definitions found |
+|---|---|---|---:|---:|
+| a flipped bit | its tail | does not hold | 3448 | 10 of 10 |
+| the first 4 KiB lost | its tail | does not hold | 3444 | 10 of 10 |
+| the last 4 KiB lost | its final index, with no byte to scan after it | no close to check | 3449 | 10 of 10 |

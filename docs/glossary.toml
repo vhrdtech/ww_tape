@@ -17,7 +17,7 @@ chapter = "../anatomy/"
 [[term]]
 name = "back-pressure"
 short = "What a producer meets when the mux's queue is full: its handle waits, fails or drops the unit, by its pressure."
-chapter = "../writing_thread/"
+chapter = "../mux_queue/"
 
 [[term]]
 name = "BLAKE3"
@@ -47,6 +47,12 @@ name = "box query"
 forms = ["box queries"]
 short = "A search of the index for the chunks of a time range and a box of cells, by the tile numbers of its entries, with no chunk read."
 chapter = "../grids/"
+
+[[term]]
+name = "bytes track"
+forms = ["bytes tracks"]
+short = "A track whose items are values made elsewhere, such as a firmware image, each written as parts and read whole with its hash checked."
+chapter = "../tracks/"
 
 [[term]]
 name = "CAN"
@@ -153,7 +159,7 @@ chapter = "../pieces/"
 name = "deferred block"
 forms = ["deferred blocks"]
 short = "A small block, such as summaries, that the writer holds back for a gap before a chunk's payload in an aligned file."
-chapter = "../writing/"
+chapter = "../aligned/"
 
 [[term]]
 name = "definition"
@@ -171,7 +177,7 @@ chapter = "../tracks/"
 name = "duplicate"
 forms = ["duplicates"]
 short = "A block that a tape holds twice, with the same session and sequence number, such as after a writer retried a write."
-chapter = "../raw_media/"
+chapter = "../raw_gaps/"
 
 [[term]]
 name = "epoch"
@@ -219,7 +225,7 @@ chapter = "../growing_pieces/"
 name = "gap"
 forms = ["gaps"]
 short = "A blank or bad stretch of a raw medium after which the same session goes on; a reader reports its length and reads on."
-chapter = "../raw_media/"
+chapter = "../raw_gaps/"
 
 [[term]]
 name = "grid"
@@ -232,6 +238,12 @@ name = "grid track"
 forms = ["grid tracks"]
 short = "A series track with fixed axes beside time, such as a thermal field or an image sequence; not the grid of a series chunk."
 chapter = "../grids/"
+
+[[term]]
+name = "group of puts"
+forms = ["groups of puts", "group", "groups"]
+short = "Puts on several state tracks or keys that a reader takes all together or not at all."
+chapter = "../state/"
 
 [[term]]
 name = "handle"
@@ -262,6 +274,18 @@ name = "item number"
 forms = ["item numbers"]
 short = "The count of a track's items from 0 over the whole recording, across pieces, the same in every copy of it."
 chapter = "../tracks/"
+
+[[term]]
+name = "key"
+forms = ["keys"]
+short = "The bytes, at most 1024, that name one slot of a keyed state track, such as `pid/kp`."
+chapter = "../state/"
+
+[[term]]
+name = "keyed state track"
+forms = ["keyed state tracks", "keyed track", "keyed tracks"]
+short = "A state track with one slot per key, such as a parameter path, whose newest value or deletion is in force."
+chapter = "../state/"
 
 [[term]]
 name = "layout"
@@ -307,13 +331,19 @@ chapter = "../writing_thread/"
 [[term]]
 name = "near"
 short = "How far behind a use a state item must lie in the same piece, 32 MiB by default; a put closer than that writes nothing."
-chapter = "../definitions/"
+chapter = "../state/"
 
 [[term]]
 name = "owner id"
 forms = ["owner ids"]
 short = "A 32-byte id that the application chooses and every piece head, close and tail of its chain carries."
 chapter = "../pieces/"
+
+[[term]]
+name = "part"
+forms = ["parts"]
+short = "One events chunk of a value on a bytes track; a value's parts are numbered on as items and end in its seal."
+chapter = "../tracks/"
 
 [[term]]
 name = "payload"
@@ -355,7 +385,7 @@ chapter = "../"
 name = "put"
 forms = ["puts"]
 short = "A call that gives the writer a state item at its use; the writer writes the item only when no record of it lies near behind."
-chapter = "../definitions/"
+chapter = "../state/"
 
 [[term]]
 name = "range hash"
@@ -391,7 +421,7 @@ chapter = "../blocks/"
 name = "recovery mode"
 forms = ["recovery modes"]
 short = "How a walk over blocks meets damage: Prefix stops at the first bad block, Resync reports it and reads on."
-chapter = "../damage/"
+chapter = "../reading_past_damage/"
 
 [[term]]
 name = "relation break"
@@ -415,7 +445,7 @@ chapter = "../crashes/"
 name = "salvage"
 forms = ["salvaged"]
 short = "Reading every item of a damaged chunk that still reads, and marking the rest as suspect."
-chapter = "../damage/"
+chapter = "../reading_past_damage/"
 
 [[term]]
 name = "sample"
@@ -434,6 +464,12 @@ name = "SD"
 long = "Secure Digital"
 short = "A memory card standard; the drive's board keeps its recent logs on an SD card."
 chapter = "../raw_media/"
+
+[[term]]
+name = "seal"
+forms = ["seals"]
+short = "The last part of a value on a bytes track: the value's first part, its length and its BLAKE3 hash."
+chapter = "../tracks/"
 
 [[term]]
 name = "segment"
@@ -497,13 +533,13 @@ chapter = "../raw_media/"
 name = "state"
 forms = ["state item", "state items"]
 short = "An item that stays in force until the next one of its slot replaces it, such as the drive's mode."
-chapter = "../definitions/"
+chapter = "../state/"
 
 [[term]]
 name = "state copy"
 forms = ["state copies"]
 short = "An extra record of a state item: the first 4 KiB after its first record in a piece, later ones at a use at least 1 MiB apart, as a guard against damage around one place; a copy in this book is always a state copy."
-chapter = "../definitions/"
+chapter = "../state/"
 
 [[term]]
 name = "state entry"
@@ -515,7 +551,7 @@ chapter = "../format/#state-entries"
 name = "state track"
 forms = ["state tracks"]
 short = "A track whose items are state, such as the drive's `mode`; the writer keeps its items near their uses."
-chapter = "../definitions/"
+chapter = "../state/"
 
 [[term]]
 name = "store"
@@ -538,7 +574,7 @@ chapter = "../summaries/"
 [[term]]
 name = "suspect"
 short = "An item that salvage could not vouch for: one of a group whose record does not agree with its neighbours."
-chapter = "../damage/"
+chapter = "../reading_past_damage/"
 
 [[term]]
 name = "sync policy"

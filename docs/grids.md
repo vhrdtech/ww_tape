@@ -19,11 +19,11 @@ The run is 600 readings of 12 288 cells. The cells take 15 MB as written. Sizes 
 
 The track's definition names the two axes:
 
-```rs
+```rust
 --8<-- "examples/example_thermal/src/lib.rs:axes"
 ```
 
-```rs
+```rust
 --8<-- "examples/example_thermal/src/lib.rs:def"
 ```
 
@@ -34,7 +34,7 @@ such as the red, green and blue of a pixel, stay inside the cell and are not an 
 
 The readings come from one function of the cell and the reading:
 
-```rs
+```rust
 --8<-- "examples/example_thermal/src/lib.rs:value"
 ```
 
@@ -50,15 +50,14 @@ tiles take 4 bits.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/plate_tiles.svg"
-<figcaption>Left: the plate's 12 tiles with their coordinates and tile numbers, and a box query over rows 40 to 56 and
-columns 20 to 60, which meets 2 tiles. Right: the levels of space overviews, each half the size of the one before.
-Drawn by <code>ww_tape_figures</code> from the plate's layout.</figcaption>
+<figcaption>The plate's 12 tiles with their coordinates and tile numbers, and a box query over rows 40 to 56 and
+columns 20 to 60, which meets 2 tiles. Drawn by <code>ww_tape_figures</code> from the plate's layout.</figcaption>
 </figure>
 
 A writer takes whole readings of the plate. Its [`GridHandle`] splits each reading into the open chunk of every tile,
 and it completes the chunks of all tiles together:
 
-```rs
+```rust
 --8<-- "examples/example_thermal/src/lib.rs:record"
 ```
 
@@ -71,7 +70,7 @@ A viewer that opens the corner of the plate asks for a [[box query]]: a box of c
 [`TileLayout::tile_box`] turns the box into a range of tile coordinates along each axis. [`TapeReader::grid_tiles`]
 then tests each index entry of the track by shift and mask on the tile number. It reads no chunk to do so:
 
-```rs
+```rust
 --8<-- "examples/example_thermal/src/lib.rs:box_query"
 ```
 
@@ -80,11 +79,7 @@ It finds 2 chunks in the first 10 s, where the whole plate has 12 of them. The q
 The viewer reads only the chunks it wants.
 
 ```rust
-use example_thermal::{BOX_COLUMNS, BOX_ROWS, Thermal};
-let layout = Thermal::plate().layout().expect("a valid layout");
-// the box of the figure meets tile row 1 and tile columns 0 and 1
-let tiles = layout.tile_box(&[BOX_ROWS, BOX_COLUMNS]).expect("two axes");
-assert_eq!(tiles.ranges(), [(1, 2), (0, 2)]);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:tile_box"
 ```
 
 ## A region over time
@@ -93,7 +88,7 @@ A timeline of one part of the plate needs no cell. The writer keeps a [[summary 
 of the tile. The nodes of a tile form the same tree a series has ([Summaries](summaries.md)). A viewer merges the
 nodes of the tiles in a box into the timeline of that region with [`region_timeline`]:
 
-```rs
+```rust
 --8<-- "examples/example_thermal/src/lib.rs:region"
 ```
 
@@ -106,6 +101,12 @@ from node 9, when the spot has left the tile. The heater's tile stays between 40
 A viewer that draws the whole plate in 8 columns of pixels needs far fewer cells than the plate has. The writer
 therefore keeps [[space overviews|space overview]]. Overview level `k` halves each downsampled axis `k` times.
 It keeps every reading.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/plate_levels.svg"
+<figcaption>The plate's levels of space overviews to scale, each half the size of the one before on both axes. Drawn
+by <code>ww_tape_figures</code> from the plate's layout.</figcaption>
+</figure>
 
 Each cell of a level holds the smallest value, the largest value and the mean of the cells it covers. A tile's chunk
 and its overview chunks go to the tape as one unit. A reader never sees a tile chunk without its overviews, because a
@@ -130,7 +131,7 @@ A viewer picks the level from the cells one pixel covers. [`TileLayout::level_fo
 still fits in a pixel. The viewer then finds the chunks of that level with a box in that level's cells. It reads the
 mean, the smallest or the largest column of each:
 
-```rs
+```rust
 --8<-- "examples/example_thermal/src/lib.rs:view"
 ```
 
@@ -146,11 +147,7 @@ level 0 reads 2.5 MB for one reading:
 | 32 | 5 | 3 × 4 | 12 | 9.1 KB |
 
 ```rust
-use example_thermal::Thermal;
-let layout = Thermal::plate().layout().expect("a valid layout");
-assert_eq!(layout.overview_levels(), 5);
-// a pixel of 4 cells takes level 2, whose cells are 4 cells wide
-assert_eq!(layout.level_for(&[4.0, 4.0]), 2);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:overview_level"
 ```
 
 ## Where overviews end
@@ -166,7 +163,7 @@ A bright square moves along a gradient.
 
 The same 10 frames, 922 KB each, in three tile sizes, rows × columns:
 
-```rs
+```rust
 --8<-- "examples/example_images/src/lib.rs:tiles"
 ```
 
@@ -185,10 +182,7 @@ mean many small reads. A tile extent is therefore a choice between a cheap box q
 A power of two gives the most levels: log2 of the extent, at most [`GRID_OVERVIEW_LEVELS_MAX`].
 
 ```rust
-use example_images::Images;
-let sixty = Images::frames().tiles(60, 60).layout().expect("a valid layout");
-let sixty_four = Images::frames().layout().expect("a valid layout");
-assert_eq!((sixty.overview_levels(), sixty_four.overview_levels()), (2, 6));
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:tile_sizes"
 ```
 
 The [format reference](format.md#fixed-axes-and-tiles) holds the bytes of the tile number, the overview chunks and the

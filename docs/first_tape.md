@@ -21,12 +21,12 @@ It writes the drive's first minute into a file `drive.wwt` in a directory of the
 names the file. Then it opens the file and prints one line for each [[track]]:
 
 ```text
---8<-- "examples/example_drive/tests/first_tape.out"
+--8<-- "docs/generated/first_tape.txt"
 ```
 
-The counts follow from the drive's rates, which [What a tape holds](tape.md) lists. A second holds three log lines,
-one temperature, 1 000 frames and 25 000 [[samples]]. The mode is idle, because the drive starts to run only after its first minute. A test checks that the program prints these lines, so they
-change with the code that makes them.
+The counts follow from the drive's rates, which [What a tape holds](tape.md) lists. A second holds three log lines, one
+temperature, 1 000 frames and 25 000 [[samples]]. The mode is idle, because the drive starts to run only after its first
+minute. A test checks that the program prints these lines, so they change with the code that makes them.
 
 ## The definitions come first
 
@@ -52,13 +52,13 @@ shows how to define a track of your own.
 [[writer]] the minute, one act at a time. [`Drive::acts`] makes the acts from the drive's signals, in the order the
 host receives them, and four calls of the writer take them. A fifth call [[closes|close]] the file:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/first_tape.rs:write"
 ```
 
 ??? example "What the example uses here: `Drive`, `Drive::acts`, `Drive::definitions`, `Act`, `records_block`, `DriveNumbers`, `Mode`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/lib.rs:drive_item"
 
     --8<-- "examples/example_drive/src/record.rs:drive_acts_item"
@@ -81,7 +81,7 @@ definitions on a thread of its own, the [[writing thread]].
 A [[handle]] of the mux takes each kind of act: the mode's puts, the records blocks, the chunks of frames and the
 samples. The drive's own recorder works so. It defines the clocks and tracks on the mux, then makes the handles:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:create"
 
 --8<-- "examples/example_drive/src/record.rs:handles"
@@ -90,7 +90,7 @@ samples. The drive's own recorder works so. It defines the clocks and tracks on 
 The recorder gives each act to its handle, in the order the host receives them, and waits until the mux has placed
 it:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:apply"
 ```
 
@@ -103,7 +103,7 @@ writes needs none of this and uses the writer's own calls.
 
 ??? example "What the example uses here: `Recorder`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/record.rs:recorder_item"
 
     --8<-- "examples/example_drive/src/record.rs:series"
@@ -122,13 +122,13 @@ Each call of the writer does one job:
 The application makes a [[records block]] itself with a [`BlockWriter`]. It pushes each [[record]] with its
 [[track]] and time, and the [`BlockWriter`] adds the [[block header]] and the checksum:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:records"
 ```
 
 ??? example "What the example uses here: `DriveNumbers`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:ids_item"
     ```
 
@@ -162,13 +162,13 @@ follows with the piece's [[content hash]], padded with zeros so that the [[tail]
 A [[reader]] starts at the end of the [[piece]]. It finds the [[tail]] there, and from it the [[close record]] and the
 [[final index]]. The program reads the whole file into memory and opens it with [`TapeReader::open`]:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/first_tape.rs:read"
 ```
 
 ??? example "What the example uses here: `Track, Items`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/first_tape.rs:tracks_types_item"
     ```
 

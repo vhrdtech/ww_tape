@@ -14,9 +14,9 @@ two kinds of block hold [[items]]: the [[records block]] and the [[chunk]].
 
 ## The block header
 
-A [[tape]] is a sequence of [[blocks]], written one after another with no space between them. A [[live feed]] sends one
-block per message, and a file is blocks back to back. Every block has three parts: a 32-byte [[block header]], a body,
-and a CRC over everything before it, the [[CRC-32C]].
+A [[tape]] is a sequence of [[blocks]], written one after another with no space between them. A [[live feed]] sends
+one block per message, and a file is blocks back to back. Every block has three parts: a 32-byte [[block header]], a
+body, and a CRC over everything before it, the [[CRC-32C]].
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/block.svg"
@@ -25,26 +25,37 @@ holds a clock table and each record's track, time delta, length and item, and th
 <code>ww_tape_figures</code> from the bytes <code>BlockWriter</code> writes.</figcaption>
 </figure>
 
-The header starts with the magic `WWTP` and the format's version. Then come the block's kind, flags, total length, and a
-count of the [[records]] or [[items]] it holds. Two more fields tell a [[reader]] where the block belongs:
+The header starts with the magic `WWTP` and the format's version. Then come the block's kind, its header bits, its
+total length, and a count of the [[records]] or [[items]] it holds. Two more fields tell a [[reader]] where the block
+belongs:
 
-- The [[sequence number]] counts a [[writer]]'s blocks from 0. A jump in the numbers tells the reader how many blocks it
-  lacks.
+- The [[sequence number]] counts a [[writer]]'s blocks from 0. A jump in the numbers tells the reader how many blocks
+  it lacks.
 - The [[session tag]] is the same in every block of one writer's unbroken append. It lets a reader tell current blocks
   from blocks that an earlier recording left on a reused medium.
 
-The header and the CRC-32C are the same in every version of the format. A reader therefore checks any block and finds
-its end by its length, whatever its kind or version. A changed byte anywhere in the block fails the CRC, and the reader
-knows the block is damaged. One header bit narrows the CRC to a chunk's head, for writers that must keep up with a fast
-source ([Fewer checks, sealed later](integrity.md)).
+## What every reader knows
+
+Some parts of the header never change between versions of the format, so that any reader can handle any block. They
+form the **block contract**:
+
+- the magic, the version, the kind and the length;
+- header bit 1, which marks a block of [[state]] records that a writer put or copied;
+- header bit 3, which narrows the CRC to what the block's kind says, such as a chunk's head;
+- the CRC-32C at the end.
+
+A reader therefore checks any block and finds its end by its length, whatever its kind or version. A changed byte
+anywhere in the block fails the CRC, and the reader knows the block is damaged. Bit 3 serves writers that must keep up
+with a fast source, as [Fewer checks, sealed later](integrity.md) explains.
+
+Every other header bit is a flag, and a flag only marks. A reader that does not know a flag still reads every byte of
+the block right, and loses only what the mark tells. A body that reads another way is never a flag: it is a kind of
+its own, such as the coded records block.
 
 A block of a kind the reader does not know reads as a good block whose body it skips, and the reading goes on. A newer
-kind of block thus never looks like damage to an old reader. Besides the bit that narrows the CRC, one header bit
-marks a block of state a writer put or copied, which every reader knows. The other flags only mark: a body that reads
-another way, such as a coded body, is a kind of its own.
-
-A block of a later version is different: it ends the [[piece]] the reader is in. The reader lists the rest as a piece
-of that version, which it refuses to read ([`ReadError::Version`]).
+kind of block thus never looks like damage to an old reader. A block of a later version is different: it ends the
+[[piece]] the reader is in. The reader lists the rest as a piece of that version, which it refuses to read
+([`ReadError::Version`]).
 
 ## Kinds of block
 
@@ -57,7 +68,28 @@ Each kind of [[block]] has one job. They fall into four groups:
 | Overview | summary, tile summary | coarse views of long tracks and of each tile of a grid, rebuilt from the data when lost |
 | Structure | piece head, index, close, tail | where things are, how the file ends, how files chain |
 
-[Definitions and state](definitions.md) covers the description, [Anatomy of a piece](anatomy.md) the structure and
+The first piece of the tuning session in `example_settings` shows most of them. Its listing gives each block's offset,
+length, kind and count, and the names of the header bits set. The program reads each block alone:
+
+```rust
+--8<-- "examples/example_settings/src/lib.rs:blocks"
+```
+
+```text
+--8<-- "docs/generated/settings_blocks.txt"
+```
+
+The listing reads from the top down:
+
+1. The [[piece head]] opens the piece.
+2. Blocks of [[puts]] follow, marked `put`: records blocks of definitions and keyed puts of parameters. The [[group of
+   puts]] takes two blocks, marked `group`, the first also `group start`.
+3. The firmware's five parts are events chunks.
+4. After the first part, a block of puts holds the first [[state copies]] of the definitions. They come once their first
+   records lie 4 KiB behind.
+5. The index, the close and the tail end the piece.
+
+[Definitions](definitions.md) covers the description, [Anatomy of a piece](anatomy.md) the structure and
 [Summaries](summaries.md) the overview.
 
 ## Records blocks
@@ -74,29 +106,7 @@ The drive writes its log lines and temperatures into one records block a second.
 [`BlockWriter`], reads it back with [`Block::read`], and changes one byte:
 
 ```rust
-use ww_tape::{Block, BlockId, BlockKind, BlockWriter, ClockTime, SessionTag};
-use example_drive::definitions;
-
-// The numbers the drive's definitions give its board clock and its tracks.
-let (_, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-let (board, log, temp) = (numbers.board_clock, numbers.log, numbers.temp);
-let mut buf = [0u8; 256];
-let id = BlockId::new(SessionTag::writable(1), 0);
-let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[board]).expect("room");
-// A log line at 1 s and the temperature, 32.15 °C, 250 µs later.
-w.push(log, ClockTime::new(board, 1_000_000), &[b"motor: run"]).expect("room");
-w.push(temp, ClockTime::new(board, 1_000_250), &[&3_215i16.to_le_bytes()]).expect("room");
-let len = w.finish();
-assert_eq!(len, 59);
-
-let block = Block::read(&buf[..len]).expect("a good block");
-assert_eq!((block.kind, block.record_count), (BlockKind::Records, 2));
-let tracks: Vec<_> = block.records().map(|r| r.expect("reads").track).collect();
-assert_eq!(tracks, [log.into(), temp.into()]);
-
-// One changed bit fails the CRC-32C.
-buf[40] ^= 1;
-assert!(Block::read(&buf[..len]).is_err());
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:records_block"
 ```
 
 A records block suits a track that produces a few items at a time. It is complete as soon as it holds one record, so a
@@ -110,7 +120,8 @@ together, all payload lengths, all [[payloads]]. Each column packs its values wi
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/records_vs_chunk.svg"
-<figcaption>The drive's first 96 CAN frames stored twice. As a records block, each frame carries its own track, time and length. As an events chunk, the frames' times pack into one column and their payloads into another. Drawn by
+<figcaption>The drive's first 96 CAN frames stored twice. As a records block, each frame carries its own track, time
+and length. As an events chunk, the frames' times pack into one column and their payloads into another. Drawn by
 <code>ww_tape_figures</code> from the two blocks <code>ww_tape</code> writes, to one scale.</figcaption>
 </figure>
 
@@ -119,8 +130,8 @@ chunk. A [[chunk head]] costs more than a [[records block]]'s header, and its co
 holds a second of frames, 1000 of them, at about 2.3 bytes a frame over the whole recording.
 
 A chunk head also carries what a reader needs to place it alone. It names the track by its [[track id]], gives the
-[[item number]] of its first item and the ticks of its first and last item. It checks its payload in [[segments]] of 64
-KiB, each with its own [[CRC]], so damage costs one segment, not the chunk.
+[[item number]] of its first item and the ticks of its first and last item. It checks its payload in [[segments]] of
+64 KiB, each with its own [[CRC]], so damage costs one segment, not the chunk.
 
 There are two kinds of chunk, one per way a track keeps its items:
 
@@ -137,12 +148,4 @@ There are two kinds of chunk, one per way a track keeps its items:
 | The drive's tracks | `log`, `temp`, the puts of `mode` | `can0` in events chunks, `phase_a` in series chunks |
 
 [Event times and their codecs](columns.md) and [Samples and their codecs](sample_codecs.md) show how the columns are
-coded, and [Events](events.md) and [Series](series.md) how a
-reader reads them.
-
-## Definitions on track 0
-
-A [[reader]] needs to know what each [[track]] is before its [[items]] mean anything. Track 0 holds that knowledge: each
-record on it is a [[definition]] of a [[clock]], a [[clock map]], a track or the [[producer]]. Records of track 0 carry
-no time, and a [[block]] that holds them holds nothing else. [Definitions and state](definitions.md) explains how a
-[[writer]] places them and how a reader finds them.
+coded. [Events](events.md) and [Series](series.md) show how a reader reads them.

@@ -27,7 +27,7 @@ fuzz_host_triple := `rustc -vV | sed -n 's/^host: //p'`
 nightly := "nightly-2026-11-19"
 # The book kit: cards, glossary, abbreviations, lexers, the footer stamp and the `vz` command, with its tested
 # Zensical pinned as an extra, so this one pin covers both
-kit := "vhrd-zensical[zensical]==0.2.1"
+kit := "vhrd-zensical[zensical]==0.3.1"
 # The prose lints book-check runs: at deny in spirit_level.toml
 prose_lints := "--only prose-run-words --only page-reading-time --only heading-words --only code-wall --only code-block-language --only passive-voice --only reading-ease --only orphan-pages --only page-title --only abbreviation-first-use --only term-before-definition --only paragraph-sentences --only sentence-words --only emoji --only page-links --only nav-entries"
 
@@ -217,14 +217,27 @@ book: book-refs
 book-serve: book-refs
     uv run --with "{{ kit }}" zensical serve
 
-# The book's checks: the strict build, then the prose lints, so a broken link or a long page cannot land
+# The book's checks: the frame, the strict build, then the prose lints, so a step down a level, a broken link or a
+# long page cannot land
 [group('book')]
-book-check: book-strict book-prose
+book-check: book-frame book-strict book-prose
+
+# The book's frame (book_checks.toml): the nav in level order, a level on every page, no page twice, no bare `rust`
+# fence beyond the waived ones, no generated file that no page includes; ww_tape_tests runs it in `just test` too
+[group('book')]
+book-frame:
+    uv run --with "{{ kit }}" vz check
 
 # Build the book with warnings as errors: a link to a missing page, anchor or figure fails; links to other sites are not fetched
 [group('book')]
 book-strict: book-refs
     uv run --with "{{ kit }}" zensical build --clean --strict
+
+# Write the program outputs the book shows (docs/generated/) again: every test named `book_output*`, through
+# ww_tape_book_outputs; a stale file fails `just test`
+[group('book')]
+book-outputs:
+    WW_TAPE_BOOK_OUTPUTS=write cargo nextest run --workspace -E 'test(/book_output/)'
 
 # Check the glossary (docs/glossary.toml) and write what the book's references read: the index of the crates' public
 # items (target/vz/code_index.json), the cards' stylesheet and script, and the footer's build stamp and its age

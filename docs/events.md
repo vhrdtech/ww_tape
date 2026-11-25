@@ -66,13 +66,13 @@ how.
 The drive's frames carry their 11-bit identifier in the first 4 bytes of the payload and the frame's data after it.
 The program reads the chunk that holds the first frame at or after the fault, then every frame of the next 5 ms:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:frames"
 ```
 
 ??? example "What the example uses here: `fault_us`, `the fault's constants`, `key`, `Frame, Frames`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:fault_us_item"
 
     --8<-- "examples/example_drive/src/fault.rs:fault_consts_item"

@@ -5,5 +5,5 @@ and chains, resumes, locks, golden files and the book pages against the code.
 
 They sit in a crate of their own: there they can use the crates built on `ww_tape` without a dependency cycle.
 
-Its library holds only the book's pages (`src/book.rs`), so that their `rust` blocks run as doctests. Run the tests
-with `cargo nextest run -p ww_tape_tests`, and the doctests with `cargo test -p ww_tape_tests --doc`.
+The code the book's pages show is marked sections of these tests (`tests/it/book_pages.rs` and others), so every
+`rust` block of the book compiles and runs. Run the tests with `cargo nextest run -p ww_tape_tests`.

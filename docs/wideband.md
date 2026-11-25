@@ -21,7 +21,7 @@ its carriers and its bursts, with noise of its own.
 Each channel is a [[series]] track `iq` with a producer thread of its own. The thread pushes the channel's samples into
 a grid handle. The handle packs them at 12 bits and cuts them into chunks of 1 MiB of samples:
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/lib.rs:channel"
 ```
 
@@ -29,9 +29,15 @@ The split into channels is what lets the work spread. A track has one producer, 
 that producer's thread. It packs the samples, hashes them and computes the leaves of the [[summaries]]. One thread then
 serves one channel's 125 million samples a second, not the whole band.
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/wideband_channels.svg"
+<figcaption>How the band spreads over threads. Each channel's producer does its own packing, hashing and summary
+leaves, and a mux only places chunks; with several muxes, channel k goes to mux k % m.</figcaption>
+</figure>
+
 ??? example "What the example uses here: `Wideband`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_wideband/src/lib.rs:wideband"
     ```
 
@@ -45,15 +51,22 @@ The analyser opens a piece, reads the summary blocks of level 0 of each channel,
 with a threshold. The carriers of the band add up to 1 050 steps of amplitude, and a burst adds 900 more. A threshold of
 1.5 million, [`POWER_MIN`], lies between a quiet node and one that holds a burst:
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/ram.rs:detect"
 ```
 
 Consecutive loud nodes make one burst, from the first node's start to the last node's end. A burst may cross from one
-[[piece]] into the next: the analyser carries it over and ends it at the next quiet node. The nodes come from one
-function, which the overview below uses too:
+[[piece]] into the next: the analyser carries it over and ends it at the next quiet node.
 
-```rs
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/wideband_bursts.svg"
+<figcaption>Bursts found from summary nodes alone, as a sketch. A run of nodes above the threshold is one burst, and a
+burst that reaches the end of a piece goes on in the next.</figcaption>
+</figure>
+
+The nodes come from one function, which the overview below uses too:
+
+```rust
 --8<-- "examples/example_wideband/src/lib.rs:summary_nodes"
 ```
 
@@ -69,13 +82,18 @@ A piece with a burst is copied to a piece file, with one piece before it and one
 memory unwritten. The band takes fewer bytes a second than the link. In the bench below the replayed run keeps up with
 it in one chain, and the live run is held back by the signal's maths.
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/ram.rs:rf_capture"
 ```
 
-The analyser's findings go to a chain of results on disk. Each channel has a track `bursts`, one span per burst with its
-largest power. A track `kept` names each kept piece with the span of time it covers. A minute of the band holds five
-bursts of 2 ms each, so the disk sees a few pieces a minute.
+The analyser's findings go to a chain of results on disk:
+
+| Track | One per | An item |
+|---|---|---|
+| `bursts` | channel | a span per burst, with its largest power |
+| `kept` | chain | a kept piece, with the span of time it covers |
+
+A minute of the band holds five bursts of 2 ms each, so the disk sees a few pieces a minute.
 
 The test `tests/wideband_ram.rs` records a minute at 1/5 000 of the rate. It checks that each channel's five bursts are
 found and that their samples lie in the kept pieces. It also checks that those pieces hold the signal's own samples.
@@ -85,7 +103,7 @@ band, past its first burst, and keeps the pieces around each burst under `DIR`. 
 it feeds, and [`RfCapture::start`] hands out the memory window while the capture runs, as the analyser's
 [pipeline](protocol_analyser.md#the-pipeline) does:
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/main.rs:main"
 ```
 
@@ -99,16 +117,19 @@ goes for a minute, its bursts included. It keeps the pieces around the bursts in
 
 --8<-- "docs/plots/bench_cases_machine.txt"
 
-"Capture ms" is the time until every sample was in memory. The column "Of the pace" is the seconds of the band captured
-per second of that time: a value of 1 or more keeps up. The live run makes its samples as it goes, and that maths sets
-its pace. "Window s" is how many seconds of the band half the machine's memory holds.
+The live run makes its samples as it goes, and that maths sets its pace. The columns of both tables read as follows:
+
+| Column | Means |
+|---|---|
+| Capture ms | the time until every sample was in memory |
+| Of the pace | the seconds of the band captured, or triaged, per second of the work; 1 or more keeps up |
+| Window s | how many seconds of the band half the machine's memory holds |
+| Kept % | the share of the capture's bytes that reaches the disk |
+| To disk MB per s | what the disk writes per second of the band |
 
 --8<-- "docs/plots/bench_wideband_triage.txt"
 
 The triage reads only summary nodes, so it gets through the band many times faster than the band arrives.
-
-"Kept %" is the share of the capture's bytes that reaches the disk, and "To disk MB per s" what the disk writes per
-second of the band.
 
 ## The overview from the summaries
 
@@ -117,7 +138,7 @@ the smallest and largest I and Q and the mean and largest power `I² + Q²` of i
 4 194 304 samples, 34 ms of a channel. The overview opens each [[piece]] of the chain and reads only the summary
 blocks of one level:
 
-```rs
+```rust
 --8<-- "examples/example_wideband/src/lib.rs:overview"
 ```
 
@@ -142,14 +163,18 @@ muxes and codec. With the most channels and muxes it then writes chains of piece
 
 --8<-- "docs/plots/bench_wideband_writer.txt"
 
-The column "Of 1 GS/s" is the samples recorded a second against the receiver's rate. The waits count the times a handle
-found its mux's queue full. Without a disk, enough channels and muxes reach the full rate. With a disk, a second of
-the receiver is about 3.1 GB, more than one disk of a common PC writes in a second. That is why the receiver keeps the
-band in memory and writes only the bursts.
+Without a disk, enough channels and muxes reach the full rate. With a disk, a second of the receiver is about 3.1 GB,
+more than one disk of a common PC writes in a second. That is why the receiver keeps the band in memory and writes
+only the bursts.
+
+| Column | Means |
+|---|---|
+| Of 1 GS/s | the samples recorded a second against the receiver's rate |
+| Waits | the times a handle found its mux's queue full |
+| Bytes per sample | what the chain keeps for each sample |
+| CPU ns per sample | the CPU time of every thread of the process for each sample |
 
 The band has no payload column to compress. A channel is a series track, and its samples go through a sample codec:
-`RAW` and `PACKED12_LSB` are the two the table compares. "Bytes per sample" is what the chain keeps for each sample,
-and "CPU ns per sample" is the CPU time of every thread of the process for it. Packing saves a byte of each four and
-costs more CPU time. The bursts and the kept pieces the analyser writes are events of 8 bytes, which no payload codec
-shrinks.
+`RAW` and `PACKED12_LSB` are the two the table compares. Packing saves a byte of each four and costs more CPU time. The
+bursts and the kept pieces the analyser writes are events of 8 bytes, which no payload codec shrinks.
 

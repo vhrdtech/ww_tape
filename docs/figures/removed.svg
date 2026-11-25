@@ -1,0 +1,32 @@
+<svg class="ww-svg" viewBox="0 0 680 230" width="680" height="230" role="img" aria-label="A chain of six pieces. Pieces 0 and 1 were deleted by retention and leave no row: the chain reads as head cut. Piece 3 was removed from the middle on purpose: the close of the last piece holds a row with its number, id and content hash, and check_chain links piece 2 to piece 4 over the hole as removed." xmlns="http://www.w3.org/2000/svg">
+  <!-- deleted by retention -->
+  <rect x="20.5" y="50" width="90" height="34" rx="2" class="faint hatch"/>
+  <text x="65" y="71" text-anchor="middle" class="soft small">piece 0</text>
+  <rect x="115.5" y="50" width="90" height="34" rx="2" class="faint hatch"/>
+  <text x="160" y="71" text-anchor="middle" class="soft small">piece 1</text>
+  <path d="M20.5 40 V34 H205.5 V40" class="thin"/>
+  <text x="113" y="26" text-anchor="middle" class="soft small">deleted by retention: no row</text>
+  <!-- kept -->
+  <rect x="210.5" y="50" width="90" height="34" rx="2" class="tint-blue"/>
+  <text x="255" y="71" text-anchor="middle" class="small">piece 2</text>
+  <rect x="305.5" y="50" width="90" height="34" rx="2" class="faint hatch"/>
+  <text x="350" y="71" text-anchor="middle" class="soft small">piece 3</text>
+  <path d="M305.5 40 V34 H395.5 V40" class="amber"/>
+  <text x="350" y="26" text-anchor="middle" class="amber small">removed on purpose</text>
+  <rect x="400.5" y="50" width="90" height="34" rx="2" class="tint-blue"/>
+  <text x="445" y="71" text-anchor="middle" class="small">piece 4</text>
+  <rect x="495.5" y="50" width="120" height="34" rx="2" class="tint-blue"/>
+  <text x="540" y="71" text-anchor="middle" class="small">piece 5</text>
+  <rect x="595.5" y="50" width="20" height="34" rx="2" class="tint-amber"/>
+  <!-- the row -->
+  <path d="M605 86 V104" class="amber"/>
+  <polygon points="605,110 601,102 609,102" class="amber"/>
+  <rect x="455.5" y="110" width="205" height="34" rx="2" class="tint-amber"/>
+  <text x="558" y="131" text-anchor="middle" class="mono small">row: 3, its id, its hash</text>
+  <text x="625" y="100" class="amber small">close</text>
+  <!-- the link over the hole -->
+  <path d="M255 86 Q350 190 445 86" class="line dash"/>
+  <path d="M445 86 l-1 9 l-6 -5 Z" class="line head"/>
+  <text x="350" y="178" text-anchor="middle" class="mono small">ChainLink::Removed</text>
+  <text x="20" y="210" class="soft small">check_chain: the start reads as head cut, and the row links piece 2 to piece 4</text>
+</svg>

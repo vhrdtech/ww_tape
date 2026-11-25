@@ -6,7 +6,11 @@ level: advanced
 
 A [[raw medium]], such as an SD card without a file system, has no end of file. When a recorder writes
 onto a card used before, the blocks of the earlier recording stay valid behind the new ones. A [[reader]] must find
-where today's recording ends, and read it past [[stale data]], [[gaps]] and [[duplicates]].
+where today's recording ends. This chapter takes the questions in two pages:
+
+- this page: [[session|sessions]], [[stale data]], and how a writer puts a tape onto a card;
+- [Gaps and duplicates on a raw card](raw_gaps.md): blank and bad stretches inside a recording, and blocks written
+  twice.
 
 ww_tape on a raw card serves a recorder with a host-class processor and RAM. Its [[writer]] keeps the index of the
 open piece in memory. Firmware that writes an SD card or a flash chip directly takes
@@ -61,99 +65,38 @@ nothing, and a stale tail there would pass for the newest piece. A reader of a r
 the start or from a hint the medium layer gives ([`OpenOptions::start`]).
 
 The drive's card shows the difference. It holds about 116 MB, and today's run wrote about 72 MB of it before the power
-failed. Read as a raw medium, the card gives today's 3 pieces, the last one ending at the torn block. The earlier run's
-other 43 MB or so stay behind as stale data. Read as a file, the card gives 4 pieces, and the fourth is the earlier
-run's last piece, found by its tail.
+failed:
 
-`cargo run -p example_drive` prints these numbers, and this doctest reads the same card at 1/1000 of its data:
+| Card read as | Pieces it gives | The earlier run's other 43 MB or so |
+|---|---|---|
+| a raw medium | today's 3, the last one ending at the torn block | stay behind as stale data |
+| a file | 4: the fourth is the earlier run's last piece, found by its tail | pass for the newest piece |
+
+`cargo run -p example_drive` prints these numbers, and this test reads the same card at 1/1000 of its data:
 
 ```rust
-use ww_tape::{Medium, OpenOptions, TapeReader};
-use example_drive::{Drive, EARLIER_CHAIN};
-
-let today = Drive::scaled(1000).expect("1000 divides the rates").on_sd_card();
-let earlier = today.chain(EARLIER_CHAIN).record().expect("the earlier run records");
-let run = today.record().expect("the run records");
-let crashed = today.crash(run.story_crash_byte().expect("minute 37")).expect("the crash");
-let card = crashed.on_card(&earlier).expect("the earlier run fills the card");
-
-let raw = OpenOptions { medium: Medium::Raw, ..OpenOptions::default() };
-let on_card = TapeReader::open_with(&card.bytes[..], raw).expect("the card opens");
-// Today's two closed pieces and the torn one; the earlier run is stale data.
-assert_eq!(on_card.pieces().len(), 3);
-
-let as_file = TapeReader::open(&card.bytes[..]).expect("the card opens as a file");
-// Read as a file, the earlier run's last piece passes for the newest.
-assert_eq!(as_file.pieces().len(), 4);
+--8<-- "ww_tape_tests/tests/it/book_pages.rs:stale_card"
 ```
 
 ## Writing a tape onto a card
 
-A tape on a raw medium is written by the same [[writer]] as a file, with two differences. The [[layout]] says how far a
-reader looks past a bad stretch, and every [[piece]] is one [[session]]. The drive's recorder for the card sets the
-layout with [`Layout::on_sd_card`], and [`Drive::on_sd_card`] in `example_drive` does the same.
+A tape on a raw medium is written by the same [[writer]] as a file. The drive's recorder for the card sets the
+[[layout]] with [`Layout::on_sd_card`], and [`Drive::on_sd_card`] in `example_drive` does the same. Four things differ
+from a file:
 
-A piece on a raw medium is one session, since a new session may start only at a piece head. The writer's next piece of a
-chain starts with a piece head that names the session of the piece before it. A reader thus goes on from one piece into
-the next. A writer that relays another producer's blocks onto a card passes them with [`TapeWriter::adopt_block`], which
-renumbers each block into the writer's own session. A jump in the producer's sequence numbers stays a jump, so a reader
-still sees that blocks were lost on the way.
+| On a raw medium | So that |
+|---|---|
+| the [[layout]] says how far a reader looks past a bad stretch | a reader goes on past a [[gap]] ([Gaps and duplicates](raw_gaps.md)) |
+| every [[piece]] is one [[session]], and the next piece head names the session before it | a reader goes on from one piece into the next |
+| right after its head, each piece carries the chain's definitions and each [[state track]]'s newest item | a walk that starts at a piece head reads that piece alone, the mode in force included |
+| a closed piece ends on a multiple of 4 KiB | the next piece starts where a reader looks for it after a bad stretch |
 
-Each piece also carries what a reader that starts at its head needs. Right after the head come the definitions of the
-chain's tracks and each [[state track]]'s newest item. A walk that starts at a piece head, from a hint of the medium
-layer, therefore reads that piece alone, the mode in force included.
+A piece is one session since a new session may start only at a piece head. A walk may start at such a head from a hint
+of the medium layer.
 
-On a raw medium too, a closed piece ends on a multiple of 4 KiB. A piece that starts on a 4 KiB boundary thus ends on
-one. The next piece then starts where a reader looks for it after a bad stretch.
+A writer that relays another producer's blocks onto a card passes them with [`TapeWriter::adopt_block`]. It renumbers
+each block into the writer's own session. A jump in the producer's sequence numbers stays a jump, so a reader still sees
+that blocks were lost on the way.
 
-## Blank space and gaps
-
-Blank bytes are all 0x00 or all 0xFF: what an erased or preallocated medium reads, depending on its kind. No block
-starts with either value, so blank space that runs to the end of the medium is the end of the data. A blank or damaged
-stretch in the middle is not always the end. A writer on raw NAND flash whose page program failed moves on to
-the next erase block. A writer that pads a NAND page at a sync leaves 0xFF behind.
-
-The [[layout]] says how far a writer may skip and where it goes on, at a multiple of its resume alignment:
-
-| Medium | Longest gap (`gap_max`) | Goes on at a multiple of (`resume_align`) |
-|---|---|---|
-| a file ([`Layout::UNALIGNED`]) | 0: the first bad stretch is the end | 1 byte |
-| an SD card or eMMC device ([`Layout::on_sd_card`]) | 4 MiB | 512 bytes, a sector |
-| raw NAND ([`Layout::on_raw_nand`]) | two erase blocks | one page |
-
-A reader learns these rules from the layout definition after the piece head. The writer copies that definition 4 KiB on,
-past the first sector, and again about 1 MiB later. It puts the definition again past [[near]], as it does a track's
-definition. A walk that starts past lost first sectors thus finds the rules at the first copy. A medium layer that knows
-the medium can give them from the start ([`OpenOptions::layout`]), for the stretch before that copy.
-
-Past a blank or bad stretch, a reader reads one block header at the first non-blank byte and one at each resume place
-within `gap_max`. A good block of the current session there goes on with the data. It makes the stretch a [[gap]], which
-the reader reports with its length ([`FileError::Gap`]) before it reads on. When no such block follows, the stretch is
-the end of the data.
-
-<figure class="ww-figure" markdown="0">
---8<-- "docs/figures/gap_probe.svg"
-<figcaption>A reader on a raw medium past a bad stretch. It reads a block header at each resume place, up to the
-layout's longest gap. The session's next block at one of them makes the stretch a gap; with none, the data ends at the
-stretch.</figcaption>
-</figure>
-
-On the drive's card the torn block is such a stretch. Within 4 MiB after it, the reader finds only the earlier run's
-blocks, which are stale. Today's data therefore ends at the torn block, and the reader reads nothing further.
-
-The format bounds what a gap costs a reader. It reads a header per resume place and checks only a few blocks whole. It
-reads no further than blank space longer than `gap_max`, so an erased 64 GB card costs one gap's worth of reads. The
-[format reference](format.md#blank-space-and-gaps) lists the bounds.
-
-## Duplicates
-
-A writer that retried a write may leave the same block twice. The same session and sequence number twice is a
-[[duplicate]], not a new block. A reader in [`Recovery::Prefix`] drops a second copy with the same bytes. It takes a
-copy with other bytes in place of the first, and reports the replacement ([`FileError::Replaced`]).
-
-[`Recovery::Resync`] reports a pair with other bytes as a conflict instead, as
-[When bytes go bad](damage.md#reading-past-damage) explains. In damaged bytes it cannot tell a copy from a rewrite, so
-it takes neither for the other.
-
-[Lessons from tape and flash](lessons.md) names the tape drives and flash file systems that solved these problems first,
-and what the format takes from each.
+What a reader does at a blank or bad stretch inside today's session is the next page: [Gaps and duplicates on a raw
+card](raw_gaps.md).

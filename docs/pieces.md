@@ -6,8 +6,8 @@ level: basic
 
 A recording that runs for days does not fit one file well. A crash costs only the bytes it touched, in a file of any
 size. A file of hundreds of gigabytes, though, is slow to copy, and its old data cannot go without rewriting the rest.
-How does a [[writer]] cut a long recording into [[pieces]], how do the pieces find each other, and how do old ones go?
-The examples cut the drive's hour every 15 minutes into four pieces.
+How does a [[writer]] cut a long recording into [[pieces]], and how do the pieces find each other? The examples cut
+the drive's hour every 15 minutes into four pieces.
 
 ## Why pieces
 
@@ -17,7 +17,8 @@ before it. Cutting a recording into a chain gives three things:
 
 - **Files of a handy size.** A piece of 256 MiB copies, uploads or moves to an archive on its own. A tool that needs
   one stretch of the recording takes only the pieces that hold it.
-- **Simple retention.** Deleting the oldest piece frees space without rewriting anything.
+- **Simple retention.** Deleting the oldest piece frees space without rewriting anything ([Deleting old
+  pieces](old_pieces.md)).
 - **Closed history.** The pieces before the one being written are closed and hashed. A later crash or a bug in the
   writer cannot touch them.
 
@@ -39,7 +40,7 @@ A program therefore never trusts a file's name. Files renamed by hand, copied in
 listed in any order still form their chain. A scan opens each file from its end, a few small reads, and learns which
 piece it is and which [[items]] it holds. [`check_chain`] then orders the pieces and checks every link both ways:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/chains.rs:renamed"
 ```
 
@@ -53,7 +54,7 @@ A [`PieceChain`] writes a chain and [[cuts|cut]] it by itself. On files, [`ww_ta
 per piece in a directory, named `00000000.wwt`, `00000001.wwt` and so on, so that the names sort in chain order. The
 test below cuts a piece once it holds 16 KiB:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/chains.rs:create"
 ```
 
@@ -82,13 +83,13 @@ chain also cuts before a write that the piece's index has no room left for. [`Pi
 A cut by age makes the file's bytes depend on the clock. The drive's recorder counts chunks instead, as many as 15
 minutes of the run make:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:options"
 ```
 
 ??? example "What the example uses here: `Drive`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/lib.rs:drive_item"
     ```
 
@@ -97,13 +98,13 @@ and cuts first with [`PieceChain::cut_now`]. A [`TapeMux`] does so on its [[writ
 chunk. A chunk thus lies whole in one piece, and its [[handle]] never notices the cut. [`TapeMux::cut`] cuts at once.
 The drive's recorder only starts the mux with these options, and hands it the acts through its handles:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:create"
 ```
 
 ??? example "What the example uses here: `Act`, `Recorder`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/record.rs:act_item"
 
     --8<-- "examples/example_drive/src/record.rs:recorder_item"
@@ -153,76 +154,6 @@ A [`TapeWriter`] without a chain cuts the same way. [`TapeWriter::cut_on`] takes
 which [`TapeWriter::begin_piece`] writes. A piece takes data of a bounded number of tracks, and a head carries a bounded
 number of rows ([Tape pieces](format.md#tape-pieces)).
 
-## Deleting old pieces
-
-Retention by file deletes the oldest piece. Every piece left reads alone, and the chain reads as **head cut**: its start
-was deleted, not damaged.
-
-```rs
---8<-- "ww_tape_tests/tests/it/chains.rs:delete"
-```
-
-The drive's chain without piece 0 shows it. [`check_chain`] finds 3 pieces from piece 1, and both links between them
-hold. The report says head cut, and so not whole. Piece 1 defines every track at its start, the carried ones.
-
-A resume ([`PieceChain::resume_on`], or [`chain::resume`] for files) starts at the lowest piece there, as a reader
-does. Retention and a writer that goes on after a restart thus work together.
-
-A chain in memory keeps a bounded window the same way. [`MemPieces::remove`] takes a closed piece out of the store. A
-reader that already holds the piece reads on unchanged. The piece still being written is not removed
-([`MemError::Unclosed`]).
-
-A chain in one memory tape keeps its window with [`MemPieces::drop_front`]. The call frees the oldest pieces whole, in
-blocks of memory of up to 64 MiB. Offsets don't move: the tape now starts at its first kept piece
-([`ByteSource::start`]). A reader opened on it finds the pieces from there, as a head cut. The piece being written
-stays, and a read of a dropped piece fails with [`MemError::Dropped`].
-
-### Pieces removed on purpose
-
-An application may delete pieces from the middle of a chain on purpose, such as a stretch a user cut out. Without a
-note, the hole reads as pieces lost. The note is a list of the removed pieces in a close: each row gives one removed piece's
-[[piece number]], id and content hash ([`RemovedPiece`]).
-
-The writer appends the note to the chain's last piece, after its close:
-
-1. Resume the closed last piece ([`TapeWriter::resume_on`], or [`writer::resume`] for a file). An append would start a
-new piece, which cannot name removed pieces.
-2. Name the removed pieces with [`TapeWriter::record_removed`].
-3. Close it. The new close names the pieces, and every later close of the piece names them again.
-
-[`check_chain`] then links over the hole as [`ChainLink::Removed`], and checks both ends of the hole by the rows. A row
-that disagrees with either end reads as broken. A chain whose first pieces were named this way reads as removed, not as
-head cut. [The chain report](format.md#the-chain-report) gives the rules the writer enforces on the rows.
-
-A resume walks over such a hole the same way. Any other hole stops it with [`ResumeError::Gap`], which names the
-missing [[piece numbers|piece number]]. The writer never goes on after pieces that may have been lost.
-
-### Removing pieces while the chain is written
-
-[`PieceChain::remove`] removes closed pieces of a chain that is being written, in one call. Order matters, since a
-crash can come between any two steps:
-
-1. Name each removed piece that comes after a piece that stays in the piece being written. The rows a removed piece
-   held for a hole removed before are named again.
-2. Close that piece and sync it, then write on after the close ([`TapeWriter::close_and_go_on`]).
-3. Take the pieces out of the store, oldest first ([`PieceStore::remove`]): a file is deleted and its directory synced.
-
-```rs
---8<-- "ww_tape_tests/tests/it/chain_removal.rs:remove"
-```
-
-A crash before the third step leaves pieces at hand that the rows name. A row for a piece still there plays no part in
-a link. A crash part way through it leaves a hole the rows cover. Either way the chain reads whole and resumes:
-
-```rs
---8<-- "ww_tape_tests/tests/it/chain_removal.rs:resume"
-```
-
-The pieces before every piece that stays get no row: they go as retention does, and the chain reads as head cut. Rows
-for them would only pile up, while a head cut already says the start was deleted. In a chain in one memory tape only
-those pieces go, as the tape's front ([`MemPieces::drop_front`]). A piece from the middle of a tape is refused, as is
-the piece being written.
-
 ## Writing a chain into one file
 
 A chain of many files suits retention, since old pieces go file by file. One file per recording suits an application
@@ -235,13 +166,19 @@ that keeps a recording as one document, such as a project file. [`ChainOptions::
 The bytes are the same as those of a chain of many files placed back to back. A reader walks such a file from its end.
 The last tail gives the last piece's start, and the tail just before that start gives the piece before.
 
-```rs
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/chain.svg"
+<figcaption>Three pieces of a chain in one file. A reader starts at the end, finds the unclosed last piece by its
+newest checkpoint, and each closed piece by the tail just before the next one's start.</figcaption>
+</figure>
+
+```rust
 --8<-- "ww_tape_tests/tests/it/book.rs:one_file"
 ```
 
 The first session leaves one closed piece in the file. The second finds it by the tails, writes on after its close and
 closes it again. The file still holds one piece, closed twice, and gains a piece only where the chain cuts. An unclosed
-last piece, cut off by a crash, resumes as [When the power fails](crashes.md#resuming-a-chain) describes.
+last piece, cut off by a crash, resumes as [Beyond a torn block](resume_cases.md#resuming-a-chain) describes.
 
 ## The 4 KiB end and cloning
 
@@ -258,7 +195,7 @@ boundary, and the new file shares the disk blocks of the three.</figcaption>
 The kernel clones only ranges that start on a block boundary in both files, 4 KiB on common setups. `cp --reflink`, the
 `FICLONERANGE` call and `copy_file_range` clone, and `std::io::copy` uses `copy_file_range` between files on Linux.
 Every closed piece ends on a boundary, so pieces clone back to back with nothing between them. In an [aligned
-file](writing.md#aligned-files), the payloads keep their alignment too.
+file](aligned.md#aligned-files), the payloads keep their alignment too.
 
 ## Clones and subsets of a file
 

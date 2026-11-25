@@ -1,0 +1,58 @@
+<svg class="ww-svg" viewBox="0 0 680 290" width="680" height="290" role="img" aria-label="The analyser's threads for one port. Each receive queue has a capture thread that pushes frames and a decoder thread that pushes the ipv4 and l4 headers, through the handles of the queue's three tracks. The port's mux writes them into a chain of pieces in memory, the memory window. A triage thread per chain reads each closed piece, decoding its chunks on a shared rayon pool, and copies kept pieces to the chain's directory. Its findings, a resets track per queue and a kept track per chain, go through a mux of their own into the results chain on disk. A viewer follows the window beside the triage. The other port has the same threads" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="20" class="soft small">one port; the other port has the same threads</text>
+  <!-- queues -->
+  <rect x="20.5" y="34" width="150" height="70" rx="4" class="tint-blue"/>
+  <text x="32" y="52" class="small strong">receive queue 0</text>
+  <text x="32" y="70" class="small">capture thread: <tspan class="mono">frames</tspan></text>
+  <text x="32" y="88" class="small">decoder: <tspan class="mono">ipv4</tspan>, <tspan class="mono">l4</tspan></text>
+  <rect x="20.5" y="112" width="150" height="70" rx="4" class="tint-blue"/>
+  <text x="32" y="130" class="small strong">receive queue 1</text>
+  <text x="32" y="148" class="small">capture thread: <tspan class="mono">frames</tspan></text>
+  <text x="32" y="166" class="small">decoder: <tspan class="mono">ipv4</tspan>, <tspan class="mono">l4</tspan></text>
+  <text x="95" y="198" text-anchor="middle" class="small soft">2 or 4 queues a port</text>
+  <path d="M172 69 C190 69 190 104 206 104" class="line"/>
+  <path d="M172 147 C190 147 190 112 206 112" class="line"/>
+  <path d="M212 108 l-8 -4 v8 Z" class="line head"/>
+  <!-- mux -->
+  <rect x="214.5" y="84" width="76" height="48" rx="4" class="tint-teal"/>
+  <text x="252.5" y="104" text-anchor="middle" class="small strong">mux</text>
+  <text x="252.5" y="121" text-anchor="middle" class="small soft">one thread</text>
+  <path d="M292 108 H310" class="line"/>
+  <path d="M316 108 l-8 -4 v8 Z" class="line head"/>
+  <!-- window -->
+  <rect x="318.5" y="84" width="120" height="48" rx="4" class="faint"/>
+  <rect x="326.5" y="96" width="20" height="24" rx="2" class="tint-blue"/>
+  <rect x="350.5" y="96" width="20" height="24" rx="2" class="tint-blue"/>
+  <rect x="374.5" y="96" width="20" height="24" rx="2" class="tint-blue"/>
+  <rect x="398.5" y="96" width="20" height="24" rx="2" class="tint-blue"/>
+  <text x="378.5" y="148" text-anchor="middle" class="small">memory window</text>
+  <text x="378.5" y="164" text-anchor="middle" class="small mono soft">MemChain</text>
+  <!-- viewer -->
+  <path d="M378 82 V58" class="line"/>
+  <path d="M378 52 l-4 8 h8 Z" class="line head"/>
+  <rect x="318.5" y="22" width="120" height="30" rx="4" class="tint-purple"/>
+  <text x="378.5" y="42" text-anchor="middle" class="small">a viewer follows</text>
+  <!-- triage -->
+  <path d="M440 108 H460" class="line"/>
+  <path d="M466 108 l-8 -4 v8 Z" class="line head"/>
+  <rect x="468.5" y="84" width="192" height="48" rx="4" class="tint-amber"/>
+  <text x="564.5" y="104" text-anchor="middle" class="small strong">triage thread</text>
+  <text x="564.5" y="121" text-anchor="middle" class="small soft">decodes on the shared rayon pool</text>
+  <!-- outputs -->
+  <path d="M520 134 V206" class="line"/>
+  <path d="M520 212 l-4 -8 h8 Z" class="line head"/>
+  <text x="514" y="174" text-anchor="end" class="small soft">kept pieces</text>
+  <path d="M610 134 V164" class="line"/>
+  <path d="M610 170 l-4 -8 h8 Z" class="line head"/>
+  <text x="616" y="154" class="small soft">findings</text>
+  <rect x="566.5" y="172" width="94" height="34" rx="4" class="tint-teal"/>
+  <text x="613.5" y="193" text-anchor="middle" class="small strong">results mux</text>
+  <path d="M613 208 V226" class="line"/>
+  <path d="M613 232 l-4 -8 h8 Z" class="line head"/>
+  <rect x="438.5" y="214" width="112" height="50" rx="4" class="tint-green"/>
+  <text x="494.5" y="234" text-anchor="middle" class="small mono">DIR/kept-0/</text>
+  <text x="494.5" y="252" text-anchor="middle" class="small soft">piece files</text>
+  <rect x="556.5" y="234" width="104" height="50" rx="4" class="tint-green"/>
+  <text x="608.5" y="254" text-anchor="middle" class="small mono">DIR/results/</text>
+  <text x="608.5" y="272" text-anchor="middle" class="small soft"><tspan class="mono">resets</tspan>, <tspan class="mono">kept</tspan></text>
+</svg>

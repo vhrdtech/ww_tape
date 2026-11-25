@@ -28,13 +28,13 @@ A track has one of two kinds of tree:
 A series declares its statistics in its definition, a [`SeriesSummarySpec`]. The drive's `phase_a` keeps the minimum,
 the maximum, the sum and the sum of squares. From them a viewer draws the envelope and the root mean square:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/defs.rs:spec"
 ```
 
 ??? example "What the example uses here: `phase_def, phase_shape`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:phase_def_item"
     ```
 
@@ -54,13 +54,13 @@ recording at 1/1000 of its data.</figcaption>
 The viewer picks the coarsest level whose nodes still outnumber its 600 columns. Every column then gets several
 nodes, and no column falls between two:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:level"
 ```
 
 ??? example "What the example uses here: `the fault's constants`, `series_def`, `column_of`, `nodes`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:fault_consts_item"
 
     --8<-- "examples/example_drive/src/fault.rs:series_def_item"
@@ -73,13 +73,13 @@ nodes, and no column falls between two:
 For the hour of `phase_a` that is level 1, nodes of 16 384 samples. The viewer reads the summary blocks of that level
 in each piece, and merges each node into the column its first sample falls in:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/fault.rs:nodes"
 ```
 
 ??? example "What the example uses here: `column_of`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/fault.rs:column_of_item"
     ```
 
@@ -122,16 +122,16 @@ shows. A summary block states its scale, so it reads without the chunks.
 ## Writing summaries
 
 The crate `ww_tape_summary` builds the trees as the items arrive: an [`EventTree`] for an event track, a
-[`SeriesSummaries`] for a series. A recorder that writes the file itself starts one for `phase_a` with the track's first grid and
-period:
+[`SeriesSummaries`] for a series. A recorder that writes the file itself starts one for `phase_a` with the track's first
+grid and period:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:summaries"
 ```
 
 ??? example "What the example uses here: `DriveNumbers`, `key`, `phase_def, phase_shape`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"
@@ -143,13 +143,13 @@ Each second, the recorder pushes the second's samples. A level that fills a bloc
 hands it to the [[writer]] with [`TapeWriter::defer_block`]. The writer places a [[deferred block]] where it fits, in
 an aligned file into the gap before a chunk's payload:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:push"
 ```
 
 ??? example "What the example uses here: `Act`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/record.rs:act_item"
     ```
 

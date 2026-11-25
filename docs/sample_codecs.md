@@ -14,13 +14,13 @@ decides the size of a recording and how fast a [[reader]] decodes it. Which numb
 A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 samples as `i16`. The recorder encodes them with
 [`ww_tape::samples::encode`] into one samples [[column]], and builds the head from the track's [[grid]]:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:samples"
 ```
 
 ??? example "What the example uses here: `DriveNumbers`, `key`, `phase_def, phase_shape`, `Act`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"
@@ -33,12 +33,15 @@ A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 samples as `
 A recorder that writes through a [`TapeMux`] leaves the encoding to the handle of the track. The drive's recorder gives
 the [`GridHandle`] the codec of the column, and then only the samples of each second:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:series"
 ```
 
 The head's first and last tick come from the grid, by [`SeriesGrid::chunk_ticks`], and every sample's tick follows from
 them. The chunk stores no time per sample. The column's codec is the recorder's choice, here [`Codec::DELTA`].
+
+Where a chunk starts a new grid, the writer marks the chunk, and its index entry carries the mark. A reader thus
+knows from the index alone where the sample times stop following on from the chunk before.
 
 A codec works on groups of 128 samples. Every group restarts its prediction, so a reader decodes any range from the
 start of its group, and damage costs only the groups it touches. A chunk of several channels, such as I and Q, codes
@@ -95,7 +98,7 @@ whole, such as NaN payloads, infinities and `-0.0`. A group never grows by more 
 ALP can only recover integers that a short decimal scale hid. The test below codes 4096 counts of a 12-bit converter in
 three ways. They are `i16` counts with `DELTA`, volts in tenths with ALP, and volts of a 3.3 V range with ALP:
 
-```rs
+```rust
 --8<-- "ww_tape_tests/tests/it/sample_codecs.rs:coded"
 
 --8<-- "ww_tape_tests/tests/it/sample_codecs.rs:fixed_against_alp"

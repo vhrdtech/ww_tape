@@ -13,11 +13,8 @@ It takes [shrink_wrap](https://github.com/romixlab/shrink_wrap) and
 `wire_weaver_evolution`, for the API snapshot check. WireWeaver (the link tap, the client's recorder, `ww explain`) and
 applications take it by git.
 
-Read `docs/concepts.md` first (the words), then the pages in the order `docs/index.md` lists them. `docs/format.md`
-is the reference, block by block.
-
-The exact byte layouts are in the module docs (`ww_tape/src/lib.rs` and each module's `mod.rs`). Where the docs are
-unclear, the source and its comments are authoritative.
+Read the pages in the order of the nav in `zensical.toml`; `docs/format.md` is the reference, block by block. The
+exact byte layouts are in the module docs (`ww_tape/src/lib.rs`, each `mod.rs`), authoritative where docs are unclear.
 
 The docs are the ww_tape book, a Zensical site of its own: `zensical.toml` configures it and `just book-check` builds
 it. It links the WireWeaver book (`https://ww.vhrd.tech/...`) and the logring book by URL and includes neither.
@@ -34,7 +31,8 @@ chapter reads and how it marks terms, links code and includes tested code.
 | `ww_tape_summary/` | summary nodes above the core: `EventTree`, `SeriesSummaries`, `Summary` read in place, `EventNode`, `ChannelStats`, scales; re-exports the head types; `golden/` its golden file |
 | `ww_tape_mux/` | `TapeMux`: a chain written from its own thread; handles (`EventsHandle`, `GridHandle`, `ChunkSender`, `RecordsHandle`, `RelayHandle`, `StateHandle`) send through a byte-bounded queue; `ProgressWatch` for readers in its process |
 | `ww_tape_fs/` | everything that names a path: `FileSink`, `FilePieces`, `FileSource`, the lock on the open file and its fork handler, `writer::{create, append, resume, cut}`, `chain::{create, resume}`, `mux::{create, resume}`, `follow` (`ChainFollower`, `TrackFollower`, `TimeMerge`) |
-| `ww_tape_tests/`, `ww_tape_testalloc/` | the integration tests (`tests/it`), through the public API; the book pages against the code, their `rust` blocks as doctests (`src/book.rs`); `Counting`, the global allocator that counts the heap for heap tests, the memory bench and fuzz cases |
+| `ww_tape_tests/`, `ww_tape_testalloc/` | the integration tests (`tests/it`), through the public API; the book pages against the code and the code they include (`tests/it/book_pages.rs`); `Counting`, the global allocator that counts the heap for heap tests, the memory bench and fuzz cases |
+| `ww_tape_book_outputs/` | `check`: a program's output the book shows, in `docs/generated/`; a stale file fails its test, `just book-outputs` writes it |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
 | `ww_tape_bench/` | what every bench binary shares: `--json`, `--color`, `--version`, completion, the timing loop, the run's report |
 | `ww_tape_bench_report/` | a bench report as its JSON holds it: commit, build, host and machine, tables with their load; serde only |
@@ -42,6 +40,7 @@ chapter reads and how it marks terms, links code and includes tested code.
 | `ww_tape_benchmarks/` | one binary per bench: `summaries`, `tracks`, `chunks`, `drive`, `event_times`, `starts`, `relations`, `mem_reader`, `carried`, `memory`, `rf_core`, `rf_chain`, `handles`, `read_check`, `levels` (README lists what each measures) |
 | `examples/example_drive/` | the book's running example: the drive motor controller's hour at any scale, a crash at any byte, the resume; `cargo run -p example_drive` prints the story's numbers |
 | `examples/example_capture/` | what the cases share: the memory window and its triage (`window`), the RF signal (`rf`), deterministic chain options |
+| `examples/example_settings/` | the settings case: a controller's parameters on a keyed state track, a group of puts, a firmware image on a bytes track |
 | `examples/example_rf/`, `examples/example_ethernet/`, `examples/example_wideband/` | the cases: the RF capture into a piece or two chains; a 10 Gbps link over receive queues and muxes; a 1 GS/s receiver in channels; `ram` of the last two into the memory window, keeping the pieces around each TCP reset or burst |
 | `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |
@@ -73,6 +72,7 @@ just tape-golden-update   # rewrite golden/*.hex after a deliberate format chang
 just bench-<name>         # one bench at release, `--json FILE` for its report (ww_tape_benchmarks/README.md lists them)
 just bench-book           # every bench the book draws from into docs/bench/; `just book-figures` draws them
 just book-check           # the book (docs/) with warnings as errors, then spl's prose lints (deny)
+just book-outputs         # write docs/generated/ again: the outputs the book shows, from the tests named book_output
 just book-refs            # vz prep: checks docs/glossary.toml, indexes the code links; every book build runs it
 ```
 

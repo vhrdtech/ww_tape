@@ -546,7 +546,7 @@ fn at_tracks(t: &Table, writer: &str, tracks: f64, column: &str) -> anyhow::Resu
     value(t, found.first().context("a row")?, column)
 }
 
-/// The numbers the prose of "Writing from many threads" computes from the handles report, as it writes them, and
+/// The numbers the prose of "Back-pressure, errors and speed" computes from the handles report, as it writes them, and
 /// what each is. The page holds each one ([Says::pins]).
 pub fn handles(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
     let events = table(&r.handles, "events")?;

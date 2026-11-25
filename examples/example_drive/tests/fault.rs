@@ -1,5 +1,5 @@
 //! The program of the book's Part IV finds the fault at minute 52 in the drive's full hour and prints what the
-//! chapters quote (`fault.out`): the pieces, the blocks a query reads, the mode, the frames, the current, the
+//! chapters quote (`docs/generated/fault.txt`): the pieces, the blocks a query reads, the mode, the frames, the current, the
 //! overview from summaries, the checks, and the bytes each step reads.
 #![allow(
     clippy::expect_used,
@@ -14,17 +14,10 @@ use example_drive::fault::{BEFORE_US, Fault, fault_us};
 use example_drive::{Drive, EMERGENCY_ID, LIMIT_MA, Mode, grouped};
 
 #[test]
-fn part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
+fn book_output_part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
     let recording = Drive::full().record().expect("the hour records");
     let f = Fault::find(&recording.pieces).expect("the fault is found");
-    let want =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fault.out"))
-            .expect("tests/fault.out");
-    assert_eq!(
-        f.to_string(),
-        want,
-        "tests/fault.out is what the program prints from `Finding the fault` on: copy it from `cargo run -p example_drive`"
-    );
+    ww_tape_book_outputs::check("fault.txt", &f.to_string());
 
     rounded_on_the_pages(&f);
     assert_eq!(f.opened.piece, 3, "the fault is in the last of four pieces");
@@ -222,22 +215,22 @@ fn rounded_on_the_pages(f: &Fault) {
         (
             "copies.md",
             &copies,
-            format!("{} headers in all", grouped(v.blocks)),
+            format!("{} headers of 32 bytes", grouped(v.blocks)),
         ),
         (
             "copies.md",
             &copies,
-            format!("whole, about {} in all", about(v.index)),
+            format!("final index]] whole | about {} |", about(v.index)),
         ),
         (
             "copies.md",
             &copies,
-            format!("the blocks: about {} more", about(v.entries)),
+            format!("as it replays the blocks | about {} |", about(v.entries)),
         ),
         (
             "copies.md",
             &copies,
-            format!("closes and tails, about {} in all", about(v.unread)),
+            format!("closes and tails | none of their {} |", about(v.unread)),
         ),
         (
             "copies.md",

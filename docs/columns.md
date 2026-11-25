@@ -29,13 +29,13 @@ An [[events chunk]] of the drive holds a second of `can0`: each frame's start ti
 the starts with [`EncodedTimes::encode`] and the frames with [`EncodedPayloads::encode`]. The encoded times also make
 the chunk head, since they know the first and last tick:
 
-```rs
+```rust
 --8<-- "examples/example_drive/src/record.rs:frames"
 ```
 
 ??? example "What the example uses here: `DriveNumbers`, `key`, `Act`"
 
-    ```rs
+    ```rust
     --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
     --8<-- "examples/example_drive/src/defs.rs:key_item"
@@ -50,13 +50,16 @@ per item passes the flags. A recorder that writes the file itself hands the head
 
 ## Event times
 
-An events chunk stores its start ticks in one of two time modes. In the **implicit** mode, item `j` starts at the first
-tick plus `j` periods, and the column holds only the period. A chunk of evenly spaced items takes it, and so does a
-chunk of one item.
+An events chunk stores its start ticks in one of two time modes. A chunk of evenly spaced items needs only the period,
+and any other chunk needs a start per item:
 
-Any other chunk takes the **linear** mode. The items are cut into [[time groups]] of 128. Each group stores a line
-through its starts. Each start is stored as its distance above that line, its **residual**. The residuals are bit-packed
-at the width of the group's largest one.
+| Time mode | The chunk | The column holds |
+|---|---|---|
+| implicit | evenly spaced items, or one item | the period: item `j` starts at the first tick plus `j` periods |
+| linear | any other | per [[time group]] of 128 items, a line through the starts and each start's distance above it |
+
+A start's distance above its group's line is its **residual**. The residuals are bit-packed at the width of the
+group's largest one.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/linear_group.svg"
@@ -76,32 +79,53 @@ give the same bytes.
 
 ### Ends and flags
 
-A chunk of spans stores their ends in one of three end modes, which [Events](events.md#instants-and-spans) draws. With
-**durations**, each item's length is packed per group of 128 above the group's shortest. The shortest plus the widest
-value bounds the group's longest span, so an overlap query knows how far back to look.
+A chunk of spans stores their ends in one of three end modes, which [Events](events.md#instants-and-spans) draws. The
+ends, the flags and the payload lengths are packed per group of 128, as the starts are:
 
-Flags are one 32-bit word per item. The writer packs them per group beside the bitwise OR of the group's flags. A group
-without flags costs its head only, and a chunk whose flags are all 0 has no flags column.
+| Column | Each item stores | The group stores beside them |
+|---|---|---|
+| durations | its length above the group's shortest | the shortest |
+| flags, one 32-bit word per item | its flags | the bitwise OR of the group's flags |
+| payload lengths | its length above the group's shortest | the shortest |
+
+The shortest duration plus the widest packed value bounds the group's longest span. An overlap query therefore knows
+how far back to look. A zoomed-out view reads the ORs of the flags without decoding them. A group without flags costs
+its head only, and a chunk whose flags are all 0 has no flags column.
 
 ### Monotone relations
 
 A track may declare a per-item value that never decreases, such as a byte offset into a stream. Such a [[monotone
-relation]] is stored in its own column with the codec of the starts. A reader then finds the first item at or above a
-value by search ([`RelationColumn::lower_bound`]).
+relation]] is stored in its own column with the codec of the starts. A reader reads the column of one relation:
+
+```rust
+--8<-- "ww_tape_tests/tests/it/relations.rs:relation_column"
+```
+
+It then finds the first item at or above a value by search ([`RelationColumn::lower_bound`]). The items of one value
+lie between two such searches:
+
+```rust
+--8<-- "ww_tape_tests/tests/it/relations.rs:lower_bound"
+```
 
 The writer keeps each relation's newest value and checks the next chunk against it. After a resume over damage, the
 caller tells the writer where the relation starts again. [Relation breaks](format.md#relation-breaks) gives the rule.
 
 ## Payloads
 
-An events chunk stores the [[payloads]] in two columns. The lengths are packed per group of 128 above the group's
-shortest payload. The payload bytes follow back to back, stored raw or compressed with lz4 when that is smaller. A
-writer may also keep a track's payloads raw always, or name a codec
-([Choosing the codec](format.md#choosing-the-payload-codec)). A reader of a compressed column decodes it once, whole,
-when it opens the chunk.
+An events chunk stores the [[payloads]] in two columns: their lengths, and their bytes back to back. The bytes are
+stored raw, or compressed with lz4 when that is smaller. A writer may also keep a track's payloads raw always, or name
+a codec ([Choosing the codec](format.md#choosing-the-payload-codec)). A reader of a compressed column decodes it once,
+whole, when it opens the chunk.
 
-The drive's frames have 12 bytes each: a 4-byte identifier and 8 bytes of data. Their lengths cost 0.10 bytes per frame.
-Their payloads cost 0.73 bytes per frame, and lz4 was smaller than raw in all 3600 chunks.
+The drive's frames have 12 bytes each: a 4-byte identifier and 8 bytes of data. lz4 was smaller than raw in all 3600
+chunks of `can0`. Each column costs, per frame:
+
+| Column of `can0` | Bytes per frame |
+|---|---:|
+| starts | 1.37 |
+| payload lengths | 0.10 |
+| payloads | 0.73 |
 
 <span id="samples-into-columns"></span><span id="delta-codecs"></span><span id="which-sample-codec"></span>
 <span id="what-a-chunk-costs-the-writer"></span>

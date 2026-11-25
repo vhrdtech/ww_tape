@@ -25,6 +25,8 @@ ww_tape_summary = { workspace = true, features = ["std"] }
 [dev-dependencies]
 # tests/producers.rs: the async twin of producers::threads, on tokio tasks; ww_tape_mux itself keeps no runtime dependency
 tokio.workspace = true
+# tests/first_tape.rs: the output the chapter "A first tape" shows, in docs/generated/
+ww_tape_book_outputs.workspace = true
 
 [lints]
 workspace = true

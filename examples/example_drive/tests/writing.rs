@@ -1,4 +1,5 @@
-//! The numbers of the book's Part III, writing, from the drive's full hour (`writing.out`): the calls and the blocks
+//! The numbers of the book's Part III, writing, from the drive's full hour (`docs/generated/writing.txt`, and the two
+//! tables the pages include, `writing_calls.txt` and `writing_blocks.txt`): the calls and the blocks
 //! they make, the aligned file, the columns per codec, what the crash loses per sync policy, the cut, the chain with
 //! its first piece deleted, and the relay.
 #![allow(
@@ -7,14 +8,12 @@
     reason = "tests fail by panicking"
 )]
 
-use std::path::Path;
-
 use example_drive::Drive;
-use example_drive::writing::Writing;
+use example_drive::writing::{Writing, round_bytes, round_percent};
 use ww_tape::SyncPolicy;
 
 #[test]
-fn part_iii_prints_what_the_chapters_quote() {
+fn book_output_part_iii_prints_what_the_chapters_quote() {
     let recording = Drive::full().record().expect("the hour records");
     // the story's crash and resume on a thread of its own, beside the numbers
     let (w, story) = std::thread::scope(|s| {
@@ -22,14 +21,10 @@ fn part_iii_prints_what_the_chapters_quote() {
         let w = Writing::of(&recording).expect("the numbers");
         (w, story.join().expect("the story's thread"))
     });
-    let want =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/writing.out"))
-            .expect("tests/writing.out");
-    assert_eq!(
-        w.to_string(),
-        want,
-        "tests/writing.out is what the program prints from `Writing the drive's hour` on: copy it from `cargo run -p example_drive`"
-    );
+    ww_tape_book_outputs::check("writing.txt", &w.to_string());
+    ww_tape_book_outputs::check("writing_calls.txt", &w.calls_table());
+    ww_tape_book_outputs::check("writing_blocks.txt", &w.blocks_table());
+    rounded_on_the_pages(&w);
 
     let every_block = w
         .syncs
@@ -63,4 +58,53 @@ fn part_iii_prints_what_the_chapters_quote() {
         w.relay.relay_puts < w.relay.board_puts,
         "the relay drops the board's puts and places its own by its near"
     );
+}
+
+/// A book page with its line breaks as spaces.
+fn page(name: &str) -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/").to_owned() + name;
+    let text = std::fs::read_to_string(&path).expect("a book page");
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The prose around the included tables gives their numbers rounded (docs/writers.md, "Numbers").
+fn rounded_on_the_pages(w: &Writing) {
+    let (writer, total) = (w.writer_bytes(), w.total_bytes());
+    let puts: Vec<_> = w
+        .blocks
+        .iter()
+        .filter(|b| b.by_writer && b.part.contains("puts"))
+        .collect();
+    let (put_blocks, put_bytes): (u64, u64) = (
+        puts.iter().map(|b| b.count).sum(),
+        puts.iter().map(|b| b.bytes).sum(),
+    );
+    for (name, phrase) in [
+        (
+            "writing.md",
+            format!(
+                "Only {} of the {} puts wrote a record",
+                w.calls.puts_wrote, w.calls.puts
+            ),
+        ),
+        (
+            "writer_adds.md",
+            format!(
+                "take {} of the hour's {}, {}",
+                round_bytes(writer),
+                round_bytes(total),
+                round_percent(writer, total)
+            ),
+        ),
+        (
+            "writer_adds.md",
+            format!(
+                "The {put_blocks} blocks of puts hold every definition and mode change of four pieces, with their \
+                 copies, in {}.",
+                round_bytes(put_bytes)
+            ),
+        ),
+    ] {
+        assert!(page(name).contains(&phrase), "docs/{name} says {phrase:?}");
+    }
 }

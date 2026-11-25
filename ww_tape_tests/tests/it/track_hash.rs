@@ -383,6 +383,7 @@ fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Closed> {
 /// written alone; the owner is not part of the id.
 #[test]
 fn tracks_of_one_key_with_two_owners_are_two_tracks() {
+    // --8<-- [start:two_owners]
     let (a, b) = ([0xaa; 32], [0xbb; 32]);
     let (ta, tb) = (owned(20, a), owned(21, b));
     assert_eq!(ta.id(), tb.id(), "the owner is not part of the id");
@@ -405,6 +406,7 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
     assert_eq!(rows[0].next_item, ItemNum::new(8 * 50));
     assert_eq!(rows[1].next_item, ItemNum::new(8 * 50));
     assert_ne!(rows[0].hash, rows[1].hash);
+    // --8<-- [end:two_owners]
 
     // alone, as its chunks in both: the first track's chunks are chunk(0, k), the second's chunk(1, k)
     let alone_a = hashes(&write_owned(&[ta]));
