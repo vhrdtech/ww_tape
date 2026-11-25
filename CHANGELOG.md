@@ -17,6 +17,27 @@ benchmarks, golden files and book pages.
 - `TapeReader::series_timeline` reads the index, and heads only where a grid or piece starts or samples are lost (FMT-16).
 - `relay_block` restamps a relayed chunk's grid start mark; `verify` refuses a wrong mark (FMT-16).
 
+## [0.12.0] - 2026-11-25
+
+### Breaking
+
+- `PieceChain` cuts before puts too, and `CutPolicy::bytes` counts the final index: the same input cuts elsewhere (WRITE-1).
+
+### Features
+
+- `TapeMux::put_definitions` puts tracks without data into the chain, again after each cut (MUX-5).
+- `TapeWriter::put_definitions` and `PieceChain::put_definitions` put the definitions of tracks without data (MUX-5).
+- `TapeWriter::closed_bytes` and `PieceChain::puts_cut_due` tell a piece's size once closed and a cut due before puts (WRITE-1).
+
+### Fixes
+
+- A put while a unit is open goes into the unit's run instead of splitting it (FMT-15).
+- A group put or relayed while a unit is open waits whole and follows the unit's last chunk (FMT-15).
+- A put behind such a waiting group waits too, keeping its order after the unit (FMT-15).
+- A close inside an open unit writes the puts waiting for it after the unit's blocks; nothing is cut (FMT-15).
+- Keyed puts waiting behind a group count toward the carry's limits (FMT-15).
+- A put past the bytes held behind a group is refused with `InputError::WaitingTooLong` (FMT-15).
+
 ## [0.11.0] - 2026-11-25
 
 ### Breaking

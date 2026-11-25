@@ -191,7 +191,7 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
 - ✅ **WRITE-1 Pieces and chains** · `v0.5`
 
-  A recording is cut into complete pieces at chunk boundaries, by bytes, chunks or age, and a cut never leaves a piece empty. Each piece names the one before by its id and content hash. A chain check reports gaps, broken links, an open end and a lost first piece.
+  A recording is cut into complete pieces by bytes (the final index counted), chunks or age. The cut comes before a chunk or a call of puts and never leaves a piece empty. Each piece names the one before by its id and content hash. A chain check reports gaps, broken links, an open end and a lost first piece.
 
   Read more: [Anatomy of a piece](docs/anatomy.md), [Pieces and chains](docs/pieces.md).
 
@@ -286,6 +286,14 @@ The writing thread and its handles, in the crate `ww_tape_mux`.
   A sender from `TapeMux::summarized_chunks` takes each chunk a producer encoded with its summary leaves. The writing thread joins them into the track's tree, ends it at its cuts and rebuilds it after a resume. `ChunkSender::send_placed` gives a receipt naming the chunk's piece, offset, length and unit hash. `TapeMux::put_item` puts a typed item again in each piece a cut starts: every piece, or those holding a track of its owner. Carrying never cuts, and the held items are capped.
 
   Read more: [A producer's own chunks](docs/own_chunks.md). Tests `mux_leaves.rs`, `mux_placing.rs`, `mux_items.rs`.
+
+- ✅ **MUX-5 Definitions of tracks without data**
+
+  `TapeMux::put_definitions` puts the definitions of tracks that may never get data, behind the units sent before: their clock chains, maps, bundles and their own. The mux puts them again in each piece a later cut starts, never cutting for them. A definition that lies near behind is not written again, and a track defined twice gets its copy. `TapeWriter::put_definitions` does the put in one piece.
+
+  Open: a resumed mux holds no such track until it is put again.
+
+  Read more: [Tracks without data](docs/own_chunks.md#tracks-without-data). Tests `mux_definitions.rs`.
 
 ## Reader (`READ`)
 

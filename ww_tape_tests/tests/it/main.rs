@@ -46,6 +46,7 @@ mod media;
 mod mem_pieces;
 mod mux;
 mod mux_async;
+mod mux_definitions;
 mod mux_grid_overviews;
 mod mux_grid_summaries;
 mod mux_grids;
@@ -60,6 +61,7 @@ mod payload_check;
 mod pieces;
 mod placed;
 mod progress;
+mod put_definitions;
 mod puts;
 mod quiet;
 mod range_hash;
@@ -75,6 +77,7 @@ mod series;
 mod series_flags;
 mod tails;
 mod track_hash;
+mod unit_puts;
 
 use ww_tape::{BlockId, SessionTag};
 

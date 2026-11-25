@@ -387,6 +387,21 @@ impl Indexer {
         self.pending.len()
     }
 
+    /// Bytes the final index of the entries so far takes at most: the entries, and each block's head, directory and
+    /// CRC. It is cut into blocks of at most [FINAL_ENTRIES_MAX] entries, a track starting a new one at worst, and
+    /// lists each track once per block; the tracks counted are those with a range, the state records and the
+    /// records blocks.
+    pub(crate) fn final_bytes_upper(&self) -> usize {
+        let entries = self.all.len();
+        let tracks = self.tracks.len().saturating_add(2);
+        let blocks = entries.div_ceil(FINAL_ENTRIES_MAX).saturating_add(tracks);
+        let rows = tracks.saturating_add(blocks);
+        index_len(0, 0)
+            .saturating_mul(blocks)
+            .saturating_add(rows.saturating_mul(super::TRACK_LEN))
+            .saturating_add(entries.saturating_mul(ENTRY_LEN))
+    }
+
     /// Bytes of the checkpoint blocks listing the pending entries ([Self::checkpoint] until none is left).
     pub(crate) fn checkpoint_bytes(&self) -> usize {
         let mut left = self.pending.len();
