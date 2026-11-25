@@ -2954,7 +2954,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if b.is_repeat() {
             return self.put_block(defs, block).map(|()| None);
         }
-        self.write_read(defs, &b)
+        self.write_read(defs, &b, false)
     }
 
     /// [Self::write_block] of a block that isn't a block of puts, read with its CRCs checked.
@@ -2962,6 +2962,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         defs: &Definitions,
         b: &crate::Block<'_>,
+        relayed: bool,
     ) -> Result<Option<Placed>, WriteError<S::Error>> {
         let block = b.bytes();
         Self::check_data(defs, b)?;
@@ -2982,6 +2983,20 @@ impl<S: TapeSink> TapeWriter<S> {
             && self
                 .last_counted
                 .is_some_and(|(id, ..)| block_id(block) == Some(id));
+        // a relayed series chunk's grid start mark follows this tape's chunks, not the producer's
+        let restamped;
+        let read;
+        let b = match b.chunk() {
+            Some(c) if relayed && self.grids.due(&c.head(), replacing) != c.grid_start() => {
+                let mut own = block.to_vec();
+                crate::mark_grid_start(&mut own, !c.grid_start()).map_err(WriteError::Block)?;
+                restamped = own;
+                read = crate::Block::read(&restamped).map_err(WriteError::Block)?;
+                &read
+            }
+            _ => b,
+        };
+        let block = b.bytes();
         self.check_caller_relations(defs, b, replacing)?;
         self.check_caller_grid(b, replacing)?;
         if let Some(theirs) = session {
@@ -3518,22 +3533,8 @@ impl<S: TapeSink> TapeWriter<S> {
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if !b.is_repeat() {
             self.check()?;
-            // a series chunk's grid start mark follows this tape's chunks, not the producer's
-            let restamped;
-            let b = match b.chunk() {
-                Some(c)
-                    if c.head().level == 0
-                        && self.grids.due(&c.head(), false) != c.grid_start() =>
-                {
-                    let mut own = block.to_vec();
-                    crate::mark_grid_start(&mut own, !c.grid_start()).map_err(WriteError::Block)?;
-                    restamped = own;
-                    crate::Block::read(&restamped).map_err(WriteError::Block)?
-                }
-                _ => b,
-            };
             let torn = self.relay_groups.take(b.session);
-            if let Err(e) = self.write_read(defs, &b) {
+            if let Err(e) = self.write_read(defs, &b, true) {
                 if let Some(g) = torn {
                     self.relay_groups.hold(b.session, g);
                 }

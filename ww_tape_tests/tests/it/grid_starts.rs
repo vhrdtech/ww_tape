@@ -494,3 +494,31 @@ fn a_callers_chunk_carries_the_mark_exactly_where_due() {
         w.write_block(&defs, &right).unwrap();
     }
 }
+
+/// A producer resends the chunk it sent last, one that starts a scale: the relay takes it in that chunk's place, its
+/// mark checked against the chunk before it, as write_block does.
+#[test]
+fn a_relay_takes_a_resent_marked_chunk() {
+    let (mut defs, _, _) = defs();
+    let planned = plan(2, 16, 8, &[]);
+    let src = one_piece(&planned, &[]);
+    let mut blocks = vec![];
+    let mut rd = FileBlocks::new(&src[..]);
+    while let Some(b) = rd.next_block() {
+        let b = b.unwrap();
+        if b.chunk().is_some() {
+            blocks.push(b.bytes().to_vec());
+        }
+    }
+    let k = planned.iter().position(|(p, s)| *s && p.first > 0).unwrap();
+    let mut w = crate::resume::begin(0);
+    for b in &blocks[..=k] {
+        w.relay_block(&mut defs, b).unwrap();
+    }
+    w.relay_block(&mut defs, &blocks[k]).unwrap();
+    let mut w = crate::resume::begin(0);
+    for b in &blocks[..=k] {
+        w.write_block(&defs, b).unwrap();
+    }
+    w.write_block(&defs, &blocks[k]).unwrap();
+}
