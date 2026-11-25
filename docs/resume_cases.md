@@ -57,7 +57,7 @@ past the good blocks is damage, and the resume refuses and leaves the bytes as t
 The second case is the one to know. Suppose a sector of the disk went bad in the drive's file a few blocks before the
 end, and then the power failed. The [[reader]]'s scan stops at the bad sector, but good blocks follow it, so cutting
 there would lose them. The resume names the first good block and refuses. The file still reads past the damage with
-[`Recovery::Resync`], as [When bytes go bad](damage.md#reading-past-damage) explains.
+[`Recovery::Resync`], as [Reading past damage](reading_past_damage.md) explains.
 
 A crash after the [[close]] needs no new data. A closed [[piece]] goes on after its close, and a close with nothing
 written after it adds no byte. A crash in the middle of the close opens the piece again, and the next close writes the

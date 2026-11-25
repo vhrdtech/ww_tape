@@ -136,7 +136,7 @@ A writer that retried a write may leave the same block twice. The same session a
 copy with other bytes in place of the first, and reports the replacement ([`FileError::Replaced`]).
 
 [`Recovery::Resync`] reports a pair with other bytes as a conflict instead, as
-[When bytes go bad](damage.md#reading-past-damage) explains. In damaged bytes it cannot tell a copy from a rewrite, so
+[Reading past damage](reading_past_damage.md) explains. In damaged bytes it cannot tell a copy from a rewrite, so
 it takes neither for the other.
 
 [Lessons from tape and flash](lessons.md) names the tape drives and flash file systems that solved these problems first,

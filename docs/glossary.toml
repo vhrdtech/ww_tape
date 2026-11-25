@@ -421,7 +421,7 @@ chapter = "../blocks/"
 name = "recovery mode"
 forms = ["recovery modes"]
 short = "How a walk over blocks meets damage: Prefix stops at the first bad block, Resync reports it and reads on."
-chapter = "../damage/"
+chapter = "../reading_past_damage/"
 
 [[term]]
 name = "relation break"
@@ -445,7 +445,7 @@ chapter = "../crashes/"
 name = "salvage"
 forms = ["salvaged"]
 short = "Reading every item of a damaged chunk that still reads, and marking the rest as suspect."
-chapter = "../damage/"
+chapter = "../reading_past_damage/"
 
 [[term]]
 name = "sample"
@@ -574,7 +574,7 @@ chapter = "../summaries/"
 [[term]]
 name = "suspect"
 short = "An item that salvage could not vouch for: one of a group whose record does not agree with its neighbours."
-chapter = "../damage/"
+chapter = "../reading_past_damage/"
 
 [[term]]
 name = "sync policy"

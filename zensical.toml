@@ -56,6 +56,8 @@ nav = [
             },
             { "Damage" = [
                     "damage.md",
+                    "reading_past_damage.md",
+                    "damaged_pieces.md",
                     "integrity.md"
                 ]
             }
