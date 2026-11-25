@@ -41,16 +41,19 @@ so a reader can trust any part of it without the rest.
 <span id="what-a-tape-holds"></span><span id="one-format-three-uses"></span><span id="what-the-format-is-for"></span>
 <span id="state-tracks-and-near-use"></span><span id="pieces-and-chains"></span><span id="the-crates"></span>
 
-Start where your question is:
+The book runs in four parts, each one [reading level](levels.md) deeper than the one before. Read them in order
+and stop when you have what you need:
 
-- [What a tape holds](tape.md): tracks and items, the three uses, the goals, pieces and chains, and the crates.
-- [A first tape](first_tape.md): a program that writes a tape file and reads it back.
-- [Reading a tape](reading.md): find one second in a long recording with a few small reads.
-- [Fields and images over time](grids.md): a thermal plate and a camera on tracks with fixed axes, read by box, region and level.
-- [When bytes go bad](damage.md): what a flipped bit costs, and how a reader reads past it.
-- [WireWeaver and logring](related_books.md): the framework tapes belong to, and the store for firmware.
-- [Format reference](format.md): every block byte by byte, for a reader in another language.
+| Part | What you can do after it |
+|---|---|
+| Introduction | Know what a tape holds and write [a first tape](first_tape.md). |
+| [Basic](basic/index.md) | Record events, states and signals into a chain of files, read one second back, and resume after a crash. |
+| [Advanced](advanced/index.md) | Pick clocks, codecs and relays, follow a growing recording, store fields and images, and check copies. |
+| [Nomicon](nomicon/index.md) | Know why a piece holds what it holds, to write a reader in another language. |
 
-Most examples come from one recording, a motor controller's hour on a test bench, and the crate `example_drive`
-writes it. Every number in an example comes from running that code. A badge above each title gives its [reading
-level](levels.md): read the basic chapters first and stop when you have what you need.
+The [Reference](reference/index.md) holds the glossary, the measured sizes and speeds, and the
+[format reference](format.md) byte by byte. The Articles follow two cases from start to end: [a 10 Gbps
+link](protocol_analyser.md) and [a fast radio band](wideband.md).
+
+Most examples of the Basic part come from one recording, a motor controller's hour on a test bench, written by the
+crate `example_drive`. Every number in an example comes from running the code that writes it.

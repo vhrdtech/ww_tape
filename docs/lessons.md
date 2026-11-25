@@ -1,5 +1,5 @@
 ---
-level: basic
+level: nomicon
 ---
 
 # Lessons from tape and flash

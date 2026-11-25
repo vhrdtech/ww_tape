@@ -9,14 +9,7 @@ covers definitions, state, the index and the end of a piece.
 
 Later sections cover resuming after a crash, reading by position, sessions and damage, and the codecs of chunk columns.
 
-The chapters of the book explain the format with examples, starting at [Tapes](index.md). Pages of earlier editions
-point to where their sections went:
-
-- [Tape concepts](concepts.md) and [Records, tracks and clocks](records_and_clocks.md);
-- [Events and series](events_and_series.md);
-- [Sessions, pieces and chains](sessions_and_pieces.md) and [Pieces and files](pieces_and_files.md);
-- [Sinks, files and locks](sinks_and_locks.md) and [Syncing, cuts and relays](syncing_and_cuts.md);
-- [Damage and recovery](recovery.md).
+The chapters of the book explain the format with examples, starting at [Tapes](index.md).
 
 The byte layouts on this page are copied from the module docs of the crate `ww_tape`, and a test checks that they match.
 

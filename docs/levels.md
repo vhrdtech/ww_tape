@@ -28,5 +28,6 @@ the way it does.
 </ul>
 </div>
 
-A level says how much a page assumes, not how important it is. Each part of the navigation lists its basic pages
-first.
+A level says how much a page assumes, not how important it is. The book's parts follow the levels: the Basic part
+holds the basic pages, the Advanced part the advanced ones and the Nomicon the rest. The Reference and Articles come
+after them, and each of their pages keeps its own badge.

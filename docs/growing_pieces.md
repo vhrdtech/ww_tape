@@ -1,3 +1,7 @@
+---
+level: advanced
+---
+
 # Reading a growing piece
 
 A piece is not always finished when a reader opens it: a writer may have closed it and opened it again. This page

@@ -90,7 +90,9 @@ level: basic
 ---
 ```
 
-The value is `basic`, `advanced` or `nomicon`. Each part of the navigation lists its basic chapters first.
+The value is `basic`, `advanced` or `nomicon`. The parts Basic, Advanced and Nomicon each hold pages of their own
+level only, so a reader who clicks next never steps down. The Reference and Articles shelves come after them, and
+their pages keep any level. `vz check` holds the navigation to `book_checks.toml` and fails a step down.
 
 ## Terms and code links
 

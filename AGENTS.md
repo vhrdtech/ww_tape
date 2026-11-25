@@ -13,7 +13,7 @@ It takes [shrink_wrap](https://github.com/romixlab/shrink_wrap) and
 `wire_weaver_evolution`, for the API snapshot check. WireWeaver (the link tap, the client's recorder, `ww explain`) and
 applications take it by git.
 
-Read `docs/concepts.md` first (the words), then the pages in the order `docs/index.md` lists them. `docs/format.md`
+Read the pages in the order of the nav in `zensical.toml`; `docs/glossary.toml` holds the words. `docs/format.md`
 is the reference, block by block.
 
 The exact byte layouts are in the module docs (`ww_tape/src/lib.rs` and each module's `mod.rs`). Where the docs are

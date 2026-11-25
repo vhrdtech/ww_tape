@@ -284,5 +284,4 @@ since a report names its commit. The RF chain needs as many GiB of free disk as 
 Run the recipe on a quiet machine, and compare the load average under each table with your own run. `--help` lists
 each bench's settings.
 
-After a rerun, `cargo nextest run -p ww_tape_figures` names each number of this page that changed. The page
-[Numbers](numbers.md) points the anchors of an older index of numbers here.
+After a rerun, `cargo nextest run -p ww_tape_figures` names each number of this page that changed.

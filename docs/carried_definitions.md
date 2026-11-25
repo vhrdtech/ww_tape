@@ -1,3 +1,7 @@
+---
+level: nomicon
+---
+
 # The definitions a new piece carries
 
 A chain is read from its oldest piece left. Dropping the pieces before it must not lose what a track is. So a new piece

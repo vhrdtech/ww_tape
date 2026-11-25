@@ -1,3 +1,7 @@
+---
+level: nomicon
+---
+
 # Track owners and hashes
 
 One tape can hold tracks from several sources, and one track can lie in several files. A reader then has two

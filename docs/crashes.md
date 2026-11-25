@@ -11,8 +11,9 @@ what the crash cost, how a [[reader]] reads the file left behind, and how the re
 
 In short, the crash costs about the last second of data. A reader reads everything before the damaged block. A
 [[resume]] cuts off the damaged end and lets the recorder write it again. The rest of the chapter shows why each answer
-holds. It assumes [Tape concepts](concepts.md), and it uses the drive's recording, a
-motor controller on a test bench, as its example throughout.
+holds, on the drive's recording of a motor controller on a test bench.
+
+The chapter assumes [Pieces and chains](pieces.md).
 
 ## A file's bytes tell its state
 
