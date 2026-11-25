@@ -104,12 +104,17 @@ pub fn payloads_hostile(data: &[u8]) {
 
 /// The shape of the series track a block of definitions names; None when it names none.
 fn series_def(b: &[u8]) -> Option<(SampleShape, Ratio64)> {
+    series_track(b).map(|(s, p, _)| (s, p))
+}
+
+/// The shape, period and id of the series track a block of definitions names; None when it names none.
+fn series_track(b: &[u8]) -> Option<(SampleShape, Ratio64, ww_tape::TrackId)> {
     let block = Block::read(b).ok()?;
     block.records().flatten().find_map(|r| track_series(r.item))
 }
 
-/// The shape and period of the series track describe record `item` names; None for any other record.
-fn track_series(item: &[u8]) -> Option<(SampleShape, Ratio64)> {
+/// The shape, period and id of the series track describe record `item` names; None for any other record.
+fn track_series(item: &[u8]) -> Option<(SampleShape, Ratio64, ww_tape::TrackId)> {
     match Describe::from_ww_bytes(item).ok()? {
         Describe::Track(t) => {
             let _ = (
@@ -121,7 +126,7 @@ fn track_series(item: &[u8]) -> Option<(SampleShape, Ratio64)> {
             match t.kind {
                 TrackKind::Series(ref s) => {
                     let _ = (s.check(), s.first_grid(0));
-                    Some((t.series_shape()?, s.period))
+                    Some((t.series_shape()?, s.period, t.id()))
                 }
                 _ => None,
             }
@@ -240,6 +245,83 @@ pub fn series_hostile(data: &[u8]) {
             }
         }
     }
+    if let Some(defs) = bs.first() {
+        // the writer takes the chunks in an order the input draws, out of sample order too
+        timeline_oracle(defs, &in_drawn_order(&heads, data), period);
+    }
+}
+
+/// `heads` in an order drawn from the input's last bytes: each swaps a head with one at or before it.
+fn in_drawn_order(heads: &[ChunkHead], data: &[u8]) -> Vec<ChunkHead> {
+    let mut out = heads.to_vec();
+    for (i, b) in (1..out.len()).rev().zip(data.iter().rev()) {
+        out.swap(i, usize::from(*b) % (i + 1));
+    }
+    out
+}
+
+/// Most samples of a chunk the oracle writes: the hostile counts reach a million.
+const ORACLE_COUNT_MAX: u32 = 4096;
+
+/// The chunks of `heads` in their order, written under the definitions block `defs` by a writer that marks their grid
+/// starts and closed: where the piece verifies, its timeline from the index is the one from every head. Whether it
+/// verified and was checked.
+fn timeline_oracle(defs: &[u8], heads: &[ChunkHead], period: Ratio64) -> bool {
+    let Ok(block) = Block::read(defs) else {
+        return false;
+    };
+    let mut d = ww_tape::Definitions::new();
+    if d.take_block(&block).is_err() {
+        return false;
+    }
+    let Some((shape, _, id)) = series_track(defs) else {
+        return false;
+    };
+    let mut w = TapeWriter::create_on(MemSink::new(), ww_tape::SyncPolicy::None);
+    let tape = w.sink().tape();
+    let mut written = 0;
+    for h in heads.iter().filter(|h| h.count <= ORACLE_COUNT_MAX) {
+        // the hostile heads name track id 7: the oracle writes them on the track the block defines
+        let h = &ChunkHead { track_id: id, ..*h };
+        let samples = vec![0u8; 2 * shape.channels as usize * h.count as usize];
+        let spec = ww_tape::ColumnSpec {
+            kind: ww_tape::ColumnKind::Samples,
+            codec: ww_tape::Codec::RAW,
+            param: 0,
+            len: samples.len(),
+        };
+        // a refused chunk writes nothing; one that stops the writer leaves no piece to check: close fails
+        written += usize::from(w.write_chunk(&d, h, &[(spec, &samples)]).is_ok());
+    }
+    if written == 0 || w.close().is_err() {
+        return false;
+    }
+    let Ok(bytes) = tape.to_vec() else {
+        return false;
+    };
+    let r = TapeReader::open(&bytes[..]).expect("a piece the writer closed opens");
+    if !r.verify(0).is_ok_and(|v| v.holds) {
+        return false;
+    }
+    let (t, _) = r.series_timeline(0, id, period).expect("the index reads");
+    let mut entries: Vec<_> = r
+        .track_entries(0, id)
+        .expect("the index reads")
+        .into_iter()
+        .filter(|e| e.kind == ww_tape::BlockKind::Series && e.level == 0)
+        .collect();
+    entries.sort_by_key(|e| e.first_item);
+    let mut buf = vec![];
+    let every: Vec<ChunkHead> = entries
+        .iter()
+        .filter_map(|e| r.read_chunk_head(0, e, &mut buf).ok())
+        .collect();
+    let (want, _) = SeriesTimeline::from_chunks(period, &every);
+    assert_eq!(
+        t, want,
+        "the timeline from the index is the one from every head"
+    );
+    true
 }
 
 /// A grid track a block of definitions names: its id, tile layout and the shape of a cell.
@@ -666,5 +748,24 @@ mod tests {
         let f = hostile::series(&[7; 64]);
         let bs = blocks(&f);
         assert!(series_def(bs[0]).is_some());
+    }
+
+    /// The seeds of `tape-series-hostile` reach the timeline oracle: some write a piece that verifies.
+    #[test]
+    fn the_series_seeds_reach_the_timeline_oracle() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds/tape-series-hostile");
+        let mut checked = 0;
+        for e in std::fs::read_dir(dir).unwrap() {
+            let f = hostile::series(&std::fs::read(e.unwrap().path()).unwrap());
+            let bs = blocks(&f);
+            let period = series_def(bs[0]).unwrap().1;
+            let heads: Vec<_> = bs[1..]
+                .iter()
+                .filter_map(|b| ChunkHead::read_head(b).ok())
+                .collect();
+            checked += usize::from(timeline_oracle(bs[0], &heads, period));
+        }
+        assert!(checked > 0);
     }
 }
