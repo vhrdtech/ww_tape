@@ -36,8 +36,8 @@ impl std::io::Read for Pattern {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let left = VALUE_LEN - self.at;
         let n = (buf.len() as u64).min(left) as usize & !7;
-        for (k, word) in buf[..n].chunks_exact_mut(8).enumerate() {
-            word.copy_from_slice(&((self.at >> 3) + k as u64).to_le_bytes());
+        for (k, word) in buf[..n].as_chunks_mut::<8>().0.iter_mut().enumerate() {
+            *word = ((self.at >> 3) + k as u64).to_le_bytes();
         }
         self.at += n as u64;
         Ok(n)
@@ -109,8 +109,8 @@ fn a_2_gib_value_is_written_and_read_in_32_mib() {
         let mut at = 0u64;
         let read = r
             .read_value(id, seal.id, |b| {
-                for word in b.chunks_exact(8) {
-                    assert_eq!(word, (at >> 3).to_le_bytes(), "the word at {at}");
+                for word in b.as_chunks::<8>().0 {
+                    assert_eq!(*word, (at >> 3).to_le_bytes(), "the word at {at}");
                     at += 8;
                 }
                 Ok::<(), ()>(())
