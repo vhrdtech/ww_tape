@@ -1,0 +1,53 @@
+<svg class="ww-svg" viewBox="0 0 680 230" width="680" height="230" role="img" aria-label="Three handles send units into one queue: the state handle two puts, the grid handle two chunks, the records handle one block. The queue holds them in the order they arrived, and the writing thread places them in that order. A cut falls between two units, never inside one, and the next piece starts with its head." xmlns="http://www.w3.org/2000/svg">
+  <!-- handles -->
+  <text x="20" y="57" class="mono small">StateHandle</text>
+  <rect x="130.5" y="42" width="18" height="24" rx="2" class="tint-green"/>
+  <text x="139" y="58" text-anchor="middle" class="small">p1</text>
+  <rect x="154.5" y="42" width="18" height="24" rx="2" class="tint-green"/>
+  <text x="163" y="58" text-anchor="middle" class="small">p2</text>
+  <text x="20" y="107" class="mono small">GridHandle</text>
+  <rect x="110.5" y="92" width="30" height="24" rx="2" class="tint-blue"/>
+  <text x="125" y="108" text-anchor="middle" class="small">c1</text>
+  <rect x="144.5" y="92" width="30" height="24" rx="2" class="tint-blue"/>
+  <text x="159" y="108" text-anchor="middle" class="small">c2</text>
+  <text x="20" y="157" class="mono small">RecordsHandle</text>
+  <rect x="146.5" y="142" width="26" height="24" rx="2" class="tint-purple"/>
+  <text x="159" y="158" text-anchor="middle" class="small">b1</text>
+  <!-- into the queue -->
+  <path d="M178 54 Q205 54 222 96" class="thin"/>
+  <path d="M178 104 H220" class="thin"/>
+  <path d="M178 154 Q205 154 222 112" class="thin"/>
+  <path d="M228 104 l-8 -4 v8 Z" class="thin head"/>
+  <!-- the queue -->
+  <text x="325" y="80" text-anchor="middle" class="small">one queue, in the order units came</text>
+  <rect x="232.5" y="88" width="186" height="32" rx="3" class="hollow"/>
+  <rect x="238.5" y="92" width="18" height="24" rx="2" class="tint-green"/>
+  <text x="247" y="108" text-anchor="middle" class="small">p1</text>
+  <rect x="260.5" y="92" width="30" height="24" rx="2" class="tint-blue"/>
+  <text x="275" y="108" text-anchor="middle" class="small">c1</text>
+  <rect x="294.5" y="92" width="26" height="24" rx="2" class="tint-purple"/>
+  <text x="307" y="108" text-anchor="middle" class="small">b1</text>
+  <rect x="324.5" y="92" width="18" height="24" rx="2" class="tint-green"/>
+  <text x="333" y="108" text-anchor="middle" class="small">p2</text>
+  <rect x="346.5" y="92" width="30" height="24" rx="2" class="tint-blue"/>
+  <text x="361" y="108" text-anchor="middle" class="small">c2</text>
+  <!-- the writing thread places -->
+  <path d="M422 104 H440" class="line"/>
+  <path d="M446 104 l-8 -4 v8 Z" class="line head"/>
+  <text x="560" y="80" text-anchor="middle" class="small">placed by the writing thread</text>
+  <rect x="452.5" y="92" width="18" height="24" rx="2" class="tint-green"/>
+  <text x="461" y="108" text-anchor="middle" class="small">p1</text>
+  <rect x="470.5" y="92" width="30" height="24" rx="2" class="tint-blue"/>
+  <text x="485" y="108" text-anchor="middle" class="small">c1</text>
+  <rect x="500.5" y="92" width="26" height="24" rx="2" class="tint-purple"/>
+  <text x="513" y="108" text-anchor="middle" class="small">b1</text>
+  <path d="M533 86 V124" class="accent-line dash"/>
+  <rect x="540.5" y="92" width="16" height="24" rx="2" class="tint-teal"/>
+  <rect x="556.5" y="92" width="18" height="24" rx="2" class="tint-green"/>
+  <text x="565" y="108" text-anchor="middle" class="small">p2</text>
+  <rect x="574.5" y="92" width="30" height="24" rx="2" class="tint-blue"/>
+  <text x="589" y="108" text-anchor="middle" class="small">c2</text>
+  <text x="533" y="142" text-anchor="middle" class="accent small">cut: between units</text>
+  <text x="548" y="158" text-anchor="middle" class="soft small">the next piece starts with its head</text>
+  <text x="20" y="200" class="soft small">each handle's units keep their order; units of different handles land in the order they reached the queue</text>
+</svg>

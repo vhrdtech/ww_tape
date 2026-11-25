@@ -17,7 +17,7 @@ state](definitions.md#why-a-reader-needs-state-close-behind) shows.
 
 In one process, a [`MemSink`] holds the tape, and a [`TapeReader`] reads it while the writer appends. A recorder
 that writes through a [[mux]] gives its readers a [`ProgressWatch`], which wakes them each time the [[writing thread]]
-places more. [Writing from many threads](writing_thread.md#readers-while-the-mux-writes) shows it. A [`MemSink`] of a
+places more. [Back-pressure, errors and speed](mux_queue.md#readers-while-the-mux-writes) shows it. A [`MemSink`] of a
 [[chain]] reserves the room of a whole piece when the piece starts: the chain's cut size plus 1 MiB. A reader's read
 therefore never waits while the bytes move into a bigger buffer.
 

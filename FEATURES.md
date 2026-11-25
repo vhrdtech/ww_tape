@@ -295,7 +295,7 @@ The writing thread and its handles, in the crate `ww_tape_mux`.
 
   Open: a typed handle's drop still sends blocking, so async code ends a handle with `finish_async`.
 
-  Read more: [Threads and tasks](docs/writing_thread.md#threads-and-tasks). Tests `mux_async.rs` on tokio's two schedulers and smol.
+  Read more: [Threads and tasks](docs/mux_queue.md#threads-and-tasks). Tests `mux_async.rs` on tokio's two schedulers and smol.
 
 - ✅ **MUX-4 A producer's own chunks, receipts and carried items**
 

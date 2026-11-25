@@ -120,7 +120,7 @@ Each kind of [[track]] takes only its own form of data, and the writer refuses a
 
 A keyed state track holds a value per key, such as the entries of a settings store, and `delete_key` ends a key. A
 bytes track holds values of any length, such as a firmware image, read whole with their hash checked. Through a mux,
-a value goes in through a [`BytesHandle`], as [Writing from many threads](writing_thread.md)
+a value goes in through a [`BytesHandle`], as [Writing from many threads](writing_thread.md#a-value-of-any-length)
 shows.
 
 The writer adds blocks of its own around this data. [What the writer adds](writer_adds.md) shows them, from the

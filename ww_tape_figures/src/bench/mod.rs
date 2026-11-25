@@ -8,7 +8,7 @@
 //! - `bench_machine.txt`: the machine, build and commit every report of "Sizes and speeds" ran but the chunks report,
 //!   and the range of the load average.
 //! - `bench_chunks_machine.txt`: the same for the chunks report of "Sizes and speeds", rerun on its own.
-//! - `bench_handles_machine.txt`: the same for the handles report of "Writing from many threads".
+//! - `bench_handles_machine.txt`: the same for the handles report of "Back-pressure, errors and speed".
 //! - `bench_read_check_machine.txt`: the same for the read_check report of "When bytes go bad".
 //! - `bench_levels_machine.txt`: the same for the levels report of "Fewer checks, sealed later".
 //! - `bench_archive_parallel_machine.txt`: the same for the archive_parallel report of "Checking many pieces at once".

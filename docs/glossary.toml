@@ -17,7 +17,7 @@ chapter = "../anatomy/"
 [[term]]
 name = "back-pressure"
 short = "What a producer meets when the mux's queue is full: its handle waits, fails or drops the unit, by its pressure."
-chapter = "../writing_thread/"
+chapter = "../mux_queue/"
 
 [[term]]
 name = "BLAKE3"

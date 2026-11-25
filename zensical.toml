@@ -37,6 +37,7 @@ nav = [
                     "writer_adds.md",
                     "aligned.md",
                     "writing_thread.md",
+                    "mux_queue.md",
                     "files.md",
                     "pieces.md",
                     "old_pieces.md",
