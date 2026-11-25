@@ -147,13 +147,13 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Definitions are plain records on track 0: the producer, the layout, bundles, clocks, maps, tracks and typed items. Each has a slot, and the newest record per slot counts. The application holds its definitions and passes them with each write; data of a track it does not hold is refused. A state item is put again only where the same item does not lie close behind. The index lists state records, so a reader looks state up anywhere, damage included.
 
-  Read more: [Definitions on track 0](docs/blocks.md#definitions-on-track-0), [State tracks](docs/tape.md#state-tracks-and-near-use); `just bench-tracks` measures the cost. Fuzz target `tape-state-hostile`.
+  Read more: [Definitions](docs/definitions.md#what-a-definition-says), [State tracks](docs/tape.md#state-tracks-and-near-use); `just bench-tracks` measures the cost. Fuzz target `tape-state-hostile`.
 
 - ✅ **TRACK-4 What a track's items are**
 
   A track's definition says what its items are (`Items`): a WireWeaver stream's values, a ShrinkWrap type, plain bytes, numbers or a foreign format. A foreign format has a name, a media type and a version, and may carry its schema in the tape. Numbers are of an element the definition describes, of any width and byte order; series samples are numbers too. `Items` is evolvable: a variant from a newer ww_tape reads as unknown, and the rest of the definition stays intact.
 
-  Read more: [What a track's items are](docs/tracks.md#what-a-tracks-items-are), [Items of a track](docs/format.md#items-of-a-track). Tests `raw.rs`, `iq8.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
+  Read more: [What a track's items are](docs/items.md#what-a-tracks-items-are), [Items of a track](docs/format.md#items-of-a-track). Tests `raw.rs`, `iq8.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
 
 - ✅ **TRACK-5 Definitions carried into each new piece**
 
@@ -165,7 +165,7 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Every call that puts a definition or a state item also keeps track 0's copies of the layout and the producer. The first copy comes 4 KiB on (TRACK-12), later ones 1 MiB apart. Losing a piece's first blocks so loses neither, and a scan past the newest checkpoint takes its gap rules from the copy. A raw-media walk that starts before the first copy gets them from `OpenOptions::layout`.
 
-  Read more: [When bytes go bad](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`.
+  Read more: [When bytes go bad](docs/damaged_pieces.md#the-first-4-kib-lost). Tests `head_copies.rs`.
 
 - 🚧 **TRACK-7 Track and clock numbers given by the definitions**
 
@@ -207,7 +207,7 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Losing a piece's first 4 KiB so loses no definition. A raw-media walk past the loss reads past gaps without `OpenOptions::layout`. Later copies come at uses 1 MiB apart; `StatePolicy::DEFAULT.copies` is 2. Keyed items and group records get copies at uses only. A piece that ends within 4 KiB of its first data holds each definition once.
 
-  Read more: [Puts and copies](docs/format.md#puts-and-copies), [The first 4 KiB lost](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`, `definitions_twice.rs`, example_drive `damage.rs`.
+  Read more: [Puts and copies](docs/format.md#puts-and-copies), [The first 4 KiB lost](docs/damaged_pieces.md#the-first-4-kib-lost). Tests `head_copies.rs`, `definitions_twice.rs`, example_drive `damage.rs`.
 
 ## Writer (`WRITE`)
 
@@ -333,7 +333,7 @@ Reading by position, checks and hashes, hostile bytes and live chains, in the cr
 
   Every reader takes damaged or hostile bytes without a panic, an overflow or an unbounded allocation. A number read from a block reaches a length or a loop only through a named cap. The crate docs list the caps in one table. Clippy's panic-class lints are denied, and each exception names its invariant. Every decoder has a fuzz target that builds valid blocks with hostile fields, and their seeds replay in `just test`.
 
-  Read more: [What the checks cannot do](docs/damage.md#what-the-checks-cannot-do).
+  Read more: [What the checks cannot do](docs/damaged_pieces.md#what-the-checks-cannot-do).
 
 - ✅ **READ-3 Range hashes from the index**
 

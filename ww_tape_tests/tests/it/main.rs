@@ -31,6 +31,7 @@ mod crashes;
 mod cut_progress;
 mod definitions;
 mod definitions_twice;
+mod doc_links;
 mod durable;
 mod files;
 mod follow;
