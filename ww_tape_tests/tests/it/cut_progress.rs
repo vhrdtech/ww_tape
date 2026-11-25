@@ -38,9 +38,14 @@ fn state(number: u32, label: &'static str) -> Describe<'static> {
 }
 
 fn options() -> ChainOptions {
+    options_cut_at(BUDGET)
+}
+
+/// [options] with a cut budget of `budget` bytes.
+fn options_cut_at(budget: u64) -> ChainOptions {
     ChainOptions {
         cut: CutPolicy {
-            bytes: Bytes::new(BUDGET),
+            bytes: Bytes::new(budget),
             ..CutPolicy::default()
         },
         writer: WriterOptions {
@@ -108,9 +113,13 @@ fn a_resumed_piece_finds_its_carry() {
     let mut chain = PieceChain::create_on(mem.clone(), OWNER, 0, &[], options()).unwrap();
     put_each(&mut chain, &defs, 1000);
     chain.cut_now(&defs).unwrap();
-    let carry = chain.writer().unwrap().carried_bytes();
-    assert!(carry > BUDGET, "the case: a carry of {carry} bytes");
+    assert!(
+        chain.writer().unwrap().carried_bytes() > BUDGET,
+        "the case: a carry past the budget"
+    );
+    // the put's run goes on the head's: its puts and the first copies of the carry count as carry too
     chain.put(&defs, TrackNum::new(1), 1, &[1]).unwrap();
+    let carry = chain.writer().unwrap().carried_bytes();
     let seq = chain.seq();
     drop(chain);
     let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, options()).unwrap();
@@ -198,11 +207,50 @@ fn a_mux_whose_carry_passes_the_budget_cuts_by_its_data() {
     mux.close().unwrap();
     let p = pieces(&mem);
     carry_past_budget(&p);
-    // the data: each definition and item once, the puts, a record head each; the carries come on top
-    let data = defs(TRACKS, 20).bytes() as u64 + u64::from(TRACKS + 64) * 32;
+    // the data: each definition and item with its first copy, the puts, a record head and an index entry each, which
+    // the budget counts; the carries come on top
+    let entry = ww_tape::index::ENTRY_LEN as u64;
+    let records = 4 * u64::from(TRACKS) + 64;
+    let data = 2 * defs(TRACKS, 20).bytes() as u64 + records * (32 + entry);
     assert!(
         p.len() as u64 <= 2 + data / BUDGET,
         "{} pieces for {data} bytes of data",
         p.len()
     );
+}
+
+/// A call counts the first copies it brings before the cut: 99 definitions put in one call leave the piece under the
+/// budget, and the next call, which would write their first copies past it, cuts first. Each piece so holds at most
+/// its own carry, the budget and the slack.
+#[test]
+fn a_cut_by_bytes_counts_the_first_copies_a_call_brings() {
+    const SMALL: u64 = 384 << 10;
+    let defs = defs(100, 40);
+    let mem = MemPieces::new();
+    let mut chain =
+        PieceChain::create_on(mem.clone(), OWNER, 0, &[], options_cut_at(SMALL)).unwrap();
+    // the first call's puts join the head's run as carry: the definitions after it are data
+    chain.put(&defs, TrackNum::new(1), 0, &[0]).unwrap();
+    let tracks: Vec<TrackNum> = (2..=100).map(TrackNum::new).collect();
+    chain.put_definitions(&defs, &tracks).unwrap();
+    let w = chain.writer().unwrap();
+    let (data, copies) = (w.data_bytes(), w.first_copies_len(&defs));
+    assert!(
+        data < SMALL && data + copies > SMALL,
+        "the case: {data} bytes of data and {copies} of first copies due"
+    );
+    let mut carries = vec![w.carried_bytes()];
+    chain.put(&defs, TrackNum::new(1), 1, &[1]).unwrap();
+    carries.push(chain.writer().unwrap().carried_bytes());
+    assert_eq!(chain.seq(), 1, "the put cut first");
+    chain.close().unwrap();
+    let p = pieces(&mem);
+    assert_eq!(p.len(), 2);
+    for (i, (piece, carry)) in p.iter().zip(&carries).enumerate() {
+        assert!(
+            piece.len() as u64 <= carry + SMALL + SLACK,
+            "piece {i} of {} bytes past its carry of {carry} and the budget",
+            piece.len()
+        );
+    }
 }

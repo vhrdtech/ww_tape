@@ -69,7 +69,7 @@ current. The mux turns each into one call of the writer, and adds the [[summary]
 
 | Handle call | Writer call | Count |
 |---|---|---:|
-| [`StateHandle::put`], the mode | [`TapeWriter::put`] | 3600 (12 wrote) |
+| [`StateHandle::put`], the mode | [`TapeWriter::put`] | 3600 (18 wrote) |
 | [`RecordsHandle::send`], log lines and temperatures | [`TapeWriter::write_block`] | 3600 |
 | [`ChunkSender::send`], `can0` | [`TapeWriter::write_chunk`] | 3600 |
 | [`GridHandle::push`], `phase_a` | [`TapeWriter::write_chunk_hashed`] | 3600 |

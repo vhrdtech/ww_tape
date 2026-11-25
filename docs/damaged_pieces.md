@@ -20,55 +20,58 @@ reads from the newest checkpoint. Drawn by <code>ww_tape_figures</code> from the
 data, where 4 KiB is a larger share.</figcaption>
 </figure>
 
-At full scale, the piece holds 3446 blocks that its index lists. `cargo run -p example_drive` prints what each damage
+At full scale, the piece holds 3449 blocks that its index lists. `cargo run -p example_drive` prints what each damage
 leaves:
 
 | Damage | The reader finds the piece by | Content hash | Blocks that read | Definitions found |
 |---|---|---|---:|---:|
-| a flipped bit | its tail | does not hold | 3445 | 10 of 10 |
-| the first 4 KiB lost | its tail | does not hold | 3441 | 10 of 10 |
-| the last 4 KiB lost | its newest checkpoint, scanning 1.1 MB after it | no close to check | 3446 | 10 of 10 |
+| a flipped bit | its tail | does not hold | 3448 | 10 of 10 |
+| the first 4 KiB lost | its tail | does not hold | 3444 | 10 of 10 |
+| the last 4 KiB lost | its final index, with no byte to scan after it | no close to check | 3449 | 10 of 10 |
 
 ### The first 4 KiB lost
 
 These bytes hold the [[piece head]], the first [[definitions]] and the first blocks of data. The reader still opens the
-piece from its [[tail]]. By the [[final index]] it reads every block outside the lost bytes, 3441 of the 3446. Five
+piece from its [[tail]]. By the [[final index]] it reads every block outside the lost bytes, 3444 of the 3449. Five
 blocks are lost:
 
-- the [[puts]] of the layout and the producer;
+- the [[puts]] of the [[layout]] and the producer;
 - the puts of the definitions the piece carries for the tracks its head carries, with the mode's newest item;
 - the records block of minute 45's first second, its log lines and temperatures;
 - the chunk of frames of that second;
 - the chunk of samples that the lost bytes reach into.
 
-Each definition comes from its newest record that reads. The writer copies a definition at a use 1 MiB or more after its
-first record. Every call that puts a definition or an item uses the [[layout]] and the producer's name too, so the
-writer copies them the same way. Every definition of the drive is thus found again, the layout and the producer among
-them. A [[reader]] scanning past the newest [[checkpoint]] takes its gap rules from the layout's copy.
+Each definition comes from its newest record that reads. The writer gives every definition and every plain [[state
+item]] a first [[state copy]] 4 KiB after its first record, without waiting for a use ([`NearPolicy::copy_first`]). The
+layout and the producer's name get theirs the same way. These copies lie past the lost bytes, so every definition of the
+drive is found again, the layout and the producer among them. A [[reader]] scanning past the newest [[checkpoint]] takes
+its gap rules from the layout's copy.
+
+The drive's hour spends 8.3 kB of its 116 MB on all its puts and copies ([What the writer adds](writer_adds.md)).
 
 The mode is a [[state track]], and a cut carries its newest item beside its definition. That item lay in the lost
-bytes. A reader thus finds no mode in force over the piece's first 35 seconds, 45:00 to 45:34. The mode's copy at 45:35
-gives it again from there.
+bytes. A reader thus finds no mode in force over the piece's first second, 45:00. The mode's first copy, written before
+the chunks of the next second, gives it again from there.
 
 | Stretch of the piece | What a reader lacks there |
 |---|---|
 | before the mode's copy | the mode in force |
-| before the layout's copy, on a raw-media walk | the gap rules, unless a medium layer gives them ([`OpenOptions::layout`]); a blank stretch ends the data |
+| before the layout's first copy, on a raw-media walk | the gap rules, unless a medium layer gives them ([`OpenOptions::layout`]) |
 | the whole piece | the check of the chain's link back, which the piece head named |
 
 The last piece of a chain names no next piece, so it has no link forward to lose.
 
 ### The last 4 KiB lost
 
-These bytes hold the [[tail]], the [[close]], the padding up to a multiple of 4 KiB and the end of the [[final
-index]]. The reader finds no tail and reads the piece as unclosed. The final index no longer reads, so the reader takes
-the newest [[checkpoint]] and scans the 1.1 MB after it. Every one of the 3446 blocks of data reads, and so does every
+These bytes hold the [[tail]], the [[close]] and the padding up to a multiple of 4 KiB. The reader finds no tail and
+reads the piece as unclosed. The [[final index]] ends before the lost bytes and reads whole. The reader takes it as the
+newest index block, with no byte to scan after it. Every one of the 3449 blocks of data reads, and so does every
 definition, but the piece loses its [[content hash]].
 
 | Lost bytes | The reader reads the blocks by |
 |---|---|
-| reach into the final index | the newest checkpoint and a scan after it |
-| stop short of the final index | the final index, taken as the newest index block, with no byte to scan after it |
+| stop short of the final index, as here | the final index, taken as the newest index block, with no byte to scan after it |
+| reach into the final index | the newest [[checkpoint]] and a scan of the blocks after it, which costs time but no block |
 
 A piece in the middle of a chain would also lose its close's link to the next piece.
 
@@ -98,7 +101,7 @@ Some damage costs more than one [[segment]]. These limits follow from the design
 | Limit | Why |
 |---|---|
 | damage is found, never repaired | the block kind [`BlockKind::Parity`] is reserved for parity blocks: no writer writes one, and a reader skips one as a kind it does not know |
-| a damaged chunk head costs the whole chunk | its CRC finds the damage, but no second copy of the chunk head exists to read instead |
+| a damaged chunk head costs the whole chunk | its CRC finds the damage, but no second copy of the head exists |
 | salvage can miss small shifts | a flipped bit in a group record can shift a tick or a slope without breaking the order; the group reads shifted and is not marked suspect |
 | an unclosed piece has no content hash | the hash needs a close |
 | an unclosed piece under about 4 MiB is scanned from its start | it has no checkpoint yet; the scan stops at the first bad block, and only a Resync walk reads past it |
@@ -107,13 +110,14 @@ Some damage costs more than one [[segment]]. These limits follow from the design
 
 ### Definitions held once
 
-An unclosed piece shorter than 1 MiB holds each definition once, so one bad sector can take a definition. Chunks then
-still place themselves by track id, item number and tick. Without clock rates and item types, a reader cannot turn ticks
-into seconds or bytes into values.
+A piece that ends less than 4 KiB after a definition's first record holds that definition once. One bad sector there can
+take it. Chunks then still place themselves by track id, item number and tick. Without clock rates and item types, a
+reader cannot turn ticks into seconds or bytes into values.
 
-The layout and the producer have the same limit, and one more. Their copy takes two state entries of the piece's
-[index policy](carried_room.md). In a piece whose state entries are full, the writer skips the
-copy rather than refuse a call. Such a piece names the layout and the producer once, after its head.
+An item of a keyed [[track]] and a record of a group of [[puts]] get copies only at uses ([Puts and
+copies](format.md#puts-and-copies)). Copies take state entries of the piece's [index policy](carried_room.md). In a piece
+whose state entries are full, the writer skips the copy rather than refuse a call. Such a piece may name a definition,
+the [[layout]] or the producer once, after its head.
 
 ### Lookups after a stopped scan
 

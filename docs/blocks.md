@@ -79,9 +79,16 @@ length, kind and count, and the names of the header bits set. The program reads 
 --8<-- "docs/generated/settings_blocks.txt"
 ```
 
-The piece opens with its [[piece head]]. Blocks of [[puts]] follow, records blocks of definitions and keyed puts of
-parameters, each marked `put`. The [[group of puts]] takes two blocks, marked `group` and the first `group start`. The
-firmware's five parts are events chunks, and the index, the close and the tail end the piece.
+The listing reads from the top down:
+
+1. The [[piece head]] opens the piece.
+2. Blocks of [[puts]] follow, marked `put`: records blocks of definitions and keyed puts of parameters. The [[group of
+   puts]] takes two blocks, marked `group`, the first also `group start`.
+3. The firmware's five parts are events chunks.
+4. After the first part, a block of puts holds the first [[state copies]] of the definitions. They come once their first
+   records lie 4 KiB behind.
+5. The index, the close and the tail end the piece.
+
 [Definitions](definitions.md) covers the description, [Anatomy of a piece](anatomy.md) the structure and
 [Summaries](summaries.md) the overview.
 

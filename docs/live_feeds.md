@@ -69,8 +69,8 @@ pieces need:
 
 | Tape | Size | Pieces | Data blocks | Blocks of puts | Bytes of puts |
 |---|---:|---:|---:|---:|---:|
-| the board's own | 116 MB | 1 | about 13 700 | 702 | 85 kB |
-| the host's relayed chain | 116 MB | 4 | the board's, byte for byte | 121 | 11 kB |
+| the board's own | 116 MB | 1 | about 13 700 | 705 | 86 kB |
+| the host's relayed chain | 116 MB | 4 | the board's, byte for byte | 124 | 13 kB |
 
 ## Adopting blocks on raw media
 

@@ -91,7 +91,7 @@ same, at 200 thousand samples a second.</figcaption>
 
 A radio's samples and what a decoder finds in them grow at very different rates. The example's decoder finds bursts
 by the mean power of 16 samples, and it measures the band's mean power each second. A minute at 1/100 of the rate
-then holds 38 MB of samples and five bursts.
+then holds 39 MB of samples and five bursts.
 
 Each kind goes into a [[chain]] of its own, `iq` and `decoded`. A reader of the bursts never walks the samples, and
 each chain is cut at its own size. One process writes both, each through a [`TapeMux`] of its own:
@@ -122,7 +122,7 @@ holds the chunks of samples back until the decoder's next second shows that no b
 ```
 
 `cargo run --release -p example_rf DIR` writes the minute at 1/100 of the rate. The chain `iq`
-holds 60 pieces of 38 MB together, a piece per second, and `decoded` one piece of 25 KB. The reader merges 6000 chunks
+holds 60 pieces of 39 MB together, a piece per second, and `decoded` one piece of 25 KB. The reader merges 6000 chunks
 and 65 finds, none of them late. Each burst comes right after the chunk that holds its first sample. The burst at
 7.3 s comes after the chunk from sample 1 460 000.
 

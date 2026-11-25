@@ -163,7 +163,7 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
 - ✅ **TRACK-6 Layout and producer copied through the piece**
 
-  Every call that puts a definition or a state item also keeps track 0's copy of the layout and the producer, spaced 1 MiB apart. Losing a piece's first blocks so loses neither, and a scan past the newest checkpoint takes its gap rules from the copy. A raw-media walk that starts before the first copy gets them from `OpenOptions::layout`. A piece under 1 MiB holds no copy.
+  Every call that puts a definition or a state item also keeps track 0's copies of the layout and the producer. The first copy comes 4 KiB on (TRACK-12), later ones 1 MiB apart. Losing a piece's first blocks so loses neither, and a scan past the newest checkpoint takes its gap rules from the copy. A raw-media walk that starts before the first copy gets them from `OpenOptions::layout`.
 
   Read more: [When bytes go bad](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`.
 
@@ -200,6 +200,14 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
   A torn value, or one with parts in a removed or lost piece, reads as absent with nothing handed out. A damaged part is named by its chunk. Under `Integrity::None` only the value's hash catches a changed byte.
 
   Read more: [Bytes tracks](docs/format.md#bytes-tracks). Golden file `v1-bytes.hex`; tests `bytes.rs`, `bytes_heap.rs` (2 GiB in 32 MiB); fuzz targets `tape-bytes`, `tape-bytes-hostile`.
+
+- ✅ **TRACK-12 First copies of every definition 4 KiB on**
+
+  Every definition and plain state item first written in a piece gets a copy `NearPolicy::copy_first` (4 KiB) on, without waiting for a use. The next call that writes a run writes it. The layout and the producer get theirs the same way.
+
+  Losing a piece's first 4 KiB so loses no definition. A raw-media walk past the loss reads past gaps without `OpenOptions::layout`. Later copies come at uses 1 MiB apart; `StatePolicy::DEFAULT.copies` is 2. Keyed items and group records get copies at uses only. A piece that ends within 4 KiB of its first data holds each definition once.
+
+  Read more: [Puts and copies](docs/format.md#puts-and-copies), [The first 4 KiB lost](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`, `definitions_twice.rs`, example_drive `damage.rs`.
 
 ## Writer (`WRITE`)
 

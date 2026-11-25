@@ -49,7 +49,7 @@ fn a_second_at_full_rate_is_the_size_the_book_gives() {
     assert_eq!(
         got,
         [
-            (81_113_088, "4.056".to_owned()),
+            (81_117_184, "4.056".to_owned()),
             (61_116_416, "3.056".to_owned()),
             (57_987_072, "2.899".to_owned()),
         ]
@@ -194,7 +194,7 @@ fn the_page_gives_the_two_chains_numbers() {
             written.decoded_pieces,
             written.decoded_bytes
         ),
-        (60, 38_354_944, 1, 24_576)
+        (60, 38_580_224, 1, 24_576)
     );
     assert_eq!(
         (followed.chunks, followed.decoded.len(), followed.late),

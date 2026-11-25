@@ -986,11 +986,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 };
                 named.take(&w.sink, &step)?;
                 past_head |= kind != BlockKind::PieceHead;
-                carry.saw(
-                    kind,
-                    &buf,
-                    s.end().saturating_add(wide(w.indexer.final_bytes_upper())),
-                );
+                carry.saw(kind, &buf, w.closed_past(s.end()));
                 continue;
             }
             past_head = true;
@@ -1080,6 +1076,7 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         // a piece of its head alone took the layout and the producer again: all it holds is its carry
         w.carried = carry.end_of(past_head, w.closed_bytes());
+        w.head_run = carry.open;
         let resumed = Resumed {
             kept_bytes,
             dropped_bytes: size.saturating_sub(kept_bytes),
@@ -1535,8 +1532,8 @@ fn too_long<E>(len: u64) -> WriteError<E> {
 
 /// The carry of a piece a resume walks: its head and the run of good blocks after it that belong with the next
 /// ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)), ended by any other block or by damage. The first call after the carry
-/// puts the definitions it needs in the same run, so a resume counts them as carry too, where the live writer counted
-/// them as data: at most one run more, which only puts a cut later by that much.
+/// puts the definitions it needs and the first copies due in the same run: the live writer counts them as carry too
+/// ([TapeWriter::carried_bytes]).
 struct CarryRun {
     /// Every block walked so far is in the carry
     open: bool,

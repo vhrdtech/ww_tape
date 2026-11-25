@@ -352,7 +352,7 @@ pub(crate) fn writes_of(bytes: &[u8], slot: Slot) -> Vec<u64> {
         .collect()
 }
 
-/// The options of the tests: no sync, checkpoints every 1 KiB, copies `copy_spacing` apart.
+/// The options of the tests: no sync, checkpoints every 1 KiB, copies `copy_spacing` apart, the first too.
 pub(crate) fn options(copy_spacing: u64) -> WriterOptions {
     WriterOptions {
         sync: SyncPolicy::None,
@@ -365,6 +365,7 @@ pub(crate) fn options(copy_spacing: u64) -> WriterOptions {
         layout: Layout::UNALIGNED,
         producer: "definitions".to_owned(),
         near: NearPolicy {
+            copy_first: exact_units::Bytes::new(copy_spacing),
             copy_spacing: exact_units::Bytes::new(copy_spacing),
             ..NearPolicy::default()
         },
@@ -1043,7 +1044,7 @@ fn a_producers_block_of_puts_is_put_on_the_tape() {
 }
 
 /// A use writes a copy of an item while fewer than `copies` copies lie in the piece and the newest record is at
-/// least `copy_spacing` behind; nothing is written ahead, and a new item in the slot starts over.
+/// least `copy_spacing` behind, and a new item in the slot starts over. Only the first copy comes without a use.
 #[test]
 fn a_use_writes_the_copies() {
     let policy = StatePolicy {
@@ -1084,8 +1085,8 @@ fn a_use_writes_the_copies() {
             }
         )
         .len(),
-        1 + 3,
-        "six once, never used again: no copy; six again and its two copies"
+        2 + 3,
+        "six once, never used again: its first copy alone; six again and its two copies"
     );
 }
 

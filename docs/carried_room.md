@@ -36,8 +36,8 @@ many tracks a cut carries whole, each with its own definition and no bundle:
 
 ## Refused calls and left-out tracks
 
-The copies of the layout and the producer, which every call that puts a record may write, take no part in this room.
-A copy that finds the state entries full is skipped, and the call goes on without it.
+[[State copies]] take no part in this room, nor do the copies of the layout and the producer. A copy that finds the
+state entries full is skipped, and the call goes on without it.
 
 A call is admitted only when its records fit an empty piece under the same policy. Those are the definitions its tracks
 need, its put, the layout, the producer and the keys every cut carries. Otherwise `InputError::CarriedEntries` refuses

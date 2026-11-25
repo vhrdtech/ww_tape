@@ -58,7 +58,7 @@ newest item, with its time, right after its definition in the same block. A read
 state in force with [`TapeReader::state_at`], as it finds the track.
 
 The carried item counts as a record of the item in the piece. A put of the same item close behind writes nothing. Its
-copy comes at a use 1 MiB on, as after any first record.
+first copy comes 4 KiB on, with the next block. Its second comes at a use 1 MiB after that, as after any first record.
 
 The writer keeps the newest item of each state track for this, learned from every state record it places:
 

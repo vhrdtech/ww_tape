@@ -86,7 +86,7 @@ A [[reader]] meets the flip in two places:
 | Call | What it finds |
 |---|---|
 | [`TapeReader::verify`] | the piece no longer matches its [[content hash]] |
-| [`TapeReader::read_block`], by the [[final index]] | that one chunk fails; the other 3445 blocks the index lists read |
+| [`TapeReader::read_block`], by the [[final index]] | that one chunk fails; the other 3448 blocks the index lists read |
 
 The reader thus knows which track and which items it lost, since the index entry names them, while the bytes themselves
 do not read.

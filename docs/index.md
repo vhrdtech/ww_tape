@@ -25,7 +25,7 @@ A tape serves recordings that are large, long and read in parts:
   of 250 million samples a second](wideband.md) into memory and keeps what matters.
 - **Recordings of gigabytes.** A long recording is a chain of pieces, each a file that reads alone. A minute of the
   radio capture is one piece of 3.7 GB.
-- **Small reads.** Opening the example's 116 MB recording reads about 17 KB. Finding one track's blocks around a
+- **Small reads.** Opening the example's 116 MB recording reads about 19 KB. Finding one track's blocks around a
   given second then reads about 210 KB, nearly all of it that track's index.
 
 It also keeps what it holds readable after damage and over years:

@@ -60,7 +60,7 @@ blocks therefore land before the gap opens, and none of them fills one:
 | File | Unaligned | Aligned | More | Summary blocks in a gap |
 |---|---:|---:|---:|---:|
 | the drive's hour | 116 MB | 129 MB | 12 % | 0 of 2948 |
-| `phase_a` alone | 105 MB | 112 MB | 7.3 % | 2724 of 2933 |
+| `phase_a` alone | 105 MB | 112 MB | 7.3 % | 2723 of 2933 |
 
 Alignment therefore suits a file that holds mostly series and is read by memory maps or direct input and output. It
 is optional: where space matters more than such reads, leave the file unaligned. The drive's recorder keeps its mixed

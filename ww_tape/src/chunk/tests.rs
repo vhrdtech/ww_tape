@@ -633,11 +633,12 @@ fn aligned_file_puts_payloads_on_pages_and_fills_gaps() {
     );
     let kinds: Vec<BlockKind> = blocks.iter().map(|b| b.2).collect();
     use BlockKind::*;
-    // the deferred blocks 1 and 2 fill the gap before the events chunk, 3 that before the second series chunk; 4 has
-    // no chunk after it and goes at the end, then the writer's final index, close and tail. Between them, the puts
-    // of the layout, the producer and the definitions each block needs.
+    // the deferred block 1 fills the gap before the events chunk, whose puts hold the first copies of the
+    // definitions (a deferred block writes none); 2 and 3 fill that before the second series chunk; 4 has no chunk
+    // after it and goes at the end, then the writer's final index, close and tail. Between them, the puts of the
+    // layout, the producer and the definitions each block needs.
     let want = [
-        Series, Records, Records, Events, Records, Series, Records, Index, Close, Tail,
+        Series, Records, Events, Records, Records, Series, Records, Index, Close, Tail,
     ];
     assert_eq!(kinds, want);
     assert_eq!(repeats(&file)[0], 0, "the layout and the producer first");
@@ -646,8 +647,14 @@ fn aligned_file_puts_payloads_on_pages_and_fills_gaps() {
             assert_eq!(p % 4096, 0);
         }
     }
+    // unaligned, the deferred blocks 1 and 2 go before the events chunk, 3 before the second series chunk
     let kinds: Vec<BlockKind> = counted(&plain).iter().map(|b| b.2).collect();
-    assert_eq!(kinds, want);
+    assert_eq!(
+        kinds,
+        [
+            Series, Records, Records, Events, Records, Series, Records, Index, Close, Tail
+        ]
+    );
     assert!(plain.len() < file.len());
 }
 
@@ -715,21 +722,22 @@ fn resync_salvages_chunks_in_a_file() {
     assert_eq!((good, reported), (blocks.len() - 1, 1));
 
     // the head of the events chunk: that block is lost, every other is read
-    let events = blocks[4];
+    let events = *blocks.iter().find(|b| b.2 == BlockKind::Events).unwrap();
     let mut bad = file.clone();
     bad[events.0 as usize + 40] ^= 0x01;
     let (got, errors) = walk(&bad, Recovery::Resync);
     assert_eq!(errors, 1);
-    let seqs: Vec<u64> = got.iter().map(|b| b.1).collect();
+    let at: Vec<u64> = got.iter().map(|b| b.0).collect();
     let want: Vec<u64> = blocks
         .iter()
-        .map(|b| b.1)
-        .filter(|s| *s != events.1)
+        .map(|b| b.0)
+        .filter(|a| *a != events.0)
         .collect();
-    assert_eq!(seqs, want);
+    assert_eq!(at, want);
     // the prefix reader stops at the damaged chunk
     let (got, errors) = walk(&bad, Recovery::Prefix);
-    assert_eq!((got.len(), errors), (4, 1));
+    let before = blocks.iter().position(|b| b.0 == events.0).unwrap();
+    assert_eq!((got.len(), errors), (before, 1));
 }
 
 /// The aligned sample tape is the golden file's (`WW_TAPE_GOLDEN=update` rewrites it): one block per line, in hex.

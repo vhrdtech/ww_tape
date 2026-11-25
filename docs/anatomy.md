@@ -29,7 +29,7 @@ need, two checkpoints, the final index, the close with its padding, and the 164-
 </figure>
 
 The drive's first piece holds the first 15 minutes of the run in about 29 MB. The [[series chunks]] of `phase_a`
-take most of it, and the blocks a [[reader]] uses to find its way take about 2.8 % of it. `cargo run -p
+take most of it, and the blocks a [[reader]] uses to find its way take about 2.9 % of it. `cargo run -p
 example_drive` prints this table and that share:
 
 --8<-- "docs/generated/anatomy_parts.txt"
@@ -61,7 +61,7 @@ back. It then knows every block before the newest checkpoint, and scans only the
 
 The [[final index]] lists every [[block]] of the [[piece]], sorted by track, with a directory of [[tracks]] at its
 start. A [[reader]] of one track out of thousands reads that directory and that track's list, and nothing else. The
-drive's first final index takes about 443 KB of its piece's 29 MB.
+drive's first final index takes about 444 KB of its piece's 29 MB.
 
 The [[close record]] states how the piece ended. Besides the reason, it holds three things:
 

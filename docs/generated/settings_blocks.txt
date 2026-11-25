@@ -12,10 +12,11 @@ offset    bytes  kind          count  marks
    804       67  KeyedPuts         2  put, group
    871       98  Records           1  put, with next
    969    65710  Events            1
- 66679    65693  Events            1
-132372    65693  Events            1
-198065     3545  Events            1
-201610      218  Events            1
-201828     2672  Index            20
-204500     4232  Close             3
+ 66679      303  Records           6  put, with next
+ 66982    65693  Events            1
+132675    65693  Events            1
+198368     3545  Events            1
+201913      218  Events            1
+202131     3440  Index            26
+205571     3161  Close             3
 208732      164  Tail              0

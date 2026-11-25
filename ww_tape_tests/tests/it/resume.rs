@@ -1576,7 +1576,14 @@ fn a_resume_of_another_layout_cuts_off_only_a_torn_end() {
         let r = TapeWriter::resume_on(
             sink,
             WriterOptions {
-                layout: Layout::UNALIGNED,
+                // the layout the earlier ww_tape wrote: one copy of each definition
+                layout: Layout {
+                    definitions: ww_tape::StatePolicy {
+                        copies: exact_units::Count::new(1),
+                        ..ww_tape::StatePolicy::DEFAULT
+                    },
+                    ..Layout::UNALIGNED
+                },
                 producer: String::new(),
                 ..options(0)
             },

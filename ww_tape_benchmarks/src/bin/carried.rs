@@ -319,6 +319,11 @@ fn after_cut(n: u32, item_len: usize, state: bool) -> anyhow::Result<u64> {
     Ok(next.close().map_err(e)?.len)
 }
 
+/// How much more `a` is than `b`, in percent of `b`: negative where `a` is less.
+fn percent_more(a: u64, b: u64) -> f64 {
+    (a as f64 - b as f64) * 100.0 / b as f64
+}
+
 fn main() -> anyhow::Result<()> {
     let args: Args = ww_tape_bench::args();
     let mut bench = Bench::start(
@@ -354,10 +359,10 @@ fn main() -> anyhow::Result<()> {
                 Cell::text(format!("{m} MiB")),
                 Cell::count(with),
                 Cell::count(base),
-                Cell::num((base - with) as f64 * 100.0 / base as f64, 1),
+                Cell::num(percent_more(base, with), 1),
                 Cell::count(len),
                 Cell::count(base_len),
-                Cell::num((len - base_len) as f64 * 100.0 / base_len as f64, 1),
+                Cell::num(percent_more(len, base_len), 1),
             ]);
         }
     }
@@ -443,4 +448,13 @@ fn main() -> anyhow::Result<()> {
     }
     println!("{}", bench.push(table));
     bench.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_smaller_piece_is_less_not_a_wrapped_number() {
+        assert_eq!(super::percent_more(90, 100), -10.0);
+        assert_eq!(super::percent_more(110, 100), 10.0);
+    }
 }

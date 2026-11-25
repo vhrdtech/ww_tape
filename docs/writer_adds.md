@@ -27,7 +27,7 @@ track's number with another id than the definition ([`DescribeError::TrackId`]).
 
 How many definitions to hold is the application's choice. A recorder of 10 000 sensors may hold 10 000 track
 definitions and pass them all with each block. A block of 3 sensors' readings gets only those 3 definitions and their
-clock written before it. The writer writes each of them once per 32 MiB, plus one [[state copy]].
+clock written before it. The writer writes each of them once per 32 MiB, plus two [[state copies]].
 
 Three calls put what belongs to no block of data:
 
@@ -47,19 +47,19 @@ the [[piece heads]], the puts, the [[checkpoints]] and the end of each piece:
 | Blocks | Made by | Count | Bytes |
 |---|---|---:|---:|
 | piece head | the writer | 4 | 2064 |
-| records blocks of puts and copies | the writer | 32 | 5660 |
+| records blocks of puts and copies | the writer | 43 | 8306 |
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
 | summary blocks | the mux | 2948 | 3301304 |
-| checkpoints | the writer | 24 | 1584512 |
-| final index | the writer | 4 | 1772160 |
-| close | the writer | 4 | 11566 |
+| checkpoints | the writer | 24 | 1590400 |
+| final index | the writer | 4 | 1778048 |
+| close | the writer | 4 | 13528 |
 | tail | the writer | 4 | 656 |
 
 The writer's own blocks take 3.4 MB of the hour's 116 MB, 2.9 %. Most of that is index: the checkpoints while the
-pieces grow, and each piece's final index. The 32 blocks of puts hold every definition and mode change of four pieces
-in 5.7 kB.
+pieces grow, and each piece's final index. The 43 blocks of puts hold every definition and mode change of four pieces,
+with their copies, in 8.3 kB.
 
 ## What the writer checks
 
@@ -86,7 +86,7 @@ This rule gives the format its shape:
 - Checkpoints point back at the checkpoint before them, never forward at one not yet written.
 - A tail cannot name the next piece's hash, which does not exist yet. It names the next piece's id instead.
 - A new definition is a new record. The old one stays, and only readers after the new one see it replaced.
-- A state copy is written at a use, never scheduled ahead, so nothing is left pending when the writer stops.
+- A state copy rides on a call that writes anyway, so nothing is left pending when the writer stops.
 - A crash costs only the bytes not yet synced. No header exists that would be wrong after it.
 
 <figure class="ww-figure" markdown="0">
