@@ -18,6 +18,7 @@ benchmarks, golden files and book pages.
 
 - A carry at or past the cut budget no longer makes a chain or mux cut before every put (WRITE-1).
 - A chunk written in steady state allocates twice, down from 22 in 0.12.0 (WRITE-4).
+- A put in steady state allocates 15 times, down from 44 in 0.12.0 (WRITE-4).
 
 ## [0.12.0] - 2026-11-25
 

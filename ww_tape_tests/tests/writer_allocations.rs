@@ -3,11 +3,12 @@
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
     clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
     clippy::indexing_slicing,
     reason = "tests fail by panicking and compute expected values freely"
 )]
-//! The allocations a writer makes per chunk in steady state, its tracks defined and their definitions near: a few
-//! per call at most, never one per candidate definition looked at.
+//! The allocations a writer makes per chunk and per put in steady state, its tracks defined and their definitions
+//! near: a few per call at most, never one per candidate definition looked at.
 
 use std::convert::Infallible;
 use std::hint::black_box;
@@ -34,6 +35,9 @@ const WARM: u64 = 256;
 const CALLS: u64 = 1024;
 /// Allocations per chunk written at most in steady state.
 const CHUNK_ALLOCATIONS_MAX: u64 = 2;
+/// Allocations per put at most in steady state: the block of puts made and its length found, its index entry and the
+/// state item kept (0.9.1 made 24).
+const PUT_ALLOCATIONS_MAX: u64 = 15;
 
 /// A sink that keeps no bytes: only the writer's own allocations count.
 struct Discard {
@@ -184,6 +188,32 @@ fn a_chunk_written_in_steady_state_allocates_little() {
     assert!(
         per <= CHUNK_ALLOCATIONS_MAX,
         "{} allocations for {CALLS} chunks: {per} a chunk",
+        heap.allocations
+    );
+}
+
+/// Puts on a state track, each item new: the allocations of a put in steady state.
+#[test]
+fn a_put_in_steady_state_allocates_little() {
+    let (defs, _, state) = definitions();
+    let items: Vec<[u8; 8]> = (0..WARM + CALLS).map(u64::to_le_bytes).collect();
+    let mut w = TapeWriter::create_on(Discard { bytes: 0 }, SyncPolicy::None);
+    let (warm, counted) = items.split_at(WARM as usize);
+    for (k, item) in warm.iter().enumerate() {
+        w.put(&defs, state, k as i64, item).unwrap();
+    }
+    let ((), heap) = thread_heap_of(|| {
+        for (k, item) in counted.iter().enumerate() {
+            black_box(
+                w.put(&defs, state, (WARM as usize + k) as i64, item)
+                    .unwrap(),
+            );
+        }
+    });
+    let per = heap.allocations / CALLS;
+    assert!(
+        per <= PUT_ALLOCATIONS_MAX,
+        "{} allocations for {CALLS} puts: {per} a put",
         heap.allocations
     );
 }

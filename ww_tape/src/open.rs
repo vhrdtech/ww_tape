@@ -1326,7 +1326,7 @@ pub fn write_records<E: From<DescribeError>>(
         let (now, later) = rest.split_at_checked(taken).unwrap_or((rest, &[]));
         buf.clear();
         buf.resize(size, 0);
-        let mut w = BlockWriter::new(&mut buf, BlockKind::Records, next_id(), &clocks)
+        let mut w = BlockWriter::new(&mut buf, BlockKind::Records, next_id(), clocks.as_slice())
             .map_err(DescribeError::Start)?;
         for e in now {
             let pushed = match (e.track, e.at) {
@@ -1346,21 +1346,63 @@ pub fn write_records<E: From<DescribeError>>(
     Ok(())
 }
 
+/// The clocks of a block of records, ascending, each once: at most [MAX_BLOCK_CLOCKS], held without allocating.
+struct BlockClocks {
+    at: [ClockNum; MAX_BLOCK_CLOCKS],
+    len: usize,
+}
+
+impl BlockClocks {
+    const fn new() -> Self {
+        Self {
+            at: [ClockNum::MIN; MAX_BLOCK_CLOCKS],
+            len: 0,
+        }
+    }
+
+    fn as_slice(&self) -> &[ClockNum] {
+        self.at.get(..self.len).unwrap_or_default()
+    }
+
+    fn contains(&self, c: ClockNum) -> bool {
+        self.as_slice().binary_search(&c).is_ok()
+    }
+
+    fn is_full(&self) -> bool {
+        self.len == MAX_BLOCK_CLOCKS
+    }
+
+    /// Add `c` in its place; a clock held already, or one past [MAX_BLOCK_CLOCKS], adds nothing.
+    fn insert(&mut self, c: ClockNum) {
+        let Err(i) = self.as_slice().binary_search(&c) else {
+            return;
+        };
+        let Some(tail) = self.at.get_mut(i..=self.len) else {
+            return;
+        };
+        tail.rotate_right(1);
+        if let Some(first) = tail.first_mut() {
+            *first = c;
+        }
+        self.len = self.len.saturating_add(1);
+    }
+}
+
 /// The records of the next block from the start of `records`: how many (at least one), the block's bytes at most,
 /// and its clocks.
 fn next_block(
     records: &[RecordRef<'_>],
     block_len_max: usize,
-) -> Result<(usize, usize, Vec<ClockNum>), DescribeError> {
+) -> Result<(usize, usize, BlockClocks), DescribeError> {
     let mut size = EMPTY_LEN;
-    let mut clocks = BTreeSet::new();
+    let mut clocks = BlockClocks::new();
     let mut taken = 0usize;
     for e in records {
         // a record over usize::MAX bytes is too long anyway
         let r = e.item.len().saturating_add(MAX_RECORD_HEAD);
-        let new_clock = e.at.is_some_and(|at| !clocks.contains(&at.clock));
+        let new_clock = e.at.is_some_and(|at| !clocks.contains(at.clock));
         let fits = size.checked_add(r).is_some_and(|n| n <= block_len_max)
-            && !(new_clock && clocks.len() == MAX_BLOCK_CLOCKS);
+            && !(new_clock && clocks.is_full());
         if taken > 0 && !fits {
             break;
         }
@@ -1374,7 +1416,7 @@ fn next_block(
         size = size.checked_add(r).ok_or(too_long)?;
         taken = taken.saturating_add(1);
     }
-    Ok((taken, size, clocks.into_iter().collect()))
+    Ok((taken, size, clocks))
 }
 
 /// Whether `d` is a kind [Definitions] holds (a track, clock, map or bundle).

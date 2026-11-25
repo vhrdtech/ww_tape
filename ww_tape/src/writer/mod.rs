@@ -1194,7 +1194,8 @@ impl<S: TapeSink> TapeWriter<S> {
         self.room(self.entries(&all, &chosen), false)?;
         self.write_chosen(&all, &chosen, end)?;
         let head = chosen.len().saturating_sub(cands.len());
-        Ok(chosen.get(head..).map(<[bool]>::to_vec).unwrap_or_default())
+        chosen.drain(..head);
+        Ok(chosen)
     }
 
     /// How a put of a record of a state track of `policy` decides.
@@ -1334,9 +1335,8 @@ impl<S: TapeSink> TapeWriter<S> {
         if !chosen.contains(&true) {
             return Ok(());
         }
-        let (first, rest) = self.split_twice(cands, chosen);
-        let first = chosen_records(cands, &first);
-        let rest = chosen_records(cands, &rest);
+        let first = self.chosen_records(cands, chosen, true);
+        let rest = self.chosen_records(cands, chosen, false);
         for (r, _) in first.iter().chain(&rest) {
             self.work.copy(r.item.len());
         }
@@ -1365,17 +1365,21 @@ impl<S: TapeSink> TapeWriter<S> {
         }
     }
 
-    /// Of the records of `cands` that `chosen` marks, those written twice at once that are the first of their item in
-    /// the piece ([Rule::twice], [Near::records_of]), and the others.
-    fn split_twice(&self, cands: &[Candidate<'_>], chosen: &[bool]) -> (Vec<bool>, Vec<bool>) {
+    /// The records of `cands` that `chosen` marks, as [chosen_records] gives them: those written twice at once that
+    /// are the first of their item in the piece ([Self::first_twice]) when `first`, else the others. None allocates
+    /// nothing.
+    fn chosen_records<'c>(
+        &self,
+        cands: &'c [Candidate<'_>],
+        chosen: &[bool],
+        first: bool,
+    ) -> Vec<PutRef<'c>> {
         cands
             .iter()
             .zip(chosen)
-            .map(|(c, pick)| {
-                let first = *pick && self.first_twice(c);
-                (first, *pick && !first)
-            })
-            .unzip()
+            .filter(|(c, pick)| **pick && self.first_twice(c) == first)
+            .map(|(c, _)| put_ref(c))
+            .collect()
     }
 
     /// Whether a record of `c` written now is the first of a definition written twice at once ([Rule::twice]).
@@ -1393,9 +1397,8 @@ impl<S: TapeSink> TapeWriter<S> {
         if !chosen.contains(&true) {
             return Ok(0);
         }
-        let (first, rest) = self.split_twice(cands, chosen);
-        let first = puts_len(&chosen_records(cands, &first))?;
-        let rest = puts_len(&chosen_records(cands, &rest))?;
+        let first = puts_len(&self.chosen_records(cands, chosen, true))?;
+        let rest = puts_len(&self.chosen_records(cands, chosen, false))?;
         Ok(first.saturating_add(rest))
     }
 
@@ -4453,15 +4456,18 @@ fn chosen_records<'c>(cands: &'c [Candidate<'_>], chosen: &[bool]) -> Vec<PutRef
         .iter()
         .zip(chosen)
         .filter(|(_, c)| **c)
-        .map(|(c, _)| {
-            let r = RecordRef {
-                track: c.track,
-                at: c.at,
-                item: c.item.bytes(),
-            };
-            (r, matches!(c.slot, Slot::Keyed { .. }))
-        })
+        .map(|(c, _)| put_ref(c))
         .collect()
+}
+
+/// The record `c` puts, and whether it is keyed.
+fn put_ref<'c>(c: &'c Candidate<'_>) -> PutRef<'c> {
+    let r = RecordRef {
+        track: c.track,
+        at: c.at,
+        item: c.item.bytes(),
+    };
+    (r, matches!(c.slot, Slot::Keyed { .. }))
 }
 
 /// Make the blocks of puts holding `records`, each of id `id`, into `out`, in order: blocks marked
