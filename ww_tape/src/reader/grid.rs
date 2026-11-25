@@ -150,7 +150,7 @@ impl<S: ByteSource> TapeReader<S> {
 
     /// The tile layout of the definition of `entry`'s track in force at it, None when none reads or it isn't track
     /// `track_id`'s; `seen` keeps the layouts of the definitions already read, by their hash.
-    fn layout_at(
+    pub(super) fn layout_at(
         &self,
         i: usize,
         track_id: TrackId,

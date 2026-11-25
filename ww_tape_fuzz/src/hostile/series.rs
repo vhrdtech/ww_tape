@@ -1,5 +1,6 @@
 //! Series tracks: the describe record of the track (items, channels, period, scale) in a block of definitions, and series
-//! chunks of it whose heads (first sample, count, ticks, grid index, grid tick, scale) take hostile values.
+//! chunks of it whose heads (first sample, count, ticks, grid index, grid tick, scale) take hostile values, their grid
+//! start marks where due, left out or added.
 
 use ww_tape::ItemNum;
 
@@ -138,6 +139,7 @@ pub fn series(data: &[u8]) -> Vec<u8> {
         }
     }
     let samples = vec![0u8; 2 * shape.channels as usize];
+    let mut before: Option<SeriesGrid> = None;
     for h in &heads {
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,
@@ -146,6 +148,11 @@ pub fn series(data: &[u8]) -> Vec<u8> {
             len: samples.len(),
         };
         let mut b = build(h, &[(spec, &samples)]);
+        // the grid start mark where due, or left out or added
+        let due = h.grid != before;
+        before = h.grid;
+        let mark = due != d.u8().is_multiple_of(4);
+        let _ = ww_tape::mark_grid_start(&mut b, mark);
         // a scale length or grid field over the written one, the head CRC made to hold
         if d.u8() % 4 == 3 {
             hit_head(&mut d, &mut b);

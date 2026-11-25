@@ -22,6 +22,7 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
         latest_end: offset as i64 + 3,
         repeat: offset % 2 == 1,
         relation_break: false,
+        grid_start: false,
         unit: crate::piece::UnitHash([offset.to_le_bytes()[0]; 32]),
         unhashed: false,
         // every third entry a chunk with a range relation, (0, 0) and values past i64 among them
@@ -572,7 +573,8 @@ fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
 }
 
 /// One check of an entry on every read: an unhashed entry holding a unit hash, unknown flag bits, a range that decreases or sits on a block
-/// that isn't a chunk, a relation break on a block that isn't an events chunk, refused by a whole index and by one track's entries alike.
+/// that isn't a chunk, a relation break or grid start on a block that is neither an events chunk nor a series chunk of level
+/// 0, refused by a whole index and by one track's entries alike.
 #[test]
 fn an_entry_is_checked_the_same_on_every_read() {
     refused_both_ways(|e| e[15] |= ENTRY_UNHASHED, IndexError::BadEntries);
@@ -602,6 +604,14 @@ fn an_entry_is_checked_the_same_on_every_read() {
         |e| {
             e[15] |= ENTRY_BREAK;
             e[12] = BlockKind::Series.to_u8();
+            e[13] = 1;
+        },
+        IndexError::BadEntries,
+    );
+    refused_both_ways(
+        |e| {
+            e[15] |= ENTRY_BREAK;
+            e[12] = BlockKind::Summary.to_u8();
         },
         IndexError::BadEntries,
     );
@@ -685,6 +695,42 @@ fn tile_numbers_round_trip() {
     let last = &bytes[at + 4 * ENTRY_LEN..at + 5 * ENTRY_LEN];
     assert_eq!(last[ENTRY_FLAGS_AT] & ENTRY_TILE, ENTRY_TILE);
     assert_eq!(last[ENTRY_RANGE_AT..ENTRY_UNIT_AT], [0xff; 16]);
+}
+
+/// A series chunk's grid start reads back from flag bit 3, the bit an events chunk's relation break takes; with a
+/// tile number beside it; an events chunk's bit 3 reads as its relation break, not a grid start.
+#[test]
+fn grid_starts_round_trip() {
+    let entries: Vec<_> = [(BlockKind::Series, None), (BlockKind::Series, Some(9))]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (kind, tile))| IndexEntry {
+            kind,
+            range: None,
+            tile,
+            grid_start: true,
+            ..entry(1, 1000 + i as u64 * 300)
+        })
+        .chain([IndexEntry {
+            relation_break: true,
+            ..entry(1, 2000)
+        }])
+        .collect();
+    let head = IndexHead {
+        kind: IndexKind::Checkpoint,
+        self_offset: 4000,
+        prev: None,
+    };
+    let bytes = write(&head, &entries);
+    let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
+    assert_eq!(ix.entries().collect::<Vec<_>>(), entries);
+    let at = HEADER_LEN + INDEX_FIXED_LEN;
+    for k in 0..3 {
+        assert_eq!(
+            bytes[at + k * ENTRY_LEN + ENTRY_FLAGS_AT] & ENTRY_BREAK,
+            ENTRY_BREAK
+        );
+    }
 }
 
 /// A checkpoint whose entries are `len` bytes, each the first `len` bytes of a written one, its head saying so and

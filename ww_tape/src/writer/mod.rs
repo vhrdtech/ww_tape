@@ -65,6 +65,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 
 mod carried;
 mod error;
+pub(crate) mod grids;
 mod group_records;
 pub(crate) mod kept;
 mod keyed;
@@ -104,14 +105,14 @@ impl Default for SyncPolicy {
 }
 
 /// The header flags a caller's block of `kind` may carry when written as it is, not as puts: a coded body
-/// ([FLAG_BODY_CODED](crate::FLAG_BODY_CODED)) on a records block, none on a chunk or a summary. The other bits are
-/// reserved or the writer's own.
+/// ([FLAG_BODY_CODED](crate::FLAG_BODY_CODED)) on a records block; on a chunk the marks of a unit, a relation break
+/// or a grid start, each checked where due. The other bits are reserved or the writer's own.
 fn caller_flags(kind: BlockKind) -> u16 {
     match kind {
         BlockKind::Records => crate::FLAG_BODY_CODED,
         // a chunk of a unit as another writer made it ([TapeWriter::write_chunk_unit])
         BlockKind::Events => crate::FLAG_RELATION_BREAK | crate::FLAG_WITH_NEXT,
-        BlockKind::Series => crate::FLAG_WITH_NEXT,
+        BlockKind::Series => crate::FLAG_GRID_START | crate::FLAG_WITH_NEXT,
         BlockKind::Summary => crate::FLAG_TILE,
         _ => 0,
     }
@@ -247,6 +248,8 @@ pub struct TapeWriter<S: TapeSink> {
     work: PutWork,
     /// The relations of the tracks defined in the piece, for each chunk's range
     relations: relations::Relations,
+    /// The grid of each series track's newest chunk, for the chunks' grid start marks
+    grids: grids::Grids,
     /// Most tracks with data in the piece: [crate::piece::TRACKS_PER_PIECE_MAX], smaller in tests
     pub(crate) tracks_max: usize,
     /// Most tracks the next piece's head carries: [crate::piece::HEAD_TRACKS_MAX], smaller in tests
@@ -605,6 +608,7 @@ impl<S: TapeSink> TapeWriter<S> {
             holds_data: false,
             work: PutWork::default(),
             relations: relations::Relations::default(),
+            grids: grids::Grids::default(),
             tracks_max: crate::piece::TRACKS_PER_PIECE_MAX,
             head_rows_max: crate::piece::HEAD_TRACKS_MAX,
             closed_at: None,
@@ -2282,6 +2286,10 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.indexer.undo_block();
             }
             self.indexer.begin_block();
+            self.grids.placed(
+                chunk.as_ref().map(|c| c.head()).as_ref(),
+                again == Again::Replaced,
+            );
             if let Some(c) = &chunk {
                 let head = c.head();
                 self.indexer
@@ -2582,6 +2590,7 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         let needs = self.defer_needs(defs, &b)?;
         self.check_caller_relations(defs, &b, false)?;
+        self.check_caller_grid(&b, false)?;
         if self.alignment() == 0 {
             self.ensure_carried(defs)?;
             self.put_needed(&needs)?;
@@ -2599,6 +2608,9 @@ impl<S: TapeSink> TapeWriter<S> {
                 .key_of(c.head().track_number, Some(c.head().track_id))
         {
             self.relations.deferred(key, &c, &facts);
+        }
+        if let Some(c) = b.chunk() {
+            self.grids.deferred(&c.head());
         }
         let tracks = data_tracks(&b);
         let d = Deferred {
@@ -2688,6 +2700,31 @@ impl<S: TapeSink> TapeWriter<S> {
             return Ok(());
         };
         if self.check_relations(defs, &c, replacing)? != c.relation_break() {
+            return Err(WriteError::Input(InputError::Flags {
+                kind: b.kind,
+                flags: b.flags,
+            }));
+        }
+        Ok(())
+    }
+
+    /// Refuse a caller's series chunk block `b` of level 0 marked [FLAG_GRID_START](crate::FLAG_GRID_START) other
+    /// than due ([grids]), with `replacing` against the newest before the last counted block, whose place it takes;
+    /// and an overview chunk marked.
+    fn check_caller_grid(
+        &self,
+        b: &crate::Block<'_>,
+        replacing: bool,
+    ) -> Result<(), WriteError<S::Error>> {
+        let Some(c) = b.chunk() else {
+            return Ok(());
+        };
+        let head = c.head();
+        let wrong = match head.level {
+            0 => self.grids.due(&head, replacing) != c.grid_start(),
+            _ => b.flags & crate::FLAG_GRID_START != 0,
+        };
+        if head.kind == BlockKind::Series && wrong {
             return Err(WriteError::Input(InputError::Flags {
                 kind: b.kind,
                 flags: b.flags,
@@ -3048,6 +3085,9 @@ impl<S: TapeSink> TapeWriter<S> {
                         crate::mark_relation_break(&mut buf).map_err(WriteError::Block)?;
                     }
                 }
+                if self.grids.due(head, false) {
+                    crate::mark_grid_start_trusted(&mut buf).map_err(WriteError::Block)?;
+                }
                 if with_next {
                     crate::mark_with_next_trusted(&mut buf).map_err(WriteError::Block)?;
                 }
@@ -3089,7 +3129,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if b.is_repeat() {
             return self.put_block(defs, block).map(|()| None);
         }
-        self.write_read(defs, &b)
+        self.write_read(defs, &b, false)
     }
 
     /// [Self::write_block] of a block that isn't a block of puts, read with its CRCs checked.
@@ -3097,6 +3137,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         defs: &Definitions,
         b: &crate::Block<'_>,
+        relayed: bool,
     ) -> Result<Option<Placed>, WriteError<S::Error>> {
         let block = b.bytes();
         Self::check_data(defs, b)?;
@@ -3117,7 +3158,22 @@ impl<S: TapeSink> TapeWriter<S> {
             && self
                 .last_counted
                 .is_some_and(|(id, ..)| block_id(block) == Some(id));
+        // a relayed series chunk's grid start mark follows this tape's chunks, not the producer's
+        let restamped;
+        let read;
+        let b = match b.chunk() {
+            Some(c) if relayed && self.grids.due(&c.head(), replacing) != c.grid_start() => {
+                let mut own = block.to_vec();
+                crate::mark_grid_start(&mut own, !c.grid_start()).map_err(WriteError::Block)?;
+                restamped = own;
+                read = crate::Block::read(&restamped).map_err(WriteError::Block)?;
+                &read
+            }
+            _ => b,
+        };
+        let block = b.bytes();
         self.check_caller_relations(defs, b, replacing)?;
+        self.check_caller_grid(b, replacing)?;
         if let Some(theirs) = session {
             self.session = theirs.session;
             self.next_seq = theirs.seq;
@@ -3173,6 +3229,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.check_caller_relations(defs, &b, false)?;
+        self.check_caller_grid(&b, false)?;
         self.ensure_carried(defs)?;
         self.put_needed(&needs)?;
         if let Some(last) = self.adopted
@@ -3639,7 +3696,10 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Pass on a live producer's block, as a relay does: a block of puts ([FLAG_REPEAT](crate::FLAG_REPEAT)) has its
     /// definitions held in `defs` ([Definitions::take_block]) and its records put ([Self::put_block]), a group's
     /// held until its last block; any other block is written under `defs` ([Self::write_block]), and tears the group
-    /// held of its producer ([GroupRefusal::Torn]).
+    /// held of its producer ([GroupRefusal::Torn]). A series chunk's grid start mark
+    /// ([FLAG_GRID_START](crate::FLAG_GRID_START)) follows this tape's chunks, not the producer's: where it isn't due
+    /// here, as after a chunk lost on the way, the chunk is restamped ([crate::mark_grid_start]): its header, head CRC
+    /// and block CRC, nothing else.
     pub fn relay_block(
         &mut self,
         defs: &mut Definitions,
@@ -3649,7 +3709,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if !b.is_repeat() {
             self.check()?;
             let torn = self.relay_groups.take(b.session);
-            if let Err(e) = self.write_read(defs, &b) {
+            if let Err(e) = self.write_read(defs, &b, true) {
                 if let Some(g) = torn {
                     self.relay_groups.hold(b.session, g);
                 }
@@ -3792,6 +3852,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = self.options();
         let kept = self.kept.clone();
         let newest = self.relations.newest().clone();
+        let grids = self.grids.clone();
         let relay_groups = self.relay_groups.clone();
         // the carry stays what it was: a resume after a close finds none
         let (carried, carried_for) = (self.carried, self.carried_for.clone());
@@ -3801,6 +3862,7 @@ impl<S: TapeSink> TapeWriter<S> {
         w.carried_for = carried_for;
         w.keep_after(kept);
         w.take_newest(&newest);
+        w.grids = grids;
         w.relay_groups = relay_groups;
         Ok((w, ended.closed))
     }
@@ -3868,6 +3930,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let (mut w, rows) = self.next_rows(defs)?;
         let options = w.options();
         let newest = w.relations.newest().clone();
+        let grids = core::mem::take(&mut w.grids);
         let kept = core::mem::take(&mut w.kept);
         let unlisted = w.unlisted.is_some();
         let relay_groups = core::mem::take(&mut w.relay_groups);
@@ -3881,6 +3944,7 @@ impl<S: TapeSink> TapeWriter<S> {
             done.next_seq,
         )?;
         next_piece.newest = newest;
+        next_piece.grids = grids.next_piece();
         next_piece.kept = kept;
         let mut next = Self::start_next(next()?, &options, next_piece)?;
         next.wanted = wanted;
@@ -3975,6 +4039,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let (mut w, rows) = self.next_rows(defs)?;
         let options = w.options();
         let newest = w.relations.newest().clone();
+        let grids = core::mem::take(&mut w.grids);
         let kept = core::mem::take(&mut w.kept);
         let unlisted = w.unlisted.is_some();
         let relay_groups = core::mem::take(&mut w.relay_groups);
@@ -3988,6 +4053,7 @@ impl<S: TapeSink> TapeWriter<S> {
             done.next_seq,
         )?;
         next_piece.newest = newest;
+        next_piece.grids = grids.next_piece();
         next_piece.kept = kept;
         let base = done
             .closed
@@ -4041,6 +4107,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.next_seq = next.next_seq;
         self.session = next.session;
         self.relations.take_newest(&next.newest);
+        self.grids = next.grids;
         self.kept = kept::Kept::default();
         let head = PieceHead {
             integrity: self.level_next,
@@ -4065,6 +4132,11 @@ impl<S: TapeSink> TapeWriter<S> {
             inherited.keys_after(older.take_keys());
         }
         self.kept.after(older, self.kept_bytes_max());
+    }
+
+    /// Go on from `older`, the grids of the series tracks' newest chunks in the pieces before: a resume's.
+    pub(crate) fn take_grids(&mut self, older: &grids::Grids) {
+        self.grids.after(older);
     }
 
     /// Go on from `newest`, the newest values of the monotone relations of the pieces before: a resume's.
@@ -4582,6 +4654,8 @@ pub(crate) struct NextPiece {
     next_seq: u64,
     /// The newest values of the monotone relations so far
     newest: relations::Newest,
+    /// The grids of the newest series chunks so far
+    grids: grids::Grids,
     /// The newest item of each state track so far ([kept])
     pub(crate) kept: kept::Kept,
 }
@@ -4621,6 +4695,7 @@ impl NextPiece {
             session,
             next_seq,
             newest: relations::Newest::default(),
+            grids: grids::Grids::default(),
             kept: kept::Kept::default(),
         })
     }

@@ -166,6 +166,13 @@ fn write_tiles(
     }
 }
 
+/// A closed grid of every tile in every run, each tile's chunks on one grid: its bytes, its track id and its tiles.
+pub(crate) fn tiles_twice() -> (Vec<u8>, TrackId, usize) {
+    let g = write(&EXTENTS, 1 << 20, true);
+    let tiles = all_tiles(&g.layout).len();
+    (g.bytes, g.id, tiles)
+}
+
 /// Every entry of a grid chunk in the final index carries the tile number its head's coordinates pack to; the
 /// piece verifies, its index the same set as its walk.
 #[test]
@@ -834,4 +841,110 @@ fn a_unit_refused_midway_leaves_no_unit_open() {
         matches!(w.write_chunk_unit(&defs, &good), Err(WriteError::Failed)),
         "a writer with a torn unit takes no more chunks"
     );
+}
+
+/// A caller's overview chunk is never marked a grid start: one marked is refused, the same chunk unmarked is written.
+#[test]
+fn a_callers_overview_chunk_is_never_marked() {
+    let axes = axes(&[(4, 4)]);
+    let track = grid_track(&axes);
+    let id = track.id();
+    let mut defs = ww_tape::Definitions::new();
+    crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let stats = [0u8; 2 * 4 * STEPS as usize];
+    let columns: Vec<(ColumnSpec, &[u8])> = [
+        ColumnKind::OverviewMin,
+        ColumnKind::OverviewMax,
+        ColumnKind::OverviewMean,
+    ]
+    .into_iter()
+    .map(|kind| {
+        let spec = ColumnSpec {
+            kind,
+            codec: Codec::RAW,
+            param: 0,
+            len: stats.len(),
+        };
+        (spec, &stats[..])
+    })
+    .collect();
+    let h = ww_tape::ChunkHead {
+        level: 1,
+        ..head(id, 0, TileCoords::new(&[0]).unwrap())
+    };
+    let mut buf = vec![0u8; 1 << 12];
+    let n = ww_tape::chunk::write_chunk(&mut buf, w.next_id(), &h, &columns, 0).unwrap();
+    let good = buf[..n].to_vec();
+    // mark_grid_start refuses an overview chunk: the flag and both CRCs set by hand
+    let mut marked = good.clone();
+    marked[6] |= ww_tape::FLAG_GRID_START as u8;
+    let payload_at = ww_tape::chunk::ChunkHead::head_len(&marked).unwrap();
+    let head = [&marked[..28], &marked[32..payload_at]];
+    let crc = crate::range_hash::crc32c(&head);
+    marked[28..32].copy_from_slice(&crc.to_le_bytes());
+    let crc = crate::range_hash::crc32c(&[&marked[..n - 4]]);
+    marked[n - 4..].copy_from_slice(&crc.to_le_bytes());
+    assert!(Block::read(&marked).is_ok());
+    let r = w.write_block(&defs, &marked);
+    assert!(
+        matches!(r, Err(WriteError::Input(ww_tape::InputError::Flags { .. }))),
+        "{r:?}"
+    );
+    w.write_block(&defs, &good).unwrap();
+}
+
+/// Two tiles of the grid of `extents`, each at a scale of its own: its bytes, closed or as a crash leaves them
+/// without an index, and its track id.
+fn scaled_tiles(close: bool) -> (Vec<u8>, TrackId) {
+    let axes = axes(&EXTENTS);
+    let track = grid_track(&axes);
+    let layout = track.series().unwrap().tile_layout().unwrap();
+    let id = track.id();
+    let mut defs = ww_tape::Definitions::new();
+    crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let tape = w.sink().tape();
+    let samples = [0u8; 4 * STEPS as usize];
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    // the first tile in runs 0 and 2 at scale 1, the second in run 1 at milli: in sample order, the first tile's
+    // chunk of run 2 follows the second tile's
+    let tiles = all_tiles(&layout);
+    for (run, k) in [(0, 0), (1, 1), (2, 0)] {
+        let mut h = head(id, run, tiles[k]);
+        h.grid = h.grid.map(|g| g.rescaled(Magnitude::pow10(-3 * k as i8)));
+        w.write_chunk(&defs, &h, &[(spec, &samples[..])]).unwrap();
+    }
+    if close {
+        w.close().unwrap();
+    } else {
+        drop(w);
+    }
+    (tape.to_vec().unwrap(), id)
+}
+
+/// A grid's timeline is the same from an unclosed piece, whose entries a scan made without tile numbers, as from the
+/// closed piece's index, each tile at a scale of its own: the scan's entries are keyed by the tile their heads name,
+/// so no chunk goes on from another tile's grid.
+#[test]
+fn a_scanned_grid_keeps_its_tiles_apart() {
+    let (closed, id) = scaled_tiles(true);
+    let (open, _) = scaled_tiles(false);
+    let r = TapeReader::open(&closed[..]).unwrap();
+    let (want, want_errors) = r.series_timeline(0, id, period()).unwrap();
+    let r = TapeReader::open(&open[..]).unwrap();
+    assert!(
+        r.track_entries(0, id)
+            .unwrap()
+            .iter()
+            .all(|e| e.tile.is_none())
+    );
+    let (got, errors) = r.series_timeline(0, id, period()).unwrap();
+    assert_eq!(got, want);
+    assert_eq!(format!("{errors:?}"), format!("{want_errors:?}"));
 }

@@ -183,10 +183,14 @@ lies in a piece the reader does not have. Their ticks are known, since the grid 
 <code>ww_tape_figures</code>; the ticks are <code>SeriesTimeline</code>'s.</figcaption>
 </figure>
 
-[`TapeReader::series_timeline`] builds a track's timeline, a [`SeriesTimeline`], from its chunk heads alone. It
-reads each chunk's head with [`TapeReader::read_chunk_head`], up to the payload and none of the samples. Some chunks are
-left out as lost: one whose head is damaged, or one that does not line up with its neighbours. Each one's error comes
-back beside the timeline.
+[`TapeReader::series_timeline`] builds a track's timeline, a [`SeriesTimeline`], from the track's index entries.
+An entry holds a chunk's first sample, count and ticks, and a mark where the chunk's grid or scale starts. The reader
+reads a head with [`TapeReader::read_chunk_head`] only where the entries don't say the grid. That is at a mark, at the
+start of a piece, after lost samples and where chunks came out of order. Over a long recording it reads one head per
+grid, not one per chunk ([Grid starts](format.md#grid-starts)).
+
+Some chunks are left out as lost: one whose head is damaged, or one that does not line up with its neighbours. Each
+one's error comes back beside the timeline.
 
 ## Changing scale mid-run
 

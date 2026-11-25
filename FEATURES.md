@@ -69,7 +69,7 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
 - ✅ **FMT-10 Series chunks carry their own grid and scale**
 
-  A series chunk's head carries its grid and scale, so the chunk times and scales its samples alone. A track's timeline is built from chunk heads in any order: it checks each chunk against its neighbours and names the gaps. Building it reads only the heads, 335 bytes per 1 MiB chunk in an unaligned file.
+  A series chunk's head carries its grid and scale, so the chunk times and scales its samples alone. A track's timeline is built from chunk heads in any order: it checks each chunk against its neighbours and names the gaps. `TapeReader::series_timeline` builds it from the index, reading a head only where a grid starts (FMT-16).
 
   Read more: [Grids](docs/series.md#grids-where-samples-are-in-time). Fuzz targets `tape-series` and `tape-series-hostile`.
 
@@ -94,6 +94,12 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
   A seal raises a closed piece to `Full`, byte for byte what a `Full` writer writes from the same calls. It comes as `TapeWriter::seal_on`, `MemPieces::seal` (a sealed copy swapped in), `ww_tape_fs::writer::seal` (in place, each piece head written last). Tests: golden pieces per level, the fuzz target `tape-seal`, `tape-resume` at every level, and the bench `levels`.
 
   Read more: [Fewer checks, sealed later](docs/integrity.md).
+
+- ✅ **FMT-16 Index entries mark where a series grid starts**
+
+  A series chunk of level 0 is a grid start where its grid or scale changes or it comes out of sample order. It carries `FLAG_GRID_START` in its header and bit 3 in its index entry, the bits an events chunk's relation break takes. `TapeReader::series_timeline` builds a track's timeline from the entries, and `verify` checks the marks. The timeline reads a head only at a mark, a piece's start, lost samples, a chunk out of file order or ticks that don't fit. The writer marks its own chunks, refuses a caller's marked otherwise than due and restamps a relayed one; resumes and cuts keep the grids.
+
+  Read more: [Grid starts](docs/format.md#grid-starts). Tests `grid_starts.rs`; fuzz target `tape-series-hostile`.
 
 - 🚧 **FMT-15 Grids: series tracks with fixed axes**
 

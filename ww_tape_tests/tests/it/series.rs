@@ -459,11 +459,12 @@ impl ww_tape::ByteSource for Counted<'_> {
     }
 }
 
-/// The timeline from the chunk heads alone is the one from whole blocks: two reads per chunk, its header and its
-/// head (up to the payload, past the alignment padding), none of its samples. A damaged payload doesn't change it; a
-/// damaged head loses its chunk, and the samples around it keep their grid.
+/// The timeline from the index is the one from whole blocks: two reads per chunk whose head it reads, its header and
+/// its head (up to the payload, past the alignment padding), none of its samples, and only the first chunk's and
+/// those marked a grid start. A damaged payload doesn't change it, nor does a damaged head it doesn't read; a damaged
+/// head it reads loses its chunk, and the samples around it keep their grid.
 #[test]
-fn series_timeline_reads_chunk_heads_alone() {
+fn series_timeline_reads_the_index_and_grid_start_heads() {
     let dir = scratch("heads");
     let path = dir.join("s.wwt");
     write(&path);
@@ -488,8 +489,18 @@ fn series_timeline_reads_chunk_heads_alone() {
     assert_eq!(timeline, want.timeline);
     let head_bytes = src.read.get() - read0;
     let block_bytes: u64 = chunks.iter().map(|e| u64::from(e.len)).sum();
-    // the track's index entries again, then two reads per chunk
-    assert!(src.reads.get() - reads0 <= 2 * chunks.len() as u64 + 4);
+    // the track's index entries again, then two reads per head read: the first chunk's and the marked ones'
+    let heads = chunks
+        .iter()
+        .enumerate()
+        .filter(|(k, e)| *k == 0 || e.grid_start)
+        .count() as u64;
+    assert!(
+        heads < chunks.len() as u64,
+        "{heads} heads of {}",
+        chunks.len()
+    );
+    assert!(src.reads.get() - reads0 <= 2 * heads + 4);
     assert!(head_bytes < block_bytes);
 
     // a flipped bit in a payload: the head still reads; in a head: that chunk is lost, with its error
@@ -507,19 +518,35 @@ fn series_timeline_reads_chunk_heads_alone() {
     let (timeline, errors) = r.series_timeline(0, track_id, period()).unwrap();
     assert!(errors.is_empty(), "{errors:?}");
     assert_eq!(timeline, want.timeline);
+    // a head not read: the entries say its grid
+    assert!(!e.grid_start);
     let mut bad = bytes.clone();
     bad[(e.offset + 60) as usize] ^= 1;
     let r = TapeReader::open(&bad[..]).unwrap();
     let (timeline, errors) = r.series_timeline(0, track_id, period()).unwrap();
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(timeline, want.timeline);
+    // the first chunk's head, read
+    let first = chunks[0];
+    let mut bad = bytes.clone();
+    bad[(first.offset + 60) as usize] ^= 1;
+    let r = TapeReader::open(&bad[..]).unwrap();
+    let (timeline, errors) = r.series_timeline(0, track_id, period()).unwrap();
     assert_eq!(errors.len(), 1, "{errors:?}");
-    let lost = &want.chunks[1].0;
+    let lost = &want.chunks[0].0;
     assert_eq!(timeline.stretch_of(lost.first_item), None);
-    for i in lost.first_item.items(u64::from(lost.count)) {
-        assert_eq!(
-            timeline.tick(i),
-            want.timeline.tick(i),
-            "tick of lost sample {i}"
-        );
+    // the next chunk's head is read: the samples after the lost ones keep their grid
+    for (h, _) in &want.chunks[1..] {
+        for i in [
+            h.first_item,
+            h.first_item.saturating_add(u64::from(h.count) - 1),
+        ] {
+            assert_eq!(
+                timeline.tick(i),
+                want.timeline.tick(i),
+                "tick of sample {i}"
+            );
+        }
     }
     _ = std::fs::remove_dir_all(&dir);
 }
@@ -691,6 +718,8 @@ fn caller_chunks_are_checked_once() {
     let theirs = ww_tape::BlockId::new(ww_tape::SessionTag::writable(99), 41);
     let n = ww_tape::chunk::write_chunk(&mut good, theirs, &head, &[(spec, &samples)], 0).unwrap();
     good.truncate(n);
+    // the track's first chunk starts its grid
+    ww_tape::mark_grid_start(&mut good, true).unwrap();
     let at = ww_tape::Block::read(&good)
         .unwrap()
         .chunk()

@@ -150,6 +150,11 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
         "events-entry-with-a-level",
         "01030000010100004700010001000057000100000000010109001e000000000000000000000000000000000000a50000000000002600000000d02649ef",
     ),
+    (
+        "tape-series-hostile",
+        "chunks-out-of-sample-order-keep-their-scale",
+        "5d10000000000000009b2f9bd3f8",
+    ),
 ];
 
 fn seed(target: &'static str, name: impl Into<String>, bytes: Vec<u8>) -> Seed {

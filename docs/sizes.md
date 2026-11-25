@@ -181,6 +181,8 @@ On `i16` the AVX2 kernel reaches 8400 MB/s, against 1500 MB/s one statistic at a
 The writer's own cost per chunk is a copy, the CRCs and the [[content hash]]. `just
 bench-chunks` measures each part on a series chunk of 1 MiB, which holds 524 288 `i16` samples.
 
+--8<-- "docs/plots/bench_chunks_machine.txt"
+
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/chunk_cost.svg"
 <figcaption>What a 1 MiB series chunk costs the writer, µs per chunk, with the load the bench ran at under the
@@ -190,22 +192,24 @@ legend. The content hash takes most of <code>TapeWriter::write_chunk</code>. Dra
 
 --8<-- "docs/plots/bench_chunks_writer.txt"
 
-[`TapeWriter::write_chunk`] takes about 310 µs per chunk, and the hash takes 240 µs of that. Besides the hash, the
-writer spends 71 µs per MiB. The copy with its CRCs takes 58 µs, and a reader checks the CRCs of the whole block in
-37 µs. A writer into a growing memory sink spends more, since the sink copies its bytes each time it grows.
+[`TapeWriter::write_chunk`] takes about 890 µs per chunk, and the hash takes 580 µs of that. Besides the hash, the
+writer spends 320 µs per MiB. The copy with its CRCs takes 170 µs, and a reader checks the CRCs of the whole block in
+130 µs. A writer into a growing memory sink spends more: the sink copies its bytes as it grows.
 
 ### Reading a track's timeline
 
-A reader finds where a series track's samples lie from its [[chunk heads]] alone. A head read stops before the samples,
-so its cost hardly grows with the chunk. `just bench-chunks` reads the timeline of 256 chunks of 1 MiB from memory, in a
-file without alignment and in one aligned to 4 KiB.
+A reader finds a series track's timeline in its index, with [[chunk heads]] read only where a
+[grid starts](format.md#grid-starts). `just bench-chunks` reads the timeline of 256 chunks of 1 MiB from memory,
+unaligned and aligned to 4 KiB.
 
 --8<-- "docs/plots/bench_chunks_timeline-0.txt"
 
 --8<-- "docs/plots/bench_chunks_timeline-4096.txt"
 
-A head reads 335 bytes, or 4084 bytes in an aligned file, where the head reaches to the next 4 KiB boundary. A whole
-block reads 1 048 895 bytes and checks its CRCs.
+The reader reads 129 bytes per chunk, 143 in an aligned file. A whole block reads 1 048 903 bytes and checks its
+CRCs. From a file, 10 000 chunks in 10 stretches take 23 reads by the index, 20 003 by every head:
+
+--8<-- "docs/plots/bench_chunks_long-timeline.txt"
 
 ### What the writer holds in memory
 

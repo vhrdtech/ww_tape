@@ -687,6 +687,7 @@ impl ChunkExtras {
             range: self.range,
             tile: self.tile,
             relation_break: c.relation_break(),
+            grid_start: c.grid_start(),
             ..e
         })
     }

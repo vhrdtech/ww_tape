@@ -4,8 +4,9 @@
 //! content hash every placed block goes into (`ItemHash::of`, BLAKE3), and the unit hash of the chunk that its index
 //! entry stores and its track's hash takes in (`TrackHash::chunk_unit`). Prints a Markdown table of ns per chunk and
 //! GB/s for each, the best of `--rounds` rounds of `--chunks` chunks, with the load average around it. Then what a
-//! reader spends on such a track: its series timeline from the chunk heads alone and from whole blocks, and the hash
-//! of all its chunks from the index (`TapeReader::range_hash`).
+//! reader spends on such a track: its series timeline from the index, reading heads only where a grid starts, and from
+//! whole blocks, and the hash of all its chunks from the index (`TapeReader::range_hash`). Last, the timeline of a long
+//! series of many grids from a file: reads and time.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -60,6 +61,12 @@ struct Args {
     /// Rounds; the best is kept.
     #[arg(long, default_value_t = 5)]
     rounds: u32,
+    /// Chunks of the long series whose timeline is read from a file.
+    #[arg(long, default_value_t = 10_000)]
+    long_chunks: u32,
+    /// Stretches of the long series: its scale changes this many times less one, evenly.
+    #[arg(long, default_value_t = 10)]
+    long_stretches: u32,
 }
 
 /// A sink that keeps no bytes: the writer's own work is measured, not a file's.
@@ -232,11 +239,17 @@ fn main() -> anyhow::Result<()> {
     })?;
     drop(chain);
     let mut w = writer()?;
+    let mut first = true;
     let theirs = ns_per_try(r, c, |_| {
         let k = w.next_id().seq;
         let h = head(track, k, count)?;
         let n = write_chunk(&mut buf, w.next_id(), &h, &columns, 0)
             .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        // the track's first chunk starts its grid
+        if first {
+            ww_tape::mark_grid_start(&mut buf[..n], true).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            first = false;
+        }
         w.write_block(&defs, &buf[..n]).map_err(e)?;
         Ok(())
     })?;
@@ -266,7 +279,131 @@ fn main() -> anyhow::Result<()> {
         let table = timeline(&bench, &defs, track, &columns, count, &args, alignment)?;
         println!("{}", bench.push(table));
     }
+    let table = long_timeline(&bench, &defs, track, &args)?;
+    println!("{}", bench.push(table));
     bench.finish()
+}
+
+/// A file source that counts its reads.
+struct CountedFile {
+    file: ww_tape_fs::FileSource,
+    reads: std::cell::Cell<u64>,
+}
+
+impl ByteSource for CountedFile {
+    type Error = ww_tape_fs::FsError;
+
+    fn size(&self) -> Result<u64, Self::Error> {
+        self.file.size()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), Self::Error> {
+        self.reads.set(self.reads.get() + 1);
+        self.file.read_at(offset, buf)
+    }
+}
+
+/// Chunk samples of the long series: 256 i16 samples, so the file stays small and only heads count.
+const LONG_CHUNK_SAMPLES: u32 = 256;
+
+/// What `TapeReader::series_timeline` costs over a long series of `--long-chunks` chunks whose scale changes
+/// `--long-stretches` less one times, from a file in the page cache: reads and ns per chunk, the best of
+/// `--rounds`.
+fn long_timeline(
+    bench: &Bench,
+    defs: &Definitions,
+    track: TrackNum,
+    args: &Args,
+) -> anyhow::Result<Measure> {
+    let mut table = bench.table(
+        "long-timeline",
+        &format!(
+            "Timeline of a series of {} chunks in {} stretches, from a file, best of {} rounds.",
+            args.long_chunks, args.long_stretches, args.rounds
+        ),
+        &["Read", "Reads", "ms", "ns per chunk"],
+    );
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
+    let dir = std::env::temp_dir().join(format!("ww_tape_bench_long_{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("long.wwt");
+    let samples = vec![0u8; LONG_CHUNK_SAMPLES as usize * 2];
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    let columns = [(spec, samples.as_slice())];
+    let per = (args.long_chunks / args.long_stretches.max(1)).max(1);
+    let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).map_err(e)?;
+    for k in 0..args.long_chunks {
+        let mut h = head(track, u64::from(k), LONG_CHUNK_SAMPLES)?;
+        let scale = if (k / per).is_multiple_of(2) {
+            ww_tape::Magnitude::ONE
+        } else {
+            ww_tape::Magnitude::pow10(-3)
+        };
+        h.grid = h.grid.map(|g| g.rescaled(scale));
+        w.write_chunk(defs, &h, &columns).map_err(e)?;
+    }
+    w.close().map_err(e)?;
+    let src = CountedFile {
+        file: ww_tape_fs::FileSource::open(&path).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+        reads: 0.into(),
+    };
+    let r = TapeReader::open(&src).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let track_id = head(track, 0, LONG_CHUNK_SAMPLES)?.track_id;
+    let mut best = (f64::INFINITY, 0u64);
+    for _ in 0..args.rounds {
+        let from = src.reads.get();
+        let t = Instant::now();
+        let (tl, errors) = r
+            .series_timeline(0, track_id, period())
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let ns = t.elapsed().as_nanos() as f64;
+        anyhow::ensure!(
+            errors.is_empty() && tl.stretches().len() as u32 == args.long_chunks.div_ceil(per),
+            "{errors:?}"
+        );
+        best = (best.0.min(ns), src.reads.get() - from);
+    }
+    // the timeline from every chunk's head, as a reader built it before the index marked grid starts
+    let mut every = (f64::INFINITY, 0u64);
+    for _ in 0..args.rounds {
+        let from = src.reads.get();
+        let t = Instant::now();
+        let re = |e| anyhow::anyhow!("{e:?}");
+        let mut entries = r.track_entries(0, track_id).map_err(re)?;
+        entries.retain(|e| e.kind == ww_tape::BlockKind::Series && e.level == 0);
+        entries.sort_by_key(|e| e.first_item);
+        let mut buf = Vec::new();
+        let heads = entries
+            .iter()
+            .map(|e| r.read_chunk_head(0, e, &mut buf))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(re)?;
+        let (tl, errors) = SeriesTimeline::from_chunks(period(), &heads);
+        let ns = t.elapsed().as_nanos() as f64;
+        anyhow::ensure!(
+            errors.is_empty() && tl.stretches().len() as u32 == args.long_chunks.div_ceil(per),
+            "{errors:?}"
+        );
+        every = (every.0.min(ns), src.reads.get() - from);
+    }
+    _ = std::fs::remove_dir_all(&dir);
+    for (what, (ns, reads)) in [
+        ("`TapeReader::series_timeline`", best),
+        ("every chunk head (`TapeReader::read_chunk_head`)", every),
+    ] {
+        table.row(vec![
+            Cell::text(what),
+            Cell::count(reads),
+            Cell::num(ns / 1e6, 2),
+            Cell::num(ns / f64::from(args.long_chunks), 0),
+        ]);
+    }
+    Ok(table)
 }
 
 /// Bytes that count what is read of them.
@@ -294,9 +431,9 @@ impl ByteSource for Counted {
     }
 }
 
-/// What a series timeline of a track of `--chunks` chunks costs a reader, from the chunk heads alone
-/// (`TapeReader::series_timeline`) and from whole blocks, in a file of payloads aligned to `alignment`, in memory:
-/// bytes read and ns per chunk; the track is `track`, held in `defs`.
+/// What a series timeline of a track of `--chunks` chunks costs a reader, from the index and the heads where a grid
+/// starts (`TapeReader::series_timeline`) and from whole blocks, in a file of payloads aligned to `alignment`, in
+/// memory: bytes read and ns per chunk; the track is `track`, held in `defs`.
 fn timeline(
     bench: &Bench,
     defs: &Definitions,
@@ -379,7 +516,7 @@ fn timeline(
         fold = (fold.0.min(ns), src.read.get() - from);
     }
     for (what, (ns, bytes)) in [
-        ("`TapeReader::series_timeline`: heads alone", heads),
+        ("`TapeReader::series_timeline`: the index", heads),
         ("`TapeReader::read_block` of every chunk", whole),
         ("`TapeReader::range_hash`: unit hashes from the index", fold),
     ] {

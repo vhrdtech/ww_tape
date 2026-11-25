@@ -5,8 +5,9 @@
 //! - `chunk_cost.svg`: what the writer spends on a 1 MiB series chunk, by part.
 //! - `drive_sizes.svg`: where the bytes of the drive's hour go.
 //! - `bench_*.txt`: the tables the pages include, each with the bench and the load average it ran at.
-//! - `bench_machine.txt`: the machine, build and commit every report of "Sizes and speeds" ran, and the range of the
-//!   load average.
+//! - `bench_machine.txt`: the machine, build and commit every report of "Sizes and speeds" ran but the chunks report,
+//!   and the range of the load average.
+//! - `bench_chunks_machine.txt`: the same for the chunks report of "Sizes and speeds", rerun on its own.
 //! - `bench_handles_machine.txt`: the same for the handles report of "Writing from many threads".
 //! - `bench_read_check_machine.txt`: the same for the read_check report of "When bytes go bad".
 //! - `bench_levels_machine.txt`: the same for the levels report of "Fewer checks, sealed later".
@@ -393,15 +394,14 @@ fn markdown(report: &Report, id: &str) -> anyhow::Result<String> {
     Ok(out)
 }
 
-/// The paragraph saying where every report of "Sizes and speeds" ran: the machine, the build, the commit and the
-/// range of the load.
+/// The paragraph saying where every report of "Sizes and speeds" but the chunks report ran: the machine, the build,
+/// the commit and the range of the load.
 fn machine(r: &Reports) -> anyhow::Result<String> {
     machine_of(&[
         &r.drive,
         &r.sample_codecs,
         &r.event_times,
         &r.summaries,
-        &r.chunks,
         &r.tracks,
         &r.carried,
         &r.memory,
@@ -470,6 +470,10 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         ("drive_sizes.svg".to_owned(), drive_sizes(&r)?),
         ("bench_machine.txt".to_owned(), machine(&r)?),
         (
+            "bench_chunks_machine.txt".to_owned(),
+            machine_of(&[&r.chunks])?,
+        ),
+        (
             "bench_handles_machine.txt".to_owned(),
             machine_of(&[&r.handles])?,
         ),
@@ -502,6 +506,7 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.chunks, "writer"),
         (&r.chunks, "timeline-0"),
         (&r.chunks, "timeline-4096"),
+        (&r.chunks, "long-timeline"),
         (&r.tracks, "add"),
         (&r.tracks, "puts"),
         (&r.tracks, "idle"),
