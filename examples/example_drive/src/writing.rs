@@ -1169,6 +1169,7 @@ impl Writing {
     /// The table of the handle calls, the writer calls they make and their counts, as the book shows it.
     #[must_use]
     pub fn calls_table(&self) -> String {
+        use fmt::Write as _;
         let c = &self.calls;
         let rows = [
             (
@@ -1199,7 +1200,7 @@ impl Writing {
         ];
         let mut t = String::from("| Handle call | Writer call | Count |\n|---|---|---:|\n");
         for (handle, writer, count) in rows {
-            t += &format!("| {handle} | {writer} | {count} |\n");
+            _ = writeln!(t, "| {handle} | {writer} | {count} |");
         }
         t
     }
@@ -1207,6 +1208,7 @@ impl Writing {
     /// The table of the blocks of the hour, who made them, their count and bytes.
     #[must_use]
     pub fn blocks_table(&self) -> String {
+        use fmt::Write as _;
         let mut t = String::from("| Blocks | Made by | Count | Bytes |\n|---|---|---:|---:|\n");
         for b in &self.blocks {
             let by = if b.by_writer {
@@ -1216,7 +1218,7 @@ impl Writing {
             } else {
                 "the recorder"
             };
-            t += &format!("| {} | {by} | {} | {} |\n", b.part, b.count, b.bytes);
+            _ = writeln!(t, "| {} | {by} | {} | {} |", b.part, b.count, b.bytes);
         }
         t
     }
