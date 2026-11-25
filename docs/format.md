@@ -923,10 +923,19 @@ relayed while a caller's unit is open waits whole. The writer writes it right af
 groups count toward `RELAY_GROUPS_MAX` and `RELAY_HELD_BYTES_MAX`, and a cut carries them.
 
 A put, typed item or definition put behind a waiting group waits too, so the two keep their order.
-`TapeWriter::puts_waiting` counts what waits. A close while the unit is still open writes what waits after the unit's
-blocks. The last of them ends the unit's run, so nothing written is cut. With nothing waiting, the close ends the run.
+`TapeWriter::puts_waiting` counts what waits. Keyed puts that wait count toward the carry's limits as if written.
 
-Keyed puts that wait count toward the carry's limits as if written.
+#### A unit open at the close {#a-unit-open-at-the-close}
+
+A close while a caller's unit is still open cuts nothing written:
+
+| Waiting at the close | What ends the unit's run |
+|---|---|
+| groups or puts | the last of them, written after the unit's blocks in order, unmarked |
+| nothing | the close |
+
+A unit whose producer died before its last chunk so reads as whole with the chunks it has. A tile chunk without all
+its overviews is one such unit. They are the producer's own data, kept, never cut by a close.
 
 A group on a track defined twice ([above](#definitions-written-twice-at-once)) opens with its block marked
 `FLAG_TWICE`. That block is one of the group: it carries `FLAG_GROUP` and `FLAG_GROUP_START` and counts toward
