@@ -34,6 +34,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use ww_tape::group_marks::{Link, Marks, link};
 use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::piece::{PieceHeadBlock, Tail};
 use ww_tape::{
@@ -399,6 +400,8 @@ impl ChainFollower {
         // after damage: the blocks of a group without a start up to the first unmarked one are dropped, as a scan
         // drops them
         let mut after_damage = false;
+        // the marks of the block before, for the rule a reader and a resume keep ([ww_tape::group_marks])
+        let mut prev: Option<Marks> = None;
         while let Some(next) = walk.next_block() {
             let bytes = match next {
                 Ok(b) if b.is_intact() => b.bytes().to_vec(),
@@ -415,6 +418,7 @@ impl ChainFollower {
                 ) => {
                     held.retain(|h| !h.group);
                     after_damage = true;
+                    prev = None;
                     continue;
                 }
                 // a block stepped over, a later copy that comes next: the walk goes on
@@ -428,6 +432,15 @@ impl ChainFollower {
                 break;
             };
             let flags = block.block().flags;
+            let marks = (block.block().kind == BlockKind::Records)
+                .then(|| Marks::of_puts(flags))
+                .flatten();
+            // marks that break a group drop it as damage does
+            if link(prev, marks) == Link::Breaks {
+                held.retain(|h| !h.group);
+                after_damage = true;
+            }
+            prev = marks;
             if after_damage && flags & FLAG_GROUP != 0 && flags & FLAG_GROUP_START == 0 {
                 after_damage = flags & FLAG_WITH_NEXT != 0;
                 continue;

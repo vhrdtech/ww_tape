@@ -36,6 +36,7 @@ benchmarks, golden files and book pages.
 - A resume takes nothing of a group of puts with a damaged block, as readers drop it (WRITE-17).
 - A piece of puts alone, without a head, resumes in its own session: readers take the blocks after (WRITE-2).
 - A resume decides a group's blocks by the reader's rule: forged group marks never make the carry differ (TRACK-8).
+- A follower drops a group whose marks break it, by the same rule, `ww_tape::group_marks::link` (TRACK-8).
 
 ## [0.10.1] - 2026-11-24
 

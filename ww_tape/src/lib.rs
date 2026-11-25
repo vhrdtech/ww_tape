@@ -272,7 +272,7 @@ pub use reader::{
 
 mod event;
 #[cfg(feature = "alloc")]
-mod group_marks;
+pub mod group_marks;
 pub use event::{EventRecord, EventRecordError};
 pub mod body;
 pub use body::{BodyCodec, CodeError, code_body, coded_len_max};

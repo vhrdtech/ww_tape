@@ -1,4 +1,4 @@
-//! The one rule by which a reader and a resume decide which blocks of puts make a group of puts
+//! The one rule by which a reader, a follower and a resume decide which blocks of puts make a group of puts
 //! ([TapeWriter::put_group](crate::TapeWriter::put_group)): the marks of two blocks of puts one right after the other.
 //!
 //! A group is a block marked [FLAG_GROUP] and [FLAG_GROUP_START], then blocks marked [FLAG_GROUP] without a start
@@ -12,18 +12,18 @@ use crate::{FLAG_GROUP, FLAG_GROUP_START, FLAG_REPEAT, FLAG_WITH_NEXT};
 
 /// The marks of a block of puts ([FLAG_REPEAT]) that say which group it is of.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Marks {
+pub struct Marks {
     /// Marked [FLAG_GROUP]: a block of a group
-    pub(crate) group: bool,
+    pub group: bool,
     /// Marked [FLAG_GROUP_START]: a group's first block
-    pub(crate) start: bool,
+    pub start: bool,
     /// Marked [FLAG_WITH_NEXT]: a block of the run goes on after it
-    pub(crate) with_next: bool,
+    pub with_next: bool,
 }
 
 impl Marks {
     /// The marks of a block with header flags `flags`.
-    pub(crate) fn of(flags: u16) -> Self {
+    pub fn of(flags: u16) -> Self {
         Self {
             group: flags & FLAG_GROUP != 0,
             start: flags & FLAG_GROUP_START != 0,
@@ -32,7 +32,7 @@ impl Marks {
     }
 
     /// The marks of a records block with header flags `flags`, None for a block of no puts (no [FLAG_REPEAT]).
-    pub(crate) fn of_puts(flags: u16) -> Option<Self> {
+    pub fn of_puts(flags: u16) -> Option<Self> {
         (flags & FLAG_REPEAT != 0).then(|| Self::of(flags))
     }
 
@@ -50,7 +50,7 @@ impl Marks {
 /// How the block `next` right after the block `prev` relates to `prev`'s group: each the marks of a block of puts,
 /// None for any other block or none.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Link {
+pub enum Link {
     /// `next` goes on `prev`'s group.
     Within,
     /// The bytes break the group: `prev`'s group open, `next` a block of puts that doesn't go on it, or `next` a
@@ -61,7 +61,7 @@ pub(crate) enum Link {
 }
 
 /// How block `next` right after block `prev` relates to `prev`'s group ([Link]).
-pub(crate) fn link(prev: Option<Marks>, next: Option<Marks>) -> Link {
+pub fn link(prev: Option<Marks>, next: Option<Marks>) -> Link {
     let open = prev.is_some_and(Marks::opens_on);
     match (open, next) {
         (true, Some(n)) if n.goes_on() => Link::Within,

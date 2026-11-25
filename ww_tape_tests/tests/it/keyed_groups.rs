@@ -495,8 +495,8 @@ fn a_damaged_group_inside_a_piece_leaves_its_keys_doubted() {
 
 /// A chain with keys `/a` and `/b`, a plain item and a block of data, a group of three blocks (a key, the plain
 /// item, a deletion), then blocks of data past a checkpoint, the first right after the group, dropped unclosed; the group's blocks as offsets and ends, then the
-/// group's block `k` given header flags `flags(old)` behind a good CRC.
-fn forged_group(k: usize, flags: impl Fn(u16) -> u16) -> MemPieces {
+/// group's block `k` given header flags `flags(old)` behind a good CRC. The piece, and the group's block boundaries.
+fn forged_group(k: usize, flags: impl Fn(u16) -> u16) -> (MemPieces, Vec<usize>) {
     let defs = defs();
     let (mem, mut chain) = chain_with(crate::keyed_carry::checkpointed());
     chain.put_key(&defs, KEYED, 0, b"/a", b"1").unwrap();
@@ -534,7 +534,33 @@ fn forged_group(k: usize, flags: impl Fn(u16) -> u16) -> MemPieces {
     sink.truncate(0).unwrap();
     sink.write_all(&bytes).unwrap();
     drop(sink);
-    mem
+    (mem, ends)
+}
+
+/// The offsets of the blocks a follower of the piece `bytes`, in a file of its own named for `name`, hands out.
+fn followed(bytes: &[u8], name: &str) -> Vec<usize> {
+    use std::io::Write;
+    use ww_tape_fs::follow::{ChainFollower, FollowOptions};
+    let dir = crate::pieces::scratch(&format!("keyed_groups_{name}"));
+    let path = dir.join("tape.wwt");
+    std::fs::File::create(&path)
+        .unwrap()
+        .write_all(bytes)
+        .unwrap();
+    let mut f = ChainFollower::new(
+        &path,
+        FollowOptions {
+            tapes: ww_tape::PieceTapes::One,
+            ..FollowOptions::default()
+        },
+    )
+    .unwrap();
+    let mut got = Vec::new();
+    while let Some(b) = f.try_next().unwrap() {
+        got.push(usize::try_from(b.offset).unwrap());
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    got
 }
 
 /// The forged piece of [forged_group] read by a scan and through its index alike, then resumed and cut: a carry
@@ -574,10 +600,18 @@ fn carry_agrees(mem: &MemPieces, what: &str) {
 }
 
 /// The middle block of a group forged without `FLAG_GROUP`, behind a good CRC: a reader drops the group's other
-/// blocks, and the resume takes none of them either, so a carry marked whole agrees with the reader.
+/// blocks, a follower hands out none of them, and the resume takes none of them either, so a carry marked whole
+/// agrees with the reader.
 #[test]
 fn a_forged_block_inside_a_group_breaks_it_for_the_resume_too() {
-    let mem = forged_group(1, |f| f & !ww_tape::FLAG_GROUP);
+    let (mem, ends) = forged_group(1, |f| f & !ww_tape::FLAG_GROUP);
+    // a follower hands out the forged block alone, none of the group's others
+    let out = followed(&piece_bytes(&mem, 0), "forged_middle");
+    assert!(out.contains(&ends[1]), "{out:?}");
+    assert!(
+        !out.contains(&ends[0]) && !out.contains(&ends[2]),
+        "{out:?}"
+    );
     let (keys, _, _) = seen(&piece_bytes(&mem, 0), 0);
     assert_eq!(
         keys,
@@ -588,10 +622,14 @@ fn a_forged_block_inside_a_group_breaks_it_for_the_resume_too() {
 }
 
 /// The last block of a group forged with `FLAG_WITH_NEXT`, then a block of data: the run ends with the data, so a
-/// reader takes the group whole, and the resume does too, so the carry holds the group's keys.
+/// reader takes the group whole, a follower hands it out, and the resume takes it too, so the carry holds the
+/// group's keys.
 #[test]
 fn a_group_ended_by_a_block_of_data_is_taken_whole_by_the_resume() {
-    let mem = forged_group(2, |f| f | ww_tape::FLAG_WITH_NEXT);
+    let (mem, ends) = forged_group(2, |f| f | ww_tape::FLAG_WITH_NEXT);
+    // a follower hands out the group whole, with the block of data that ends its run
+    let out = followed(&piece_bytes(&mem, 0), "forged_last");
+    assert!(ends[..3].iter().all(|b| out.contains(b)), "{out:?}");
     let (keys, _, plain) = seen(&piece_bytes(&mem, 0), 0);
     assert_eq!(
         keys,
