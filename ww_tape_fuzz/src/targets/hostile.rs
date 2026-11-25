@@ -105,8 +105,12 @@ pub fn payloads_hostile(data: &[u8]) {
 /// The shape of the series track a block of definitions names; None when it names none.
 fn series_def(b: &[u8]) -> Option<(SampleShape, Ratio64)> {
     let block = Block::read(b).ok()?;
-    let r = block.records().flatten().next()?;
-    match Describe::from_ww_bytes(r.item).ok()? {
+    block.records().flatten().find_map(|r| track_series(r.item))
+}
+
+/// The shape and period of the series track describe record `item` names; None for any other record.
+fn track_series(item: &[u8]) -> Option<(SampleShape, Ratio64)> {
+    match Describe::from_ww_bytes(item).ok()? {
         Describe::Track(t) => {
             let _ = (
                 t.check_kind(),
@@ -649,4 +653,18 @@ fn resume_state(f: &[u8], forged: bool) {
         )
         .expect("a lookup");
     assert_eq!(found.item.map(|s| s.item), Some(b"resumed".to_vec()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The block of definitions of the hostile series names its clock first: the track's shape and period are found
+    /// after it.
+    #[test]
+    fn the_series_track_is_found_after_the_clock() {
+        let f = hostile::series(&[7; 64]);
+        let bs = blocks(&f);
+        assert!(series_def(bs[0]).is_some());
+    }
 }
