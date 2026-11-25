@@ -17,7 +17,7 @@ format: each chapter builds on the chapters before it, so read them in order. Ev
 | Chapter | What it teaches |
 |---|---|
 | [How a tape is built](../tracks.md) | Tracks and items, the blocks that check themselves, definitions and state, and the parts of one file. |
-| [Writing](../writing.md) | The four calls of a writer, writing from many threads, files and syncing, pieces and chains, and a crash. |
+| [Writing](../writing.md) | The calls of a writer and the blocks it adds, writing from many threads, files and syncing, pieces, chains and their retention, and a crash. |
 | [Reading](../reading.md) | Finding a time in a long recording, then events, series and the summaries a plot reads. |
 | [Damage](../damage.md) | What a bad byte costs a reader, and the checks a fast writer can leave to a later seal. |
 
