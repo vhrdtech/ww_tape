@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-26
+
 ### Breaking
 
 - Format: every definition and plain state item gets a first copy 4 KiB on without a use; goldens rewritten (TRACK-12).
