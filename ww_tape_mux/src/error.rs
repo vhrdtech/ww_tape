@@ -281,6 +281,8 @@ pub enum MuxError<E> {
     Start(WriteError<E>),
     /// The writing thread could not be started.
     Spawn(std::io::Error),
+    /// A bytes handle refused the call, or a value's part didn't encode ([BytesHandle](crate::BytesHandle)).
+    Bytes(ww_tape::bytes_track::BytesError),
 }
 
 impl<E> From<CallError> for MuxError<E> {
@@ -306,6 +308,7 @@ impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for MuxError<E
             Self::Full(_) => f.write_str("the mux's queue is full"),
             Self::Start(e) => write!(f, "the chain could not be started: {e}"),
             Self::Spawn(e) => write!(f, "the writing thread could not be started: {e}"),
+            Self::Bytes(e) => write!(f, "{e}"),
         }
     }
 }
@@ -318,6 +321,7 @@ impl<E: core::error::Error + 'static> core::error::Error for MuxError<E> {
             Self::Call(e) => Some(e),
             Self::Describe(e) => Some(e),
             Self::Spawn(e) => Some(e),
+            Self::Bytes(e) => Some(e),
             Self::Closed | Self::Full(_) => None,
         }
     }

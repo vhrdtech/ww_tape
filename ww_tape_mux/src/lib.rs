@@ -93,6 +93,7 @@
 //! | [HELD_ITEMS_MAX] | 1024 | typed items held for later pieces ([TapeMux::put_item]) |
 //! | [HELD_ITEM_BYTES_MAX] | 4 MiB | the bytes of the typed items held for later pieces |
 
+mod bytes;
 mod define;
 mod error;
 mod events;
@@ -123,6 +124,7 @@ use ww_tape::{
     TypedItem,
 };
 
+pub use bytes::BytesHandle;
 pub use error::{CallError, EncodeError, GroupUnitPut, ItemError, MuxError, Unit};
 pub use events::{
     CHUNK_BYTES_DEFAULT, CHUNK_ITEMS_DEFAULT, Event, EventsHandle, EventsOptions, ITEM_BYTES_MAX,

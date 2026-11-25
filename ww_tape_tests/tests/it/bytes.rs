@@ -588,3 +588,44 @@ fn bytes_golden() {
     assert_eq!(read_from(&[file.clone()], empty.id).unwrap().0, b"");
     crate::quiet::golden(&file, "v1-bytes.hex");
 }
+
+/// Through a mux: a value's parts go through the queue as chunks, a cut falls inside the value, another handle's
+/// events interleave, and the value reads back whole across the pieces.
+#[test]
+fn a_value_through_the_mux() {
+    let defs = defs();
+    let (mem, c) = chain(options(PieceTapes::Each, Integrity::Full, 3));
+    let mux = ww_tape_mux::TapeMux::start(c, defs, ww_tape_mux::MuxOptions::default()).unwrap();
+    let mut h = mux
+        .bytes(
+            BYTES,
+            ItemNum::new(0),
+            BytesOptions {
+                part_len: PART,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let v = value(21, 7300);
+    let id = h.begin(4).unwrap();
+    for (k, piece) in v.chunks(1100).enumerate() {
+        h.write(piece).unwrap();
+        if k == 3 {
+            h.flush().unwrap();
+            mux.cut().unwrap();
+        }
+    }
+    let seal = h.finish().unwrap();
+    assert_eq!(seal.id, id);
+    assert_eq!(seal.parts, 9);
+    assert_eq!(h.next_part(), ItemNum::new(9));
+    let refused = mux.bytes(TrackNum::new(3), ItemNum::new(0), BytesOptions::default());
+    assert!(matches!(refused, Err(ww_tape_mux::MuxError::Bytes(_))));
+    drop(h);
+    mux.close().unwrap();
+    let files = pieces(&mem);
+    assert!(files.len() >= 3, "{} pieces", files.len());
+    let (bytes, read) = read_from(&files, id).unwrap();
+    assert_eq!(bytes, v);
+    assert_eq!(read, seal);
+}
