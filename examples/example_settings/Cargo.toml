@@ -1,0 +1,21 @@
+[package]
+name = "example_settings"
+version.workspace = true
+authors.workspace = true
+description = "The ww_tape book's settings case: a controller's parameters by key, a profile switched in a group, its firmware read whole"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[dependencies]
+shrink_wrap.workspace = true
+ww_tape = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+ww_tape_book_outputs.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+offset    bytes  kind          count  marks
+     0      156  PieceHead         0
+   156       64  Records           2  put, with next
+   220      145  Records           2  put, with next
+   365       63  KeyedPuts         1  put
+   428       52  KeyedPuts         1  put
+   480       52  KeyedPuts         1  put
+   532       55  KeyedPuts         1  put
+   587      117  Records           2  put
+   704       54  KeyedPuts         1  put
+   758       46  Records           1  put, with next, group, group start
+   804       67  KeyedPuts         2  put, group
+   871       98  Records           1  put, with next
+   969    65710  Events            1
+ 66679    65693  Events            1
+132372    65693  Events            1
+198065     3545  Events            1
+201610      218  Events            1
+201828     2672  Index            20
+204500     4232  Close             3
+208732      164  Tail              0

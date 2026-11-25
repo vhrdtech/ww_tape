@@ -567,6 +567,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "example_settings"
+version = "0.15.0"
+dependencies = [
+ "shrink_wrap",
+ "ww_tape",
+ "ww_tape_book_outputs",
+]
+
+[[package]]
 name = "example_thermal"
 version = "0.15.0"
 dependencies = [

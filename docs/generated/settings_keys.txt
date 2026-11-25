@@ -1,0 +1,9 @@
+the last piece alone:
+  profile = fast
+  limit/current_ma = 15000
+  pid/ki = 0.09
+  pid/kp = 1.20
+  every live key: true
+pid/kp in the first piece, newest first:
+   3000 ms  1.20
+      0 ms  0.80
