@@ -1,0 +1,38 @@
+<svg class="ww-svg" viewBox="0 0 680 270" width="680" height="270" role="img" aria-label="A group of three blocks of puts torn by a crash: the first two blocks are whole and marked as belonging with the next, the third is torn. The resume keeps the bytes up to the group, drops the two whole blocks as a dropped run, cuts off the torn end, and the group given again writes all three blocks whole." xmlns="http://www.w3.org/2000/svg">
+  <!-- as the crash left it -->
+  <text x="20" y="28" class="strong small">as the crash left it</text>
+  <rect x="20.5" y="38" width="190" height="34" rx="2" class="tint-blue"/>
+  <text x="115" y="59" text-anchor="middle" class="small">blocks before the group</text>
+  <rect x="210.5" y="38" width="130" height="34" rx="2" class="tint-amber"/>
+  <text x="275" y="59" text-anchor="middle" class="small">x table</text>
+  <rect x="340.5" y="38" width="130" height="34" rx="2" class="tint-amber"/>
+  <text x="405" y="59" text-anchor="middle" class="small">y table</text>
+  <path d="M470.5 38 H530 l-6 8 l6 9 l-6 9 l6 8 H470.5 Z" class="tint-accent"/>
+  <text x="498" y="59" text-anchor="middle" class="small">v2</text>
+  <text x="275" y="88" text-anchor="middle" class="soft small">with next, group start</text>
+  <text x="405" y="88" text-anchor="middle" class="soft small">with next</text>
+  <text x="510" y="88" text-anchor="middle" class="soft small">last, torn</text>
+  <!-- power fails -->
+  <path d="M545 22 V34" class="accent-line"/>
+  <path d="M545 38 l-4 -8 h8 Z" class="accent-line head"/>
+  <text x="553" y="30" class="accent small">power fails</text>
+  <!-- what the resume does -->
+  <path d="M20.5 104 V112 H210.5 V104" class="thin"/>
+  <text x="115" y="128" text-anchor="middle" class="small">kept bytes</text>
+  <path d="M210.5 104 V112 H470.5 V104" class="amber"/>
+  <text x="340" y="128" text-anchor="middle" class="amber small">dropped run: whole, but without its last block</text>
+  <path d="M470.5 104 V112 H530 V104" class="accent-line"/>
+  <text x="500" y="128" text-anchor="middle" class="accent small">torn end</text>
+  <text x="20" y="150" class="soft small">a reader before the resume takes none of the group: the tables and their version stay v1</text>
+  <!-- resumed -->
+  <text x="20" y="190" class="strong small">resumed, the group given again</text>
+  <rect x="20.5" y="200" width="190" height="34" rx="2" class="tint-blue"/>
+  <text x="115" y="221" text-anchor="middle" class="small">blocks before the group</text>
+  <rect x="210.5" y="200" width="130" height="34" rx="2" class="tint-amber"/>
+  <text x="275" y="221" text-anchor="middle" class="small">x table</text>
+  <rect x="340.5" y="200" width="130" height="34" rx="2" class="tint-amber"/>
+  <text x="405" y="221" text-anchor="middle" class="small">y table</text>
+  <rect x="470.5" y="200" width="70" height="34" rx="2" class="tint-amber"/>
+  <text x="505" y="221" text-anchor="middle" class="small">v2</text>
+  <text x="20" y="256" class="soft small">the same bytes as a group written without the crash: every reader now sees v2 whole</text>
+</svg>

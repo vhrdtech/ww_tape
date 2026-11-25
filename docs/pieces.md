@@ -241,7 +241,7 @@ The last tail gives the last piece's start, and the tail just before that start 
 
 The first session leaves one closed piece in the file. The second finds it by the tails, writes on after its close and
 closes it again. The file still holds one piece, closed twice, and gains a piece only where the chain cuts. An unclosed
-last piece, cut off by a crash, resumes as [When the power fails](crashes.md#resuming-a-chain) describes.
+last piece, cut off by a crash, resumes as [When the power fails](resume_cases.md#resuming-a-chain) describes.
 
 ## The 4 KiB end and cloning
 

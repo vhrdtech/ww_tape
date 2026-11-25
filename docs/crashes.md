@@ -5,15 +5,14 @@ level: basic
 # When the power fails
 
 The bench host has recorded the drive's endurance run for 37 minutes when its power fails. It was in the middle of
-writing a [[block]] of frames from the CAN bus. This chapter answers three questions:
-what the crash cost, how a [[reader]] reads the file left behind, and how the recorder goes on. The
-[[closed]] recording should be the same as if the power had never failed.
+writing a [[block]] of frames from the CAN bus. What did the crash cost, can a [[reader]] still read the file, and how
+does the recorder go on? The [[closed]] recording should end up the same as if the power had never failed.
 
-In short, the crash costs about the last second of data. A reader reads everything before the damaged block. A
-[[resume]] cuts off the damaged end and lets the recorder write it again. The rest of the chapter shows why each answer
-holds, on the drive's recording of a motor controller on a test bench.
+The short answers come first, and the sections below show why each one holds:
 
-The chapter assumes [Pieces and chains](pieces.md).
+- The crash costs about the last second of data.
+- A reader reads everything before the damaged block.
+- A [[resume]] cuts off the damaged end, and the recorder writes that part again.
 
 ## A file's bytes tell its state
 
@@ -35,8 +34,7 @@ nothing behind. While the lock is held, a second writer gets [`FsError::Locked`]
 
 An operating system keeps written bytes in memory for a while before it puts them on the disk. A power failure loses
 whatever it has not put there yet. The [[writer]] bounds that loss with its [[sync policy]]. By default it asks the
-system to put its bytes on the disk at least once a second. The drive's recorder used the default, so it loses at most
-about the last second of the run.
+system to put its bytes on the disk at least once a second. The drive's recorder thus loses about the last second.
 
 | [`SyncPolicy`] | The writer syncs | A crash loses at most |
 |---|---|---|
@@ -46,15 +44,14 @@ about the last second of the run.
 
 The bytes on the disk end in a [[torn block]], the [[block]] the writer was in the middle of. It ends early or fails
 its [[CRC-32C]]. Everything synced before it is whole, because the writer only appends and never rewrites a byte.
-A sync policy that writes more often loses less, and each sync costs a wait for the disk. A recorder of a slow, precious
-stream syncs after every block; one of a fast stream keeps the default.
+[Files and syncing](files.md#how-often-to-sync) measures what each policy loses and what its syncs cost.
 
 ## How a reader finds the end
 
-A [[closed]] [[piece]] ends with a [[tail]], and a [[reader]] starts there. The tail leads it to the [[final index]], which
-lists every [[block]]. An unclosed piece has neither, so the reader needs another way to its blocks. The [[writer]]
-provides one while it writes. Every 4 MiB it places a [[checkpoint]]: an index block that lists the blocks since the
-previous checkpoint and points back at it.
+A [[closed]] [[piece]] ends with a [[tail]], and a [[reader]] starts there. The tail leads it to the [[final index]],
+which lists every [[block]]. An unclosed piece has neither, so the reader needs another way to its blocks. The
+[[writer]] provides one while it writes: every 4 MiB it places a [[checkpoint]]. A checkpoint is an index block that
+lists the blocks since the previous checkpoint and points back at it.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/crash.svg"
@@ -64,35 +61,40 @@ fails its CRC. Drawn by <code>ww_tape_figures</code> from the drive's recording 
 37. Its checkpoints come every 3 KiB instead of every 4 MiB.</figcaption>
 </figure>
 
-The reader looks backwards from the end of the bytes for the newest checkpoint, which lies at most about 4 MiB back.
-It then follows the chain of checkpoints back to the start, and so lists every block before the newest checkpoint
-without reading them. Only the blocks after the newest checkpoint need a scan, one by one, and the scan stops at the
-[[torn block]]. The scan therefore covers at most about 4 MiB, however long the recording is.
+The reader finds its way in three steps:
 
-The drive's file reads like this after the crash. [`PieceInfo::cut`] says where the good blocks end:
+1. It looks backwards from the end of the bytes for the newest checkpoint, which lies at most about 4 MiB back.
+2. It follows the checkpoints back to the start, and so lists every block before the newest one without reading them.
+3. It scans the blocks after the newest checkpoint one by one and stops at the [[torn block]].
+
+The scan therefore covers at most about 4 MiB, however long the recording is. The drive's file reads like this after
+the crash, and [`PieceInfo::cut`] says where the good blocks end:
 
 ```rust
 --8<-- "ww_tape_tests/tests/it/crashes.rs:read"
 ```
 
-Everything before that offset reads as it would in a closed file: the [[definitions]], the log lines, the [[CAN]] frames,
-the [[summaries]] written so far. The piece has no [[content hash]] to check, because the [[close record]] that would
-hold it was never written. Its missing tail is how a reader tells that the file was not closed.
+Everything before that offset reads as it would in a closed file. That covers the [[definitions]], the log lines, the
+[[CAN]] frames and the [[summaries]] written so far. The piece has no [[content hash]] to check, because the [[close record]]
+that would hold it was never written. Its missing tail is how a reader tells that the file was not closed.
 
 ## Resuming the file
 
-When the recorder starts again, it calls [`writer::resume`] with the path and the options it wrote the file with.
-The [[resume]] reads the file the way a [[reader]] does. It keeps every byte up to the end of the last good [[block]]
-and cuts off the rest, the [[torn end]]. It then replays the kept blocks, so that the [[writer]] knows again what it
-wrote. That covers its index, its hashes, and which [[definitions]] and [[state items]] lie close behind.
+When the recorder starts again, it calls [`writer::resume`] with the path and the options it wrote the file with. The
+[[resume]] then works in three steps:
+
+1. It reads the file the way a [[reader]] does.
+2. It keeps every byte up to the end of the last good [[block]] and cuts off the rest, the [[torn end]].
+3. It replays the kept blocks, so that the [[writer]] knows again its index, its hashes, and which [[definitions]] and
+   [[state items]] lie close behind.
+
+The recorder then gives its calls again from the first block the file lacks, which [`TapeWriter::next_seq`] names.
+The drive's recorder keeps every block it sends, so it sends the lost ones again. A recorder that relays a device's
+stream can instead ask the device for the blocks from that point on.
 
 ```rust
 --8<-- "ww_tape_tests/tests/it/crashes.rs:resume"
 ```
-
-The recorder gives its calls again from the first block the file lacks, which [`TapeWriter::next_seq`] names. The
-drive's recorder keeps every block it sends, so it sends the lost ones again. A recorder that relays a device's
-stream can instead ask the device for the blocks from that point on.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/resume.svg"
@@ -104,79 +106,17 @@ it checks that the bytes are equal.</figcaption>
 
 The resumed file ends with the same bytes as a file written without the crash, and so with the same [[content hash]].
 That holds because what the writer adds depends only on the bytes before it, the calls and the options. It needs no
-[[clock]] and no memory of what happened before the crash. The test behind this chapter's code cuts the drive's file,
-resumes it, and compares it with one written whole. The crate's own tests cut [[pieces]] at every block boundary.
+[[clock]] and no memory of what happened before the crash. The test behind this section cuts the file, resumes it and
+compares it with one written whole.
 
 ### Puts that go with a lost block
 
-Before a [[block]] of data, the [[writer]] [[puts]] the [[definitions]] and [[state items]] the block needs, when no copy lies close
-behind. Such puts belong with the block after them, and the writer marks them with the flag `FLAG_WITH_NEXT` for
-that reason. When the crash tears the block, the [[resume]] cuts off its puts too.
+Before a [[block]] of data, the [[writer]] [[puts]] the [[definitions]] and [[state items]] that the block needs. It
+skips those of which a copy lies close behind. Such puts belong with the block after them, so the writer marks them with the flag
+`FLAG_WITH_NEXT`. When the crash tears the block, the [[resume]] cuts off its puts too.
 
 The recorder then gives the call for the block again, and the writer writes the same puts and the same block. A put
-that finds its [[item]] close behind writes nothing, so the recorder never needs to know which puts reached the disk. It
-simply puts again what it uses, as it did before the crash.
+that finds its [[item]] close behind writes nothing, so the recorder never needs to know which puts reached the disk.
+It puts again what it uses, as it did before the crash.
 
-### A torn group of puts
-
-Some puts only mean something together. An application that keeps its settings on [[state tracks]] changes a limit
-and its unit in one step. A reader that saw the new limit with the old unit would read a wrong setting.
-
-`TapeWriter::put_group` puts such items as one group. Its blocks but the last are marked `FLAG_WITH_NEXT`, as puts
-before a block of data are, and the last block of puts ends the group. A group may also put or delete keys of a
-keyed state track, such as the entries of a settings store.
-
-A crash inside the group leaves marked blocks at the end of the piece and no last one. A reader of the piece before
-the [[resume]] takes none of them, and a follower hands out none. The resume drops them and says so in
-`Resumed::dropped_run`, so the application knows the group is lost and gives it again. Every reader then shows either
-the settings before the group or all of the group, never a mix. The [format reference](format.md#groups-of-puts)
-lists what a writer checks before it writes a group.
-
-## When a resume refuses
-
-A [[resume]] cuts off what a crash leaves and nothing more. A crash leaves a [[block]] that stops short, or zeros from a
-sector boundary to the end. A disk writes a 512-byte sector whole or not at all, so nothing else is torn. Anything
-else past the good blocks is damage: the resume refuses and leaves the bytes as they are. These cases refuse:
-
-| Refusal | Why |
-|---|---|
-| [`ResumeError::Damaged`] | the bytes to cut hold damage, not a torn end: a whole block that fails its check |
-| [`ResumeError::GoodBlockAfterCut`] | a good block lies past where the reader stopped, so cutting would lose it |
-| [`ResumeError::LookSpent`] | the look for good blocks past that point ran out before the end of the bytes |
-| [`InputError::Layout`], [`InputError::Producer`] | the options name another layout or producer than the file |
-
-The second case is the one to know. Suppose a sector of the disk went bad in the drive's file a few blocks before the
-end, and then the power failed. The [[reader]]'s scan stops at the bad sector, but good blocks follow it, so cutting there
-would lose them. The resume names the first good block and refuses. The file still reads past the damage with
-[`Recovery::Resync`], as [When bytes go bad](damage.md#reading-past-damage) explains.
-
-A crash after the [[close]] needs no new data. A closed [[piece]] goes on after its close, and a close with nothing written after it adds no byte. A crash in the middle of
-the close opens the piece again, and the next close writes the end anew. The [format
-reference](format.md#resuming-after-a-crash) tells a [[torn end]] from damage byte by byte and lists the bounds of the look.
-
-## Resuming a chain
-
-The drive's run is long, so the recorder writes it as a [[chain]] of [[pieces]] in a directory, `00000000.wwt`,
-`00000001.wwt` and so on. The power failed while it wrote piece 2. On restart the recorder calls
-[`chain::resume`] with the directory, the [[owner id]], the chain number and its options.
-
-The chain reads pieces 0 and 1 back from their [[tails]] and reopens `00000002.wwt` as a single file resumes.
-The recorder then goes on from the first [[block]] the chain lacks, exactly as before. Two crashes at a piece boundary
-resume as well. One comes between closing a piece and creating the next, the other inside the head of the next.
-
-| How the last piece ended | A piece per file | All pieces in one file |
-|---|---|---|
-| unclosed | resumed | resumed |
-| closed naming a next piece: the crash came during a cut | the next piece starts | the next piece starts |
-| closed, naming no next piece | written on after its close | written on after its close |
-| its head is damaged | refused | refused |
-
-A chain therefore gains a piece only at a [[cut]]. A recorder that opens the chain again goes on in its last piece.
-
-## Trying crashes in a test
-
-A crash is easy to rehearse, because a [[resume]] works on any [[sink]]. A [`MemSink`] keeps a [[piece]] in memory,
-and a test writes a piece there and copies a prefix of its bytes into a new sink. It resumes that sink with
-[`TapeWriter::resume_on`] and gives the lost calls again. Repeat that for every offset of a small piece, and compare
-each result with the piece written whole. The crate tests its resumes this way, and a
-[[producer]] can test its own.
+A crash can also tear a group of puts or fall between two pieces of a chain. Damage can look like a torn end. [Beyond a torn block](resume_cases.md) shows what a resume does in each case.
