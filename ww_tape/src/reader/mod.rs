@@ -2285,6 +2285,7 @@ fn unfolded(kind: BlockKind) -> bool {
         BlockKind::Events
             | BlockKind::Series
             | BlockKind::Records
+            | BlockKind::CodedRecords
             | BlockKind::KeyedPuts
             | BlockKind::Summary
             | BlockKind::TileSummary

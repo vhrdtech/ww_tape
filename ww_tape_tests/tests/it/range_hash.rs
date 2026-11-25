@@ -863,16 +863,8 @@ fn verify_compares_each_entry_with_its_block() {
         let r = TapeReader::open(&bytes[..]).unwrap();
         assert!(!r.verify(i).map(|v| v.holds).unwrap(), "{name}");
     }
-    // the chunk of an entry of kind 11 is counted as skipped by the range hash, never dropped unsaid
-    let mut bytes = files[0].clone();
-    let mut seen = None;
-    let mut len = 0;
-    rewrite_final_entries(&mut bytes, i, t, |_, e| {
-        if first_chunk(&mut seen, e) {
-            e[12] = 11;
-            len = u32::from_le_bytes(e[8..12].try_into().unwrap());
-        }
-    });
+    // the chunk of an entry of kind 11 is counted as skipped by the range hash, never dropped unsaid; one of a
+    // records kind, plain or coded, is records: no chunk of the track, and no bytes skipped
     let good = TapeReader::open(&files[0][..]).unwrap();
     let want = good
         .range_hash(
@@ -882,17 +874,29 @@ fn verify_compares_each_entry_with_its_block() {
             TrackHash::START,
         )
         .unwrap();
-    let got = TapeReader::open(&bytes[..])
-        .unwrap()
-        .range_hash(
-            id_of(t),
-            OwnerId::NONE,
-            ItemNum::new(0)..ItemNum::new(u64::MAX),
-            TrackHash::START,
-        )
-        .unwrap();
-    assert_eq!(got.chunks + 1, want.chunks);
-    assert_eq!(got.skipped, want.skipped + u64::from(len));
+    for (kind, skipped) in [(11, true), (1, false), (15, false)] {
+        let mut bytes = files[0].clone();
+        let mut seen = None;
+        let mut len = 0;
+        rewrite_final_entries(&mut bytes, i, t, |_, e| {
+            if first_chunk(&mut seen, e) {
+                e[12] = kind;
+                len = u32::from_le_bytes(e[8..12].try_into().unwrap());
+            }
+        });
+        let got = TapeReader::open(&bytes[..])
+            .unwrap()
+            .range_hash(
+                id_of(t),
+                OwnerId::NONE,
+                ItemNum::new(0)..ItemNum::new(u64::MAX),
+                TrackHash::START,
+            )
+            .unwrap();
+        assert_eq!(got.chunks + 1, want.chunks, "kind {kind}");
+        let len = if skipped { u64::from(len) } else { 0 };
+        assert_eq!(got.skipped, want.skipped + len, "kind {kind}");
+    }
 }
 
 /// An entry without a unit hash stating a range its chunk's columns don't have is refused when the range hash reads
