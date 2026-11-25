@@ -299,32 +299,31 @@ impl BytesWriter {
             }
         };
         let raw_lengths;
-        let [lengths, payload] = match &coded {
-            Some(p) => p.columns(),
-            None => {
-                raw_lengths =
-                    ww_tape_codecs::lengths::encode_lengths(&[len]).ok_or(BytesError::PartLen {
-                        len: bytes.len(),
-                        max: BYTES_PART_LEN_MAX,
-                    })?;
-                let spec = |kind, codec, b: &[u8]| ColumnSpec {
-                    kind,
-                    codec,
-                    param: 0,
-                    len: b.len(),
-                };
-                [
-                    (
-                        spec(
-                            ColumnKind::PayloadLengths,
-                            crate::payloads::LENGTHS,
-                            &raw_lengths,
-                        ),
-                        &raw_lengths[..],
+        let [lengths, payload] = if let Some(p) = &coded {
+            p.columns()
+        } else {
+            raw_lengths =
+                ww_tape_codecs::lengths::encode_lengths(&[len]).ok_or(BytesError::PartLen {
+                    len: bytes.len(),
+                    max: BYTES_PART_LEN_MAX,
+                })?;
+            let spec = |kind, codec, b: &[u8]| ColumnSpec {
+                kind,
+                codec,
+                param: 0,
+                len: b.len(),
+            };
+            [
+                (
+                    spec(
+                        ColumnKind::PayloadLengths,
+                        crate::payloads::LENGTHS,
+                        &raw_lengths,
                     ),
-                    (spec(ColumnKind::Payloads, Codec::RAW, bytes), bytes),
-                ]
-            }
+                    &raw_lengths[..],
+                ),
+                (spec(ColumnKind::Payloads, Codec::RAW, bytes), bytes),
+            ]
         };
         let head = times.head.chunk_head(self.track_id, self.track, item);
         let empty = ColumnSpec {
