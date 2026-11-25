@@ -11,6 +11,7 @@ benchmarks, golden files and book pages.
 - `TrackKind::Bytes` is a new track kind; older readers read it as unknown and its parts as events (TRACK-10).
 - `TrackFacts` gains `bytes`; `DescribeError` gains `BytesTrack` and `BytesPart` (TRACK-10).
 - `MuxError` gains `Bytes` (TRACK-10).
+- `CutPolicy::bytes` leaves out a piece's carry, so chains cut elsewhere; `PieceChain::puts_cut_due` is gone, call `cut_due` (WRITE-1).
 
 ### Features
 
@@ -20,6 +21,14 @@ benchmarks, golden files and book pages.
 - `TapeWriter::next_item` and `PieceChain::next_item` name a track's next item; a bytes part below it is refused (TRACK-10).
 - `read_value` reads the parts deciding an absence whole, names a removed seal piece a gap, keeps no part list (TRACK-10).
 - Fuzz targets `tape-bytes` and `tape-bytes-hostile` check values read from any bytes and from forged parts (TRACK-10).
+- `TapeWriter::carried_bytes`, `TapeWriter::data_bytes` and `PieceChain::as_carry` tell and extend what a piece's carry takes (WRITE-1).
+
+### Fixes
+
+- A carry at or past the cut budget no longer makes a chain or mux cut before every put (WRITE-1).
+- A chunk written in steady state allocates twice, down from 22 in 0.12.0 (WRITE-4).
+- A put in steady state allocates 15 times, down from 44 in 0.12.0 (WRITE-4).
+
 
 ## [0.12.0] - 2026-11-25
 
