@@ -30,7 +30,8 @@ fn peak_holds_a_buffer_freed_inside() {
         heap,
         ThreadHeap {
             peak_bytes: 1 << 20,
-            held_bytes: 1 << 20
+            held_bytes: 1 << 20,
+            allocations: 1,
         }
     );
     drop(kept);
@@ -58,11 +59,24 @@ fn another_threads_heap_is_not_counted() {
             heap,
             ThreadHeap {
                 peak_bytes: 0,
-                held_bytes: 0
+                held_bytes: 0,
+                allocations: 0,
             },
             "another thread's MiB counted"
         );
     });
+}
+
+/// Each allocation counts once, a growth of a vector too, and a free counts none.
+#[test]
+fn allocations_count_each_call() {
+    let ((), heap) = thread_heap_of(|| {
+        let mut v: Vec<u8> = black_box(Vec::with_capacity(1));
+        v.reserve(1 << 10);
+        black_box(&v);
+        drop(black_box(vec![0u8; 3]));
+    });
+    assert_eq!(heap.allocations, 3, "{heap:?}");
 }
 
 /// The process-wide peak counts every thread, for a binary measuring alone.
