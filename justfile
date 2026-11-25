@@ -217,9 +217,16 @@ book: book-refs
 book-serve: book-refs
     uv run --with "{{ kit }}" zensical serve
 
-# The book's checks: the strict build, then the prose lints, so a broken link or a long page cannot land
+# The book's checks: the frame, the strict build, then the prose lints, so a step down a level, a broken link or a
+# long page cannot land
 [group('book')]
-book-check: book-strict book-prose
+book-check: book-frame book-strict book-prose
+
+# The book's frame (book_checks.toml): the nav in level order, a level on every page, no page twice, no bare `rust`
+# fence beyond the waived ones, no generated file that no page includes; ww_tape_tests runs it in `just test` too
+[group('book')]
+book-frame:
+    uv run --with "{{ kit }}" vz check
 
 # Build the book with warnings as errors: a link to a missing page, anchor or figure fails; links to other sites are not fetched
 [group('book')]

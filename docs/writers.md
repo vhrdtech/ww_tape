@@ -165,8 +165,12 @@ A drawing by hand is an SVG file in `docs/figures`. Both kinds go into the page 
 
 ## Checks
 
-`just book-check` builds the book with warnings as errors and then runs the prose lints of `spirit_level.toml`. The
-lints hold a paragraph to five sentences and a sentence to 25 words. A stretch of prose ends within 400 words at a
-heading, figure, table or code block.
+`just book-check` first checks the book's frame with `vz check`, the book kit's check. The frame is the navigation
+against `book_checks.toml`. A page may not step down a level, must carry a level and appears once. A bare `rust` block
+fails beyond the count waived there, and `just test` runs the same check.
+
+The build then runs with warnings as errors, and the prose lints of `spirit_level.toml` follow. The lints hold a
+paragraph to five sentences and a sentence to 25 words. A stretch of prose ends within 400 words at a heading, figure,
+table or code block.
 
 The format reference is exempt from the reading time of a guide page, since a reader looks things up there.

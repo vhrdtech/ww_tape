@@ -10,6 +10,7 @@ benchmarks, golden files and book pages.
 
 - Book: built with the book kit vhrd-zensical 0.3.1 (BOOK-8).
 - Book: parts by reading level, Introduction, Basic, Advanced and Nomicon, then Reference and Articles shelves (BOOK-8).
+- Book: `vz check` holds the nav to `book_checks.toml` in `just test` and `just book-check` (BOOK-8).
 
 ## [0.15.0] - 2026-11-25
 

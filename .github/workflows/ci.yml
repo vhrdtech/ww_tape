@@ -98,6 +98,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v2
+      # uv runs the book kit's `vz check` in ww_tape_tests (book_frame)
+      - uses: astral-sh/setup-uv@v10.2.0
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -126,6 +128,8 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           components: clippy
+      # uv runs the book kit's `vz check` in ww_tape_tests (book_frame)
+      - uses: astral-sh/setup-uv@v10.2.0
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
