@@ -20,8 +20,7 @@ endurance bench, and a host records it over USB. The recording has five tracks:
 | `phase_a` | the phase current, in milliamperes as 16-bit fixed point | 25 000 a second | series chunks |
 | `temp` | the board's temperature | once a second | records blocks |
 
-The rates run from once a second to 25 000 times a second. Slow tracks
-share [[records blocks]], in which every [[record]] carries its own track, time and length. A fast track gets
+Slow tracks share [[records blocks]], in which every [[record]] carries its own track, time and length. A fast track gets
 [[chunks]] of its own, in which the times and values lie in [[columns]]. A [[block]] of either kind checks itself, so
 a [[reader]] can trust it, or skip it, without reading anything else.
 
@@ -97,8 +96,9 @@ which the book calls a [[put]]. The writer writes the item only when no [[record
 It also adds one [[copy|state copy]], so that one damaged [[block]] cannot lose the item.
 
 The [[definitions]] of [[tracks]] and [[clocks]] are state too, kept on track 0 by the same rule. A reader that starts
-anywhere thus finds every definition and every state item it needs within about 32 MiB. [Definitions and
-state](definitions.md) explains puts, copies and how a reader looks state up.
+anywhere thus finds every definition and every state item it needs within about 32 MiB. A [[keyed state track]] keeps
+many items by name the same way, such as a controller's parameters. [State in force](state.md) explains puts, copies
+and keys.
 
 ## Pieces and chains
 
@@ -106,10 +106,13 @@ A long recording does not go into one ever-growing file. At each [[cut]], the [[
 starts the next. A piece is a complete file that reads alone, with an index, a [[close record]] and a [[tail]] at the
 end. The bench host cuts the drive's hour every 15 minutes, which gives four pieces of about 27 MB to 30 MB.
 
-The pieces of one recording form a [[chain]]. Each piece's head names the piece before it by its [[content hash]]
-and its id, and its [[tail]] names the next piece by its id. A [[reader]] therefore puts pieces in order whatever
-their file names, and tells when a piece is missing. Deleting the oldest piece frees space, and a reader tells a chain
-that lost its first pieces this way apart from a damaged one.
+The pieces of one recording form a [[chain]]. Each piece names its neighbours:
+
+- its [[piece head]] names the piece before it by its id and its [[content hash]];
+- its [[tail]] names the next piece by its id.
+
+A [[reader]] therefore puts pieces in order whatever their file names, and tells when a piece is missing. Deleting the
+oldest piece frees space, and a reader tells a chain that lost its first pieces this way apart from a damaged one.
 
 A closed piece ends on a multiple of 4 KiB. A file system that shares extents, such as btrfs, can therefore clone
 pieces back to back into one file without writing any byte again. The result is a valid [[tape]] too. [Pieces and
@@ -117,14 +120,15 @@ chains](pieces.md) explains cuts, the [[stores]] that hold pieces and how a chai
 
 ## The crates
 
-Four crates implement the format. An application that writes files takes `ww_tape` and `ww_tape_fs`, and one that
-draws [[summaries]] adds `ww_tape_summary`.
+Five crates implement the format. An application that writes files takes `ww_tape` and `ww_tape_fs`. One that
+writes from several threads adds `ww_tape_mux`, and one that draws [[summaries]] adds `ww_tape_summary`.
 
 | Crate | What it holds |
 |---|---|
 | `ww_tape` | the format: blocks, definitions, chunks, the index, pieces, the writer [`TapeWriter`] and the reader [`TapeReader`]; it builds without the standard library |
 | `ww_tape_codecs` | the column codecs, which know nothing of blocks: bit packing, checksums, varints, lz4, and the codecs of samples, times and lengths; `ww_tape` re-exports them |
 | `ww_tape_fs` | everything that names a path: the file sink [`FileSink`], the reader's [`FileSource`], and writers and chains opened by path |
+| `ww_tape_mux` | the mux [`TapeMux`], which writes a chain from a thread of its own; producers send to it through handles |
 | `ww_tape_summary` | the trees of summaries a viewer draws a long track from |
 
 ww_tape runs on a host. Its [[writer]] needs an allocator and keeps the index of the open [[piece]] in memory. A piece
