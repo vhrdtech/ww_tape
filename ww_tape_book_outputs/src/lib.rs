@@ -120,7 +120,10 @@ fn check_in(root: &Path, name: &str, text: &str, write: bool) -> Result<(), Erro
 ///
 /// When the file is stale or missing, cannot be read or written, or `name` is not a plain relative path: this is
 /// the calling test's assertion.
-#[expect(clippy::panic, reason = "the harness's assertion: a stale output fails the calling test")]
+#[expect(
+    clippy::panic,
+    reason = "the harness's assertion: a stale output fails the calling test"
+)]
 pub fn check(name: &str, text: &str) {
     let write = std::env::var(WRITE_ENV).is_ok_and(|value| value == "write");
     let Some(root) = repository_root() else {
