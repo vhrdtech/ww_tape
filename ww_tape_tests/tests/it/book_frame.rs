@@ -19,8 +19,8 @@ fn kit() -> String {
     line.trim_matches('"').to_owned()
 }
 
-/// `vz check --root book` through uv, or `None` with a note where uv is missing outside CI.
-fn vz_check(book: &Path) -> Option<Output> {
+/// `vz check --root book` through uv. A missing uv fails the test: a check that cannot run never passes.
+fn vz_check(book: &Path) -> Output {
     let run = Command::new("uv")
         .args([
             "run",
@@ -37,17 +37,11 @@ fn vz_check(book: &Path) -> Option<Output> {
         .env_remove("VIRTUAL_ENV")
         .output();
     match run {
-        Ok(out) => Some(out),
+        Ok(out) => out,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            assert!(std::env::var_os("CI").is_none(), "uv is missing in CI");
-            #[expect(
-                clippy::print_stderr,
-                reason = "a skipped check says so in the test's output"
-            )]
-            {
-                eprintln!("skipped: vz check of the book's frame, uv missing");
-            }
-            None
+            panic!(
+                "skipped: vz check of the book's frame, uv missing: install uv (https://docs.astral.sh/uv/)"
+            )
         }
         Err(e) => panic!("uv: {e}"),
     }
@@ -80,8 +74,8 @@ fn copy_dir(from: &Path, to: &Path) {
 }
 
 /// The report of a check that must fail, with its failure asserted.
-fn failing(book: &Path) -> Option<String> {
-    let out = vz_check(book)?;
+fn failing(book: &Path) -> String {
+    let out = vz_check(book);
     let report = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
@@ -91,12 +85,12 @@ fn failing(book: &Path) -> Option<String> {
         !out.status.success(),
         "vz check passed a planted fault:\n{report}"
     );
-    Some(report)
+    report
 }
 
 #[test]
 fn book_frame_holds() {
-    let Some(out) = vz_check(&root()) else { return };
+    let out = vz_check(&root());
     assert!(
         out.status.success(),
         "vz check:\n{}{}",
@@ -114,12 +108,11 @@ fn book_frame_fails_a_step_down() {
     let planted = text.replacen("level: basic", "level: advanced", 1);
     assert_ne!(planted, text, "anatomy.md has `level: basic`");
     std::fs::write(&page, planted).unwrap();
-    if let Some(report) = failing(&book) {
-        assert!(
-            report.contains("anatomy.md"),
-            "the report names the page:\n{report}"
-        );
-    }
+    let report = failing(&book);
+    assert!(
+        report.contains("anatomy.md"),
+        "the report names the page:\n{report}"
+    );
     std::fs::remove_dir_all(&book).unwrap();
 }
 
@@ -131,11 +124,10 @@ fn book_frame_fails_a_bare_fence() {
     let mut text = std::fs::read_to_string(&page).unwrap();
     text.push_str("\n```rust\nfn main() {}\n```\n");
     std::fs::write(&page, text).unwrap();
-    if let Some(report) = failing(&book) {
-        assert!(
-            report.contains("tape.md"),
-            "the report names the page:\n{report}"
-        );
-    }
+    let report = failing(&book);
+    assert!(
+        report.contains("tape.md"),
+        "the report names the page:\n{report}"
+    );
     std::fs::remove_dir_all(&book).unwrap();
 }
