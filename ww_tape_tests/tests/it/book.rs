@@ -187,85 +187,214 @@ fn module_docs(dir: &Path, out: &mut String) {
     }
 }
 
-/// The `text` blocks of `docs/format.md`.
-fn format_layouts() -> Vec<String> {
-    fenced(&read("../docs/format.md"), "docs/format.md")
-        .into_iter()
-        .filter(|(lang, _)| lang == "text")
-        .map(|(_, body)| body)
+/// One row of a byte layout table of `docs/format.md`.
+struct Row {
+    offset: String,
+    size: String,
+    field: String,
+    meaning: String,
+}
+
+/// A byte layout of `docs/format.md`: a table of offsets, sizes, fields and their meaning.
+type Layout = Vec<Row>;
+
+/// The cells of a Markdown table row, trimmed of spaces and backticks.
+fn cells(row: &str) -> Vec<String> {
+    row.trim_matches('|')
+        .split('|')
+        .map(|c| c.trim().trim_matches('`').to_owned())
         .collect()
 }
 
-/// Every byte layout `docs/format.md` shows is a whole layout block of the module docs, word for word.
-#[test]
-fn format_page_layouts_are_the_module_docs() {
+/// The rows of every table of `docs/format.md` whose header row is `header`, as cells.
+fn format_tables(header: &str) -> Vec<Vec<Vec<String>>> {
+    let text = read("../docs/format.md");
+    let mut tables = Vec::new();
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        if line == header {
+            lines.next();
+            tables.push(
+                lines
+                    .by_ref()
+                    .take_while(|l| l.starts_with('|'))
+                    .map(cells)
+                    .collect(),
+            );
+        }
+    }
+    tables
+}
+
+/// The byte layouts of `docs/format.md`: its tables of offsets.
+fn format_layouts() -> Vec<Layout> {
+    format_tables("| Offset | Size | Field | Meaning |")
+        .into_iter()
+        .map(|rows| {
+            rows.into_iter()
+                .map(|r| Row {
+                    offset: r[0].clone(),
+                    size: r[1].clone(),
+                    field: r[2].clone(),
+                    meaning: r[3..].join("|"),
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// The fenced blocks of the module docs under `ww_tape/src`, words joined by one space, a space on either end.
+fn module_layouts() -> Vec<String> {
     let mut docs = String::new();
     module_docs(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("../ww_tape/src"),
         &mut docs,
     );
-    let doc_blocks: Vec<String> = fenced(&docs, "module docs")
+    fenced(&docs, "module docs")
         .into_iter()
-        .map(|(_, body)| body)
-        .collect();
+        .map(|(_, body)| {
+            format!(
+                " {} ",
+                body.split_whitespace().collect::<Vec<_>>().join(" ")
+            )
+        })
+        .collect()
+}
+
+/// Whether `size` names the bytes of one field: a number type or a byte count in brackets.
+fn plain_size(size: &str) -> bool {
+    matches!(size, "u8" | "u16" | "u32" | "u64" | "i64" | "u128")
+        || (size.starts_with('[') && size.ends_with(']'))
+}
+
+/// Whether `block`, a layout of the module docs, holds every row of `layout` with an offset at that offset and in
+/// order. A row of a plain size has that size there; a byte count `[N]` may read `N`, `N bytes` or `...` there.
+fn module_layout_holds(block: &str, layout: &Layout) -> bool {
+    let mut at = 0;
+    for row in layout {
+        if row.offset != "len-4" && row.offset.parse::<usize>().is_err() {
+            continue;
+        }
+        let sizes = if plain_size(&row.size) {
+            let n = row.size.trim_matches(['[', ']']);
+            if row.size.starts_with('[') {
+                vec![
+                    format!(" {} ", row.size),
+                    format!(" {n} "),
+                    format!(" {n} bytes "),
+                    " ... ".to_owned(),
+                ]
+            } else {
+                vec![format!(" {} ", row.size)]
+            }
+        } else {
+            vec![" ".to_owned()]
+        };
+        let found = sizes
+            .iter()
+            .filter_map(|s| block[at..].find(&format!(" {}{s}", row.offset)))
+            .min();
+        match found {
+            Some(p) => at += p + 1,
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Whether `block`, a layout of the module docs, names every field of a variable layout's `rows` in order; a row of
+/// no encoding marks a repeated part and is left out.
+fn module_fields_hold(block: &str, rows: &[Vec<String>]) -> bool {
+    let mut at = 0;
+    for row in rows.iter().filter(|r| !r[1].is_empty()) {
+        match block[at..].find(&row[0]) {
+            Some(p) => at += p + row[0].len(),
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Every byte layout `docs/format.md` shows is one of the module docs: each table of offsets has its offsets and
+/// sizes, in order, in one layout block there, and each table of a variable layout its fields.
+#[test]
+fn format_page_layouts_are_the_module_docs() {
+    let blocks = module_layouts();
     let layouts = format_layouts();
-    for block in &layouts {
+    for layout in &layouts {
         assert!(
-            doc_blocks.contains(block),
-            "docs/format.md shows a layout that is no whole block of the module docs:\n{block}"
+            blocks.iter().any(|b| module_layout_holds(b, layout)),
+            "docs/format.md shows a layout that no layout of the module docs holds, from {:?}",
+            layout[0].field
         );
     }
     assert!(
         layouts.len() >= 8,
         "the layouts of every block kind are on the page"
     );
+    for rows in format_tables("| Field | Encoding | Meaning |") {
+        assert!(
+            blocks.iter().any(|b| module_fields_hold(b, &rows)),
+            "docs/format.md shows fields that no layout of the module docs names, from {:?}",
+            rows[0][0]
+        );
+    }
 }
 
-/// The layout whose first field line starts with `first`, as (offset, size, field) per line; offsets that are not
-/// numbers (`len-4`, `...`) are left out.
-fn layout(first: &str) -> Vec<(usize, String, String)> {
-    let block = format_layouts()
+/// The layout of `docs/format.md` that has a field `name`; one layout only has it.
+fn layout(name: &str) -> Layout {
+    let mut found: Vec<Layout> = format_layouts()
         .into_iter()
-        .find(|b| {
-            b.lines()
-                .nth(1)
-                .is_some_and(|l| l.trim_start().starts_with(first))
-        })
-        .unwrap_or_else(|| panic!("docs/format.md has a layout starting {first:?}"));
-    block
-        .lines()
-        .filter_map(|l| {
-            let mut words = l.split_whitespace();
-            let offset = words.next()?.parse().ok()?;
-            let size = words.next()?.to_owned();
-            let field = words.collect::<Vec<_>>().join(" ");
-            Some((offset, size, field))
-        })
+        .filter(|l| l.iter().any(|r| r.field == name))
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "docs/format.md has one layout with a field {name:?}"
+    );
+    found.remove(0)
+}
+
+/// The row of `layout` at `offset` of `size` named `field`.
+fn row<'a>(layout: &'a Layout, offset: &str, size: &str, field: &str) -> &'a Row {
+    layout
+        .iter()
+        .find(|r| r.offset == offset && r.size == size && r.field == field)
+        .unwrap_or_else(|| panic!("docs/format.md has a row {offset} {size} {field}"))
+}
+
+/// The offsets of the fields of `layout` named `name`.
+fn offsets(layout: &Layout, name: &str) -> Vec<usize> {
+    layout
+        .iter()
+        .filter(|r| r.field == name)
+        .map(|r| r.offset.parse().unwrap())
         .collect()
 }
 
-/// The number at the field of `layout` starting with `name`, read from `bytes` at the page's offset and size.
-fn field(layout: &[(usize, String, String)], bytes: &[u8], name: &str) -> u64 {
-    let (offset, size, _) = layout
+/// The number at the field of `layout` named `name`, read from `bytes` at the page's offset and size.
+fn field(layout: &Layout, bytes: &[u8], name: &str) -> u64 {
+    let r = layout
         .iter()
-        .find(|(_, _, f)| f.starts_with(name))
+        .find(|r| r.field == name)
         .unwrap_or_else(|| panic!("the layout has a field {name:?}"));
-    let len = match size.as_str() {
+    let offset: usize = r.offset.parse().unwrap();
+    let len = match r.size.as_str() {
         "u8" => 1,
         "u16" => 2,
         "u32" => 4,
         "u64" | "i64" => 8,
-        other => other.parse().unwrap(),
+        other => other.trim_matches(['[', ']']).parse().unwrap(),
     };
     let mut le = [0u8; 8];
-    le[..len].copy_from_slice(&bytes[*offset..offset + len]);
+    le[..len].copy_from_slice(&bytes[offset..offset + len]);
     u64::from_le_bytes(le)
 }
 
 /// The header layout on the page, read from a records block `BlockWriter` wrote.
 #[test]
 fn format_page_header_offsets_read_a_block() {
-    let header = layout("0   4  magic");
+    let header = layout("magic");
     let session = SessionTag::from_u32(0x5e55_10a7);
     let mut buf = [0u8; 128];
     let mut b = BlockWriter::new(
@@ -310,7 +439,7 @@ fn format_page_header_offsets_read_a_block() {
 /// The chunk head layout on the page, read from a series chunk `chunk::write_chunk` wrote.
 #[test]
 fn format_page_chunk_head_offsets_read_a_chunk() {
-    let head_layout = layout("24 u32  session tag");
+    let head_layout = layout("payload offset");
     let period = Ratio64::new(62_500, 3).unwrap();
     let grid = SeriesGrid::start(96, 5_000, Magnitude::pow10(-3));
     let (first_tick, last_tick) = grid.chunk_ticks(period, ItemNum::new(100), 4).unwrap();
@@ -362,11 +491,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
     assert_eq!(f("grid index"), 96);
     assert_eq!(f("grid tick") as i64, 5_000);
     assert_eq!(f("scale length"), 2);
-    let scale_at = head_layout
-        .iter()
-        .find(|(_, _, f)| f.starts_with("scale:"))
-        .unwrap()
-        .0;
+    let scale_at = offsets(&head_layout, "scale")[0];
     assert_eq!(bytes[scale_at..scale_at + 2], [0xfa, 0x00], "10⁻³ is fa 00");
     assert_eq!(
         bytes[scale_at + 2],
@@ -378,11 +503,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
 
 /// The chunk of tile (7, 3) of a grid of two fixed axes, else `head`: the mode byte says 2, the coordinates follow the
 /// scale at `coords_at`.
-fn grid_chunk_places_its_coordinates(
-    head_layout: &[(usize, String, String)],
-    head: &ChunkHead,
-    coords_at: usize,
-) {
+fn grid_chunk_places_its_coordinates(head_layout: &Layout, head: &ChunkHead, coords_at: usize) {
     let tile = ww_tape::TileCoords::new(&[7, 3]).unwrap();
     let head = ChunkHead { tile, ..*head };
     let samples = [0u8; 8];
@@ -410,12 +531,7 @@ fn table(page: &str, header: &str) -> Vec<Vec<String>> {
     lines
         .skip(1)
         .take_while(|l| l.starts_with('|'))
-        .map(|l| {
-            l.trim_matches('|')
-                .split('|')
-                .map(|c| c.trim().trim_matches('`').to_owned())
-                .collect()
-        })
+        .map(cells)
         .collect()
 }
 
@@ -657,14 +773,10 @@ fn crate_docs_caps_are_the_constants() {
 #[test]
 fn format_page_piece_rows_read_a_chain() {
     use ww_tape::{ChainOptions, MemPieces, OwnerId, PieceChain, TrackHash};
-    let pieces = layout("32 [16] piece id");
-    let at = |name: &str| {
-        pieces
-            .iter()
-            .filter(|(_, _, f)| f.starts_with(name))
-            .map(|(o, _, _)| *o)
-            .collect::<Vec<_>>()
-    };
+    let head = layout("previous session tag");
+    let head_rows = layout("track hash before");
+    let close = layout("removed-piece row length");
+    let close_rows = layout("track hash after");
     let tapes = MemPieces::new();
     let mut chain = PieceChain::create_on(
         tapes.clone(),
@@ -687,15 +799,16 @@ fn format_page_piece_rows_read_a_chain() {
 
     let second = tapes.get(&done[1].tape).unwrap().unwrap().to_vec().unwrap();
     // the piece head is the first block, one row: the track of records with its hash after piece 0
-    assert_eq!(at("track row length"), [144, 34]);
+    assert_eq!(offsets(&head, "track row length"), [144]);
+    assert_eq!(offsets(&close, "track row length"), [34]);
     assert_eq!(u16::from_le_bytes([second[144], second[145]]), 96);
     let head_row = 32 + 120;
-    let owner_at = at("owner (TrackDef::owner; zeros")[0];
-    let hash_before = at("track hash before")[0];
+    let owner_at = offsets(&head_rows, "owner")[0];
+    let hash_before = offsets(&head_rows, "track hash before")[0];
     assert_eq!(second[head_row + owner_at..][..32], [0; 32]);
     assert_eq!(second[head_row + hash_before..][..32], fold(3).0);
     // its flags: none for a chain written whole
-    assert_eq!(at("flags, as a close row's"), [12]);
+    assert_eq!(offsets(&head_rows, "flags"), [12]);
     assert_eq!(second[head_row + 12..][..4], [0; 4]);
 
     let close_at = (done[1].piece.len as usize) - ww_tape::TAIL_LEN;
@@ -703,8 +816,8 @@ fn format_page_piece_rows_read_a_chain() {
     let f = &second[tail.close_offset as usize..];
     assert_eq!(u16::from_le_bytes([f[34], f[35]]), 136);
     let close_row = 192;
-    let records = at("records: the track's")[0];
-    let hash_after = at("track hash after")[0];
+    let records = offsets(&close_rows, "records")[0];
+    let hash_after = offsets(&close_rows, "track hash after")[0];
     assert_eq!(
         u64::from_le_bytes(f[close_row + records..][..8].try_into().unwrap()),
         1
@@ -712,25 +825,27 @@ fn format_page_piece_rows_read_a_chain() {
     assert_eq!(f[close_row + hash_after..][..32], fold(4).0);
     assert_eq!(done[1].piece.tracks[0].hash, fold(4));
     // a piece written whole: no row flag
-    let flags = at("flags: bit 0 incomplete")[0];
+    let flags = offsets(&close_rows, "flags")[0];
     assert_eq!(f[close_row + flags..][..4], [0; 4]);
 }
 
 /// The integrity reservations on the page against their constants: written as full integrity, refused otherwise.
 #[test]
 fn format_page_integrity_fields_are_the_constants() {
-    let page = std::fs::read_to_string("../docs/format.md").unwrap();
     assert_eq!(ww_tape::FLAG_REPEAT, 1 << 1);
     assert_eq!(ww_tape::FLAG_PAYLOAD_UNCHECKED, 1 << 3);
-    assert!(
-        page.contains(
-            "flags. Bits 1 and 3 are part of the block contract, as len and the CRC are."
-        )
-    );
-    assert!(page.contains("Bit 1 (FLAG_REPEAT): the"));
-    assert!(page.contains("Bit 3 (FLAG_PAYLOAD_UNCHECKED): the CRC"));
+    let flags = table("../docs/format.md", "| Bit | Flag | Marks |");
+    for (bit, name) in [("1", "FLAG_REPEAT"), ("3", "FLAG_PAYLOAD_UNCHECKED")] {
+        let r = flags.iter().find(|r| r[0] == bit).unwrap();
+        assert_eq!(r[1], name);
+        assert!(
+            r[2].starts_with("no flag: part of the block contract"),
+            "{r:?}"
+        );
+    }
     assert_eq!(ww_tape::index::ENTRY_UNHASHED, 1 << 2);
-    assert!(page.contains("bit 2 unhashed (no unit hash)"));
+    let entry_flags = table("../docs/format.md", "| Entry bit | Marks |");
+    assert_eq!(entry_flags[2], ["2", "unhashed: no unit hash"]);
     use ww_tape::Integrity;
     let levels = [
         (Integrity::Full, 0, "Full"),
@@ -743,7 +858,15 @@ fn format_page_integrity_fields_are_the_constants() {
         assert_eq!(Integrity::try_from(byte), Ok(level));
         assert_eq!(format!("{level:?}"), name);
     }
-    assert!(page.contains("146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None"));
+    let head = layout("integrity");
+    let integrity = row(&head, "146", "u8", "integrity");
+    assert!(
+        integrity
+            .meaning
+            .contains("Integrity`: 0 Full, 1 CrcOnly, 2 None;"),
+        "{}",
+        integrity.meaning
+    );
 }
 
 /// The index entry's range pair, flag bit 1 and unit hash, the head and close rows' owner and the piece head's
@@ -751,21 +874,42 @@ fn format_page_integrity_fields_are_the_constants() {
 #[test]
 fn format_page_relations_and_owner_read_a_chain() {
     use ww_tape::{ChainOptions, Describe, MemPieces, OwnerId, PieceChain, TrackDef};
-    let page = std::fs::read_to_string("../docs/format.md").unwrap();
-    for line in [
-        "15 u8 flags: bit 0 repeat, bit 1 range",
-        "bit 3 relation break (events chunk) or grid start (series chunk of level 0), bit 4 tile",
-        "72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0",
-        "80 u64 its largest value, else 0",
-        "72 u128 a grid chunk's or a tile summary's tile number (flag bit 4) in place of the range, else 0",
-        "88 [32] a chunk's unit hash, else 0",
-        "32 u32  entries offset from the block start",
-        "58 u16  entry length, 128",
-        "120 [8] reserved: written zero, not read",
-        "146 u8   integrity (Integrity)",
+    let entry_flags = table("../docs/format.md", "| Entry bit | Marks |");
+    let marks: Vec<&str> = entry_flags.iter().map(|r| r[1].as_str()).collect();
+    assert!(marks[0].starts_with("repeat"), "{marks:?}");
+    assert!(marks[1].starts_with("range"), "{marks:?}");
+    assert_eq!(
+        marks[3],
+        "relation break (events chunk) or grid start (series chunk of level 0)"
+    );
+    assert!(marks[4].starts_with("tile"), "{marks:?}");
+    let entries = layout("unit hash");
+    for (offset, size, name, meaning) in [
+        (
+            "72",
+            "u64",
+            "smallest value",
+            "of the track's range relation in an events chunk (flag bit 1), else 0",
+        ),
+        ("80", "u64", "largest value", "of that relation, else 0"),
+        (
+            "72",
+            "u128",
+            "tile number",
+            "a grid chunk's or a tile summary's (flag bit 4), in place of the range, else 0",
+        ),
+        ("88", "[32]", "unit hash", "a chunk's, else 0"),
+        ("120", "[8]", "reserved", "written zero, not read"),
     ] {
-        assert!(page.contains(line), "docs/format.md: {line:?}");
+        assert_eq!(row(&entries, offset, size, name).meaning, meaning);
     }
+    let index = layout("entries offset");
+    assert_eq!(
+        row(&index, "32", "u32", "entries offset").meaning,
+        "from the block start"
+    );
+    assert_eq!(row(&index, "58", "u16", "entry length").meaning, "128");
+    row(&layout("integrity"), "146", "u8", "integrity");
     let owner = [9u8; 32];
     let Describe::Track(t) = crate::relations::decoded() else {
         unreachable!("decoded() gives a track")

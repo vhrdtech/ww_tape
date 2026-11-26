@@ -106,32 +106,22 @@ A block is a 32-byte header, a body and a CRC-32C. A block is as long as its con
 The one exception is the close record of a closed piece ([below](#index-close-and-tail)). The header ([`ww_tape`
 crate docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/lib.rs)):
 
-```text
-off size field
-  0   4  magic "WWTP"
-  4  u8  version, 1
-  5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
-  6 u16  flags. Bits 1 and 3 are part of the block contract, as len and the CRC are. Bit 1 (FLAG_REPEAT): the
-         block holds state records a writer put or copied, not data, and carries the seq of the block before it.
-         Bit 3 (FLAG_PAYLOAD_UNCHECKED): the CRC at the end covers what the block's kind says, a chunk's header and
-         head without its payload; a reader that doesn't know the kind or version skips such a block by its length,
-         unchecked, and never goes on at one right after damage. Every other bit is a flag, and a flag only marks:
-         bit 2 puts or a chunk that belong with the next block (FLAG_WITH_NEXT), bit 4 on an events chunk a break in
-         its track's monotone relations (FLAG_RELATION_BREAK), on a series chunk of level 0 the start of a grid or
-         scale (FLAG_GRID_START, the same bit), bit 7 on a block of puts definitions written twice at once
-         (FLAG_TWICE), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9 on a group's first block
-         (FLAG_GROUP_START); bits 0, 5 and 6 retired (coded records, tile summaries and keyed puts are kinds 15, 17
-         and 16); others 0, and a reader ignores them
-  8 u32  len: the whole block, header and CRC included
- 12 u32  records in the block
- 16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
-         piece head blocks, and blocks marked FLAG_REPEAT, carry the seq of the block before them and are
-         not counted (index::is_structural)
- 24 u32  session tag (SessionTag): the same in every block of one writer's unbroken append, never 0 nor FFFFFFFFh
- 28 u32  head CRC in chunk and index blocks (their own docs), else 0
- 32 ...  body
-len-4 u32 crc over bytes 0..len-4, or with bit 3 over what the block's kind says
-```
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 0 | [4] | magic | `"WWTP"` |
+| 4 | u8 | version | 1 |
+| 5 | u8 | kind | what the body holds, see [Block kinds](#block-kinds) |
+| 6 | u16 | flags | see [Header flags](#header-flags) |
+| 8 | u32 | len | the whole block, header and CRC included |
+| 12 | u32 | records | the records in the block |
+| 16 | u64 | seq | the block number in its session, from 0, +1 per block |
+| 24 | u32 | session tag | `SessionTag`, never 0 nor FFFFFFFFh ([Sessions](#sessions)) |
+| 28 | u32 | head CRC | in chunk and index blocks, else 0 |
+| 32 | ... | body | what the kind says |
+| len-4 | u32 | crc | over bytes 0..len-4, or with flag bit 3 over what the kind says |
+
+A gap in seq is lost blocks. Index, close, tail and piece head blocks, and blocks marked `FLAG_REPEAT`, carry the seq
+of the block before them and are not counted (`index::is_structural`).
 
 The **block contract** is what every reader of every version knows of a block:
 
@@ -201,6 +191,8 @@ A body that reads another way is a block kind of its own ([Block kinds](#block-k
 doesn't know the kind skips the block as good and never misreads it. A reader ignores the bits it doesn't know. A
 retired bit is written 0 and never given another meaning in version 1.
 
+The bits from 10 up have no meaning yet, and a writer writes them 0.
+
 | Bit | Flag | Marks |
 |---:|---|---|
 | 0 | | retired (coded records are kind 15) |
@@ -221,14 +213,15 @@ the clocks its records count, then holds the records back to back.
 
 The body uses `uvar` and `ivar` ([Conventions](#conventions)):
 
-```text
-uvar n, n × uvar clock number (ascending, 1 and up): the clocks of the block's records; slot i is the i-th
-per record:
-  uvar head: track << bits | slot, bits the fewest that hold n - 1 (0 for one clock)
-  ivar time delta in ticks, against the previous record of the same slot in the block (the first against 0);
-       absent for track 0
-  uvar item length, the item's bytes
-```
+| Field | Encoding | Meaning |
+|---|---|---|
+| n | uvar | the number of clocks the block's records count |
+| clock number | n × uvar | ascending, 1 and up; slot i is the i-th |
+| *per record:* | | |
+| head | uvar | the track shifted left by `bits`, the slot in the low `bits` bits; `bits` the fewest that hold n - 1 (0 for one clock) |
+| time delta | ivar | in ticks, against the previous record of the same slot in the block (the first against 0); absent for track 0 |
+| item length | uvar | the item's bytes |
+| item | bytes | the item, of the item length |
 
 Record times are signed i64 ticks of the track's clock. Each time is a delta against the previous record on the same
 clock in the block.
@@ -251,11 +244,11 @@ of the same header flags. A reader that doesn't know kind 15 skips the block by 
 Coding is off unless a writer calls `ww_tape::code_body`, and a writer keeps the plain body when coding doesn't shrink
 it:
 
-```text
-u8    codec (BodyCodec): 0 stored, 1 lz4 block
-uvar  decoded length: the body as it would be stored, at most MAX_BLOCK_LEN - 36
-...   coded bytes: stored, the body itself; lz4, one lz4 block (no frame, no checksum)
-```
+| Field | Encoding | Meaning |
+|---|---|---|
+| codec | u8 | `BodyCodec`: 0 stored, 1 lz4 block |
+| decoded length | uvar | the body as it would be stored, at most `MAX_BLOCK_LEN` - 36 |
+| coded bytes | bytes | stored: the body itself; lz4: one lz4 block, no frame and no checksum |
 
 The block CRC covers the coded bytes: a reader finds damage before it decodes. A reader decodes with `Block::decode` and
 takes a body of a codec it doesn't know as a body it doesn't know.
@@ -296,41 +289,48 @@ A flipped bit in a 4 MiB series chunk therefore loses one 64 KiB segment.
 For a block with a bad head, the reader moves on one byte and looks for the next magic. The head ([chunk module
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/chunk/mod.rs)):
 
-```text
-off size field
- 24 u32  session tag, as in every block
- 28 u32  head CRC: CRC-32C over bytes 0..28, then 32..payload offset
- 32 u32  payload offset from the block start (in an aligned file a multiple of the alignment in the file)
- 36 u32  track number (TrackDef::number)
- 40 u64  track id, the identity hash of the track (TrackDef::id): the chunk places itself without the definitions
- 48 u64  first item number of the track (sample index in a series)
- 56 i64  first tick: the first item's start (the first sample's tick)
- 64 i64  last tick: the last item's start (the last sample's tick); at least the first
- 72 i64  latest end: the largest end of any item, at least the last tick; the last tick when every item is an
-         instant (EndMode::Absent) and in a series chunk. An overlap query and a rebuilt index need no decode of the
-         ends column.
- 80  u8  segment shift: the payload is checked in segments of 2^shift bytes (16: 64 KiB)
- 81  u8  columns n, 1 and up
- 82  u8  mode: an events chunk's time mode, the time codec's; a series chunk's fixed axes a, 0 to
-         GRID_FIXED_AXES_MAX (0: a series of no fixed axes, GridDef)
- 83  u8  end byte: an events chunk's end mode (EndMode); a series chunk's overview level k, 0 for the cells
-         as written, 1 to GRID_OVERVIEW_LEVELS_MAX for space overview k of a grid of fixed axes
- 84 ...  series chunks only, the grid of the samples (SeriesGrid):
-         84 u64  grid index: the sample the grid counts from, at most the first item
-         92 i64  grid tick: the tick of that sample; sample i is at grid tick + (i - grid index) · period,
-                 rounded down, the period the track's GridDef gives
-        100  u8  scale length s, 1 to SCALE_LEN_MAX
-        101 ...  scale: what a stored number is worth in the sample type's unit, as the shrink_wrap bytes of an
-                 exact_units Magnitude (10⁻³ is fa 00)
-            ...  a × u32 tile coordinate: the chunk's tile along each fixed axis, its first cell over the axis'
-                 tile extent (TileCoords; none for a series)
-    ...  n × column: kind u8, codec u8, param u16, offset u32 (from the payload start; the first 0, ascending)
-    ...  segment CRCs: one u32 per segment of the payload, CRC-32C of its bytes
-    ...  zeros up to the payload offset
- payload: the columns back to back, then 16 zero bytes, so an unaligned 16-byte load at any column byte stays in
-          the block
-len-4 u32 CRC over bytes 0..len-4, as in every block
-```
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 24 | u32 | session tag | as in every block |
+| 28 | u32 | head CRC | CRC-32C over bytes 0..28, then 32..payload offset |
+| 32 | u32 | payload offset | from the block start; in an aligned file a multiple of the alignment in the file |
+| 36 | u32 | track number | `TrackDef::number` |
+| 40 | u64 | track id | the identity hash of the track (`TrackDef::id`) |
+| 48 | u64 | first item number | of the track; the first sample's index in a series |
+| 56 | i64 | first tick | the first item's start (the first sample's tick) |
+| 64 | i64 | last tick | the last item's start (the last sample's tick); at least the first |
+| 72 | i64 | latest end | the largest end of any item, at least the last tick |
+| 80 | u8 | segment shift | the payload is checked in segments of 2^shift bytes (16: 64 KiB) |
+| 81 | u8 | columns n | 1 and up |
+| 82 | u8 | mode | events: the time mode, the time codec's; series: fixed axes a, 0 to `GRID_FIXED_AXES_MAX` |
+| 83 | u8 | end byte | events: the end mode (`EndMode`); series: the overview level k |
+| 84 | u64 | grid index | series only: the sample the grid counts from, at most the first item |
+| 92 | i64 | grid tick | series only: the tick of that sample |
+| 100 | u8 | scale length | series only: s, 1 to `SCALE_LEN_MAX` |
+| 101 | [s] | scale | series only: what a stored number is worth |
+| ... | a × u32 | tile coordinate | series only: the chunk's tile along each fixed axis |
+| ... | n × 8 | column | kind u8, codec u8, param u16, offset u32 |
+| ... | segments × 4 | segment CRCs | CRC-32C of each segment of the payload |
+| ... | ... | zeros | up to the payload offset |
+| payload | ... | columns | the columns back to back, then 16 zero bytes |
+| len-4 | u32 | CRC | over bytes 0..len-4, as in every block |
+
+Bytes 84 to the column entries are the grid of a series chunk's samples (`SeriesGrid`). An events chunk has none, and
+its column entries start at 84. Some fields need more than a line:
+
+- **Track id**: with it, the chunk places itself without the definitions.
+- **Latest end**: it is the last tick when every item is an instant (`EndMode::Absent`), and in a series chunk. An
+  overlap query and a rebuilt index need no decode of the ends column.
+- **Mode**: a series of no fixed axes has mode 0 (`GridDef`).
+- **End byte**: in a series chunk, 0 marks the cells as written. 1 to `GRID_OVERVIEW_LEVELS_MAX` mark space overview k
+  of a grid of fixed axes ([Space overviews](#space-overviews)).
+- **Grid tick**: sample i is at grid tick + (i - grid index) · period, rounded down. The track's `GridDef` gives the
+  period.
+- **Scale**: the bytes are the shrink_wrap bytes of an exact_units `Magnitude`, worth the sample type's unit (10⁻³ is
+  `fa 00`).
+- **Tile coordinate**: each is the chunk's first cell along the axis over the axis' tile extent (`TileCoords`). A
+  series of no fixed axes has none.
+- **Column**: the offset counts from the payload start. The first column's offset is 0, and the offsets ascend.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/chunk_head.svg"
@@ -517,36 +517,44 @@ An index therefore lists the block without reading its body. The header's count 
 describe a series' element when byte 47 is 13, and are 0 otherwise
 ([summary module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/summary/mod.rs)):
 
-```text
-off size field
- 28  u8  bits of one part of a described element (ElementDesc::bits), 0 for a coded element and for events
- 29  u8  its exponent bits, 0 for an integer
- 30  u8  bit 0 signed, bit 1 msb_first (always 0: a summary's element has no byte order)
- 31  u8  its parts, 1 or 2
- 32 u64  track id (TrackDef::id)
- 40 u32  track number (TrackDef::number)
- 44  u8  tree: 1 events, 2 series (Tree)
- 45  u8  level, 0 and up
- 46  u8  node shift: a node holds 2^shift items (events: 11 + 4 · level; series: base_shift + 4 · level)
- 47  u8  element of a series' summaries: an Element code, or 13 for the element bytes 28..32 describe
-         (ElementDesc::summary_element); 0 for events
- 48 u16  fields: the statistics stored (EventFields, SeriesStats bits)
- 50 u16  channels of a series, 1 and up; 0 for events
- 52 u16  scale length: bytes of the scale after the head, 1 to SCALE_LEN_MAX for a series, 0 for events
- 54 u16  first channel or leaf of this block: reserved, 0 (the block's channels start at channel 0); a reader
-         refuses another value
- 56 u64  first item: the first item the block covers (the first node's first item, or later in a partial node)
- 64 u64  items the block covers, 1 and up; the nodes are those holding items [first, first + items)
- 72 i64  first tick: the first covered item's start
- 80 i64  last tick: the last covered item's start, at least the first tick
- 88 i64  latest end: the largest end of a covered item, at least the last tick
- 96 ...  scale of a series: what a stored minimum, maximum or sum is worth in the sample type's unit, as the
-         shrink_wrap bytes of an exact_units Magnitude (10⁻³ is fa 00); squares and powers are at its square
-96+s ... a tile's block only (kind 17, TileSummary): u8 fixed axes a, 1 to GRID_FIXED_AXES_MAX, then a × u32 tile
-         coordinates, as a grid chunk's head carries them (TileCoords)
- ...  ... body: columns of n values each, n the node count, little-endian, back to back
-len-4 u32 CRC over bytes 0..len-4, as in every block
-```
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 28 | u8 | bits | of one part of a described element (`ElementDesc::bits`); 0 for a coded element and for events |
+| 29 | u8 | exponent bits | of that element; 0 for an integer |
+| 30 | u8 | sign and order | bit 0 signed; bit 1 msb_first, always 0 |
+| 31 | u8 | parts | of that element, 1 or 2 |
+| 32 | u64 | track id | `TrackDef::id` |
+| 40 | u32 | track number | `TrackDef::number` |
+| 44 | u8 | tree | 1 events, 2 series (`Tree`) |
+| 45 | u8 | level | 0 and up |
+| 46 | u8 | node shift | a node holds 2^shift items |
+| 47 | u8 | element | of a series' summaries: an `Element` code, or 13 for the element bytes 28..32 describe; 0 for events |
+| 48 | u16 | fields | the statistics stored (`EventFields`, `SeriesStats` bits) |
+| 50 | u16 | channels | of a series, 1 and up; 0 for events |
+| 52 | u16 | scale length | bytes of the scale after the head: 1 to `SCALE_LEN_MAX` for a series, 0 for events |
+| 54 | u16 | first channel or leaf | of this block: reserved, 0; a reader refuses another value |
+| 56 | u64 | first item | the first item the block covers |
+| 64 | u64 | items | the items the block covers, 1 and up |
+| 72 | i64 | first tick | the first covered item's start |
+| 80 | i64 | last tick | the last covered item's start, at least the first tick |
+| 88 | i64 | latest end | the largest end of a covered item, at least the last tick |
+| 96 | [s] | scale | of a series: what a stored minimum, maximum or sum is worth |
+| 96+s | u8 | fixed axes | a tile's block only (kind 17, `TileSummary`): a, 1 to `GRID_FIXED_AXES_MAX` |
+| ... | a × u32 | tile coordinates | a tile's block only, as a grid chunk's head carries them (`TileCoords`) |
+| ... | ... | body | columns of n values each, n the node count, little-endian, back to back |
+| len-4 | u32 | CRC | over bytes 0..len-4, as in every block |
+
+Some fields need more than a line:
+
+- **Sign and order**: a summary's element has no byte order, so bit 1 is always 0.
+- **Node shift**: an event tree's node at a level holds 2^(11 + 4 · level) items, a series node 2^(base_shift + 4 ·
+  level).
+- **Element**: `ElementDesc::summary_element` gives the code.
+- **First channel or leaf**: the block's channels start at channel 0.
+- **First item**: it is the first node's first item, or a later one in a partial node. The nodes are those holding
+  items [first, first + items).
+- **Scale**: the bytes are the shrink_wrap bytes of an exact_units `Magnitude`, worth the sample type's unit (10⁻³ is
+  `fa 00`). Squares and powers are at the square of the scale.
 
 The body holds one column per field:
 
@@ -616,19 +624,19 @@ offset: data that needs seeking is a track, and its index does the seeking.
 
 A part's chunk is an events chunk of instants with one item:
 
-```text
-header count   1
-first item     the part's number on the track: parts are numbered on from 0 across the track's pieces, as the
-               items of an events track are
-first tick, last tick, latest end
-               the value's tick, the same in every part of a value
-columns, in this order:
-  Payloads        the part's bytes, Codec::RAW or an lz4 payload codec; first, so in an aligned file the bytes
-                  start on the alignment
-  PayloadLengths  one length, the part's bytes decoded
-  Starts          one tick
-  Flags           one flags word, absent when it is 0 (as in every events chunk)
-```
+| Field | Encoding | Meaning |
+|---|---|---|
+| header count | u32 | 1 |
+| first item | u64 | the part's number on the track |
+| first tick, last tick, latest end | i64 each | the value's tick, the same in every part of a value |
+| *columns, in this order:* | | |
+| Payloads | column | the part's bytes, `Codec::RAW` or an lz4 payload codec |
+| PayloadLengths | column | one length, the part's bytes decoded |
+| Starts | column | one tick |
+| Flags | column | one flags word, absent when it is 0 (as in every events chunk) |
+
+Parts are numbered on from 0 across the track's pieces, as the items of an events track are. The Payloads column
+comes first, so in an aligned file the part's bytes start on the alignment.
 
 The flags word marks where a part stands in its value: bit 0 (`PART_FIRST`) on the first part of a value, bit 1
 (`PART_SEAL`) on its seal. A writer writes the other bits 0 and a reader ignores them, so they may only ever mark. A
@@ -636,11 +644,11 @@ future bit that changes how a part reads needs another track kind or the version
 
 A seal's Payloads column is `Codec::RAW` and `SEAL_LEN` (48) bytes:
 
-```text
- 0 u64  the value's first part: its item number, the value's id (ValueId)
- 8 u64  the value's length in bytes
-16 [32] BLAKE3 of the value's bytes
-```
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 0 | u64 | first part | the value's first part: its item number, the value's id (`ValueId`) |
+| 8 | u64 | length | the value's length in bytes |
+| 16 | [32] | hash | BLAKE3 of the value's bytes |
 
 A value of no bytes is its seal alone, marked `PART_FIRST` too. A value is whole when its parts are items numbered one
 after the other. They run from a part marked `PART_FIRST` to a seal naming that part, and no other part between them is
@@ -1097,11 +1105,11 @@ A reader that doesn't know kind 16 skips such a block by its length. It never ta
 item. Each item is the key, then the value
 ([`state` module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs)):
 
-```text
-uvar head: key length << 1 | 1 for a deletion; the length at most STATE_KEY_LEN_MAX (1024)
-key bytes
-value bytes, the rest of the item: none in a deletion
-```
+| Field | Encoding | Meaning |
+|---|---|---|
+| head | uvar | the key length shifted left by 1, bit 0 set for a deletion; the length at most `STATE_KEY_LEN_MAX` (1024) |
+| key | bytes | the key, of the key length |
+| value | bytes | the rest of the item; none in a deletion |
 
 A block of keyed puts not marked `FLAG_REPEAT` is refused. So is one that holds a record of track 0 or an item that
 doesn't read this way.
@@ -1275,34 +1283,61 @@ yet written, and a reader rescans only the stretch after the newest checkpoint.
 The index block follows ([index module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/index/mod.rs)).
 The header's count is the entry count:
 
-```text
-off size field
- 24 u32  session tag, as in every block
- 28 u32  head CRC: CRC-32C over bytes 0..28, then 32..entries offset
- 32 u32  entries offset from the block start
- 36 u32  tracks n in the directory, 0 in a checkpoint
- 40 u64  self offset: where this block starts in the piece
- 48 u64  previous index block of the piece (a checkpoint's previous checkpoint, a final block's previous final
-         block), u64::MAX for none
- 56 u16  flags: bit 0 final (entries sorted by track id, then offset, state records of one block in block order; a directory
-         of tracks follows)
- 58 u16  entry length, 128 (a reader reads an entry's first 120 bytes: it takes longer entries, and refuses
-         shorter ones than 120)
- 60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
- ...     entries, each:
-           0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-          13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break (events chunk) or grid start (series chunk of level 0), bit 4 tile, bit 5 keyed, bit 6 deleted
-          16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
-          32 u64 first item number                  40 u64 items (samples, records)
-          48 i64 first tick                         56 i64 last tick         64 i64 latest end
-          72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0
-          80 u64 its largest value, else 0
-          72 u128 a grid chunk's or a tile summary's tile number (flag bit 4) in place of the range, else 0
-          72 [16] a keyed state record's key id (flag bit 5) in place of the range, below
-          88 [32] a chunk's unit hash, else 0
-         120 [8] reserved: written zero, not read
-len-4 u32 CRC over bytes 0..len-4, as in every block
-```
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 24 | u32 | session tag | as in every block |
+| 28 | u32 | head CRC | CRC-32C over bytes 0..28, then 32..entries offset |
+| 32 | u32 | entries offset | from the block start |
+| 36 | u32 | tracks n | in the directory, 0 in a checkpoint |
+| 40 | u64 | self offset | where this block starts in the piece |
+| 48 | u64 | previous | the previous index block of the piece, `u64::MAX` for none |
+| 56 | u16 | flags | bit 0 final |
+| 58 | u16 | entry length | 128 |
+| 60 | n × 24 | track directory | per track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32 |
+| ... | count × 128 | entries | one per block or state record, below |
+| len-4 | u32 | CRC | over bytes 0..len-4, as in every block |
+
+The previous index block of a checkpoint is the checkpoint before it, and that of a final block the final block before
+it. A final block has its flag bit 0 set, and a directory of tracks follows its head. Its entries are sorted by track id,
+then offset, with the state records of one block in block order. A reader reads an entry's first 120 bytes. It takes longer
+entries, and it refuses entries shorter than 120 bytes.
+
+Each entry holds:
+
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 0 | u64 | offset | of the block in the piece |
+| 8 | u32 | length | the block's length |
+| 12 | u8 | block kind | the block's kind |
+| 13 | u8 | level | summary or overview level, else 0 |
+| 14 | u8 | summary tree | `Tree`, else 0 |
+| 15 | u8 | flags | the entry flags, below |
+| 16 | u64 | track id | 0: none |
+| 24 | u32 | track number | `TrackDef::number` |
+| 28 | u32 | slot data | 0; a state entry's below |
+| 32 | u64 | first item number | |
+| 40 | u64 | items | samples, records |
+| 48 | i64 | first tick | |
+| 56 | i64 | last tick | |
+| 64 | i64 | latest end | |
+| 72 | u64 | smallest value | of the track's range relation in an events chunk (flag bit 1), else 0 |
+| 80 | u64 | largest value | of that relation, else 0 |
+| 72 | u128 | tile number | a grid chunk's or a tile summary's (flag bit 4), in place of the range, else 0 |
+| 72 | [16] | key id | a keyed state record's (flag bit 5), in place of the range, [below](#state-entries) |
+| 88 | [32] | unit hash | a chunk's, else 0 |
+| 120 | [8] | reserved | written zero, not read |
+
+The entry flags at byte 15 are:
+
+| Entry bit | Marks |
+|---:|---|
+| 0 | repeat: the block is marked `FLAG_REPEAT` |
+| 1 | range: bytes 72..88 hold the range of the track's range relation |
+| 2 | unhashed: no unit hash |
+| 3 | relation break (events chunk) or grid start (series chunk of level 0) |
+| 4 | tile: bytes 72..88 hold the tile number |
+| 5 | keyed: a keyed state record |
+| 6 | deleted: that record is a deletion |
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/index_entry.svg"
@@ -1329,17 +1364,18 @@ A reader therefore finds the item in force at a place, or an item by its hash, w
 
 Beside the block's offset, length and kind, a state entry holds:
 
-```text
- 13 u8  the record's slot: 0 a state track's record, else what it defines (DefinitionKind)
- 15 u8  bit 0: the block is marked FLAG_REPEAT; bit 5: a keyed state record (its block of keyed puts, kind 16);
-        bit 6: that record is a deletion
- 24 u32 the state track, or the number the definition defines (a track's, a clock's, a map's from clock)
- 28 u32 a map's to clock, a keyed record's key length (at most STATE_KEY_LEN_MAX), else 0
- 32 u64 0, reserved for the record's item number       40 u64 0, reserved
- 48 16 bytes the item's hash (ItemHash)                 64 i64 the record's time in ticks, 0 on track 0
- 72 [8] a keyed record's key head: its first 8 bytes, zero past its end (KeyId), else 0
- 80 u64 a keyed record's key hash: BLAKE3 of the key, its first 8 bytes, else 0
-```
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 13 | u8 | slot | the record's slot: 0 a state track's record, else what it defines (`DefinitionKind`) |
+| 15 | u8 | flags | bit 0: the block is marked `FLAG_REPEAT`; bit 5: a keyed state record; bit 6: that record is a deletion |
+| 24 | u32 | number | the state track, or the number the definition defines (a track's, a clock's, a map's from clock) |
+| 28 | u32 | to clock or key length | a map's to clock, a keyed record's key length (at most `STATE_KEY_LEN_MAX`), else 0 |
+| 32 | u64 | item number | 0, reserved for the record's item number |
+| 40 | u64 | reserved | 0 |
+| 48 | [16] | item hash | `ItemHash` |
+| 64 | i64 | time | the record's time in ticks, 0 on track 0 |
+| 72 | [8] | key head | a keyed record's first 8 key bytes, zero past its end (`KeyId`), else 0 |
+| 80 | u64 | key hash | a keyed record's: BLAKE3 of the key, its first 8 bytes, else 0 |
 
 The slot codes (`DefinitionKind`) are:
 
@@ -1405,11 +1441,11 @@ names the close record and the tail it goes on from, and the content hash that c
 New blocks and checkpoints follow, then a final index, a new close and a new tail. Nothing before the append head
 changes:
 
-```text
-piece head, blocks, checkpoints, final index, close 1, tail 1      closed once, a multiple of 4 KiB
-append head naming close 1 and tail 1
-blocks, checkpoints, final index, close 2 (previous: close 1), tail 2      closed twice
-```
+| Stretch | Blocks | The piece after it |
+|---|---|---|
+| first session | piece head, blocks, checkpoints, final index, close 1, tail 1 | closed once, a multiple of 4 KiB |
+| append head | one block naming close 1 and tail 1 | |
+| second session | blocks, checkpoints, final index, close 2 (previous: close 1), tail 2 | closed twice |
 
 The new close's content hash chains over the old one:
 
@@ -1485,65 +1521,127 @@ the summary with the final index and the close.
 The piece head, the close and the tail follow ([piece module
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/piece/mod.rs)). Each header's count is the track count:
 
-```text
-piece head (kind 10)
- 32 [16] piece id                 48 [32] owner id                80 u64 sequence number in the chain
- 88 u32  flags: bit 0 has a previous piece; bit 1 keyed tracks without a row may have keys before the piece
- 92 u32  previous session tag (0: none or unknown)
- 96 [32] previous piece's content hash                           128 [16] previous piece's id
-144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
-146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (a reader refuses another value)    147 [5] reserved
-152 ...  tracks × 96, one per track carried over from the pieces before:
-           0 u64 id    8 u32 number
-          12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before); bit 1, a head row's only:
-                 not carried, the piece holds no definition of the track, its cut had no room for it; bit 2, a
-                 head row's only: keys carried, the piece carries every live key of this keyed state track
-          16 u64 next item (the first item number this piece holds)
-          24 i64 from tick (no item of the track here starts before it)
-          32 [32] owner (TrackDef::owner; zeros: the piece's owner)
-          64 [32] track hash before this piece ([TrackHash])
+The **piece head** (kind 10) is the first block of a piece:
 
-close (kind 8)
- 32 u8   reason (1 closed, 2 aborted; a piece that goes on in the next one, next id below, is closed)
- 33 u8   reserved
- 34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)
- 36 u16  removed-piece row length, 56 (a reader takes longer rows and reads their first 56 bytes; 0 with no rows)
- 38 [2]  reserved
- 40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below); of
-         a later close, BLAKE3 of the previous close's hash, then of the bytes from it to this block, the same way
- 72 u64  newest checkpoint index offset    80 u64 last final index offset
- 88 u64  previous close record's offset (u64::MAX: the piece's first close)
-         (offsets u64::MAX for none)
- 96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
-168 u32  flags: bit 0 the piece has a head; bit 1 the next head sets its bit 1
-172 u32  padding: zero bytes after the rows, below [PIECE_ALIGN]
-176 u64  close summary offset, u64::MAX for none    184 u32 its length
-188 u32  removed pieces, at most REMOVED_PIECES_MAX: their rows follow the tracks
-192 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
-           0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
-          16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
-          48 i64 latest end (of the chunk blocks in the piece)
-          56 [32] owner (TrackDef::owner)
-          88 [32] track hash after this piece ([TrackHash])
-         120 u64 records: the track's counted records in the piece
-         128 u32 flags: bit 0 incomplete, the track hash leaves out units a resume kept unread    132 u32 reserved, 0
-    ...  removed pieces × 56, ascending distinct sequence numbers (RemovedPiece):
-           0 u64 sequence number    8 [16] piece id    24 [32] content hash of its close in force
-    ...  padding zeros, covered by the CRC
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 32 | [16] | piece id | |
+| 48 | [32] | owner id | |
+| 80 | u64 | sequence number | in the chain |
+| 88 | u32 | flags | bit 0: has a previous piece; bit 1: keyed tracks without a row may have keys before the piece |
+| 92 | u32 | previous session tag | 0: none or unknown |
+| 96 | [32] | previous content hash | the previous piece's content hash |
+| 128 | [16] | previous piece id | |
+| 144 | u16 | track row length | 96; a reader takes longer rows and reads their first 96 bytes |
+| 146 | u8 | integrity | `Integrity`: 0 Full, 1 CrcOnly, 2 None; a reader refuses another value |
+| 147 | [5] | reserved | |
+| 152 | tracks × 96 | track rows | one per track carried over from the pieces before |
 
-tail (kind 9), TAIL_LEN bytes, the last of the piece
- 32 u64  piece length, from the piece's start to the end of this block
- 40 u64  close offset    48 u32 close length    52 u8 reason    53 u8 flags (as the close's)    54 u16 reserved
- 56 [32] content hash    88 [16] piece id    104 [16] next piece id    120 [32] owner id    152 u64 sequence
-160 u32  CRC
+Each track row of the piece head holds:
 
-close summary (kind 14), right before the final index of the close naming it
- 32 [n]  the caller's body, at most CLOSE_SUMMARY_MAX bytes    32 + n u32 CRC
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 0 | u64 | id | the track's id |
+| 8 | u32 | number | the track's number |
+| 12 | u32 | flags | bit 0: incomplete; bit 1: not carried; bit 2: keys carried |
+| 16 | u64 | next item | the first item number this piece holds |
+| 24 | i64 | from tick | no item of the track here starts before it |
+| 32 | [32] | owner | `TrackDef::owner`; zeros: the piece's owner |
+| 64 | [32] | track hash before | the [track hash](#track-hash) before this piece |
 
-append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close it goes on from
- 32 u64  that close record's offset    40 u64 that tail's offset    48 [32] that close record's content hash
- 80 u32  CRC
-```
+A head row's flags are a close row's, plus two bits of its own. Bit 0 marks the track incomplete from the pieces
+before. Bit 1, not carried, says the piece holds no definition of the track, since its cut had no room for it. Bit 2,
+keys carried, says the piece carries every live key of this keyed state track.
+
+The **close** (kind 8) follows the final index:
+
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 32 | u8 | reason | 1 closed, 2 aborted |
+| 33 | u8 | reserved | |
+| 34 | u16 | track row length | 136; a reader takes longer rows and reads their first 136 bytes |
+| 36 | u16 | removed-piece row length | 56; a reader takes longer rows and reads their first 56 bytes; 0 with no rows |
+| 38 | [2] | reserved | |
+| 40 | [32] | content hash | the piece's [content hash](#content-hash) |
+| 72 | u64 | newest checkpoint | the newest checkpoint index's offset |
+| 80 | u64 | last final index | the last final index's offset |
+| 88 | u64 | previous close | the previous close record's offset; `u64::MAX`: the piece's first close |
+| 96 | [16] | piece id | |
+| 112 | [16] | next piece id | |
+| 128 | [32] | owner id | |
+| 160 | u64 | sequence number | |
+| 168 | u32 | flags | bit 0: the piece has a head; bit 1: the next head sets its bit 1 |
+| 172 | u32 | padding | the zero bytes after the rows, below `PIECE_ALIGN` |
+| 176 | u64 | close summary offset | `u64::MAX` for none |
+| 184 | u32 | close summary length | |
+| 188 | u32 | removed pieces | at most `REMOVED_PIECES_MAX`; their rows follow the tracks |
+| 192 | tracks × 136 | track rows | one per track with a counted chunk or record in the piece, ascending id then owner |
+| ... | removed × 56 | removed-piece rows | ascending distinct sequence numbers (`RemovedPiece`) |
+| ... | padding | zeros | covered by the CRC |
+
+A piece that goes on in the next one, which the next piece id names, has the reason closed. Offsets are `u64::MAX` for
+none. The content hash is BLAKE3 of the piece's bytes before this block, each chunk payload by its hash. A later close
+hashes the previous close's hash, then the bytes from that close to this block, the same way ([Closing more than
+once](#closing-more-than-once)).
+
+Each track row of the close holds:
+
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 0 | u64 | id | the track's id |
+| 8 | u32 | number | the track's number |
+| 12 | u32 | chunks | 0: records only, and the range fields below are 0 |
+| 16 | u64 | first item | |
+| 24 | u64 | items | |
+| 32 | i64 | first tick | |
+| 40 | i64 | last tick | |
+| 48 | i64 | latest end | of the chunk blocks in the piece |
+| 56 | [32] | owner | `TrackDef::owner` |
+| 88 | [32] | track hash after | the [track hash](#track-hash) after this piece |
+| 120 | u64 | records | the track's counted records in the piece |
+| 128 | u32 | flags | bit 0: incomplete, the track hash leaves out units a resume kept unread |
+| 132 | u32 | reserved | 0 |
+
+Each removed-piece row of the close holds:
+
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 0 | u64 | sequence number | of the removed piece |
+| 8 | [16] | piece id | |
+| 24 | [32] | content hash | of its close in force |
+
+The **tail** (kind 9) is `TAIL_LEN` bytes, the last of the piece:
+
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 32 | u64 | piece length | from the piece's start to the end of this block |
+| 40 | u64 | close offset | |
+| 48 | u32 | close length | |
+| 52 | u8 | reason | as the close's |
+| 53 | u8 | flags | as the close's |
+| 54 | u16 | reserved | |
+| 56 | [32] | content hash | |
+| 88 | [16] | piece id | |
+| 104 | [16] | next piece id | |
+| 120 | [32] | owner id | |
+| 152 | u64 | sequence | the sequence number |
+| 160 | u32 | CRC | |
+
+The **close summary** (kind 14) stands right before the final index of the close that names it:
+
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 32 | [n] | body | the caller's body, at most `CLOSE_SUMMARY_MAX` bytes |
+| 32 + n | u32 | CRC | |
+
+The **append head** (kind 13) is `APPEND_HEAD_LEN` bytes, right after the tail of the close it goes on from:
+
+| Offset | Size | Field | Meaning |
+|---:|---|---|---|
+| 32 | u64 | close offset | that close record's offset |
+| 40 | u64 | tail offset | that tail's offset |
+| 48 | [32] | content hash | that close record's content hash |
+| 80 | u32 | CRC | |
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/tail.svg"
@@ -1612,12 +1710,20 @@ of whole chunks therefore folds from the index without reading a payload (`TapeR
 
 The units are:
 
-```text
-chunk:  01, kind u8, count u32, the head's bytes 48..80 (first item, first tick, last tick, latest end) and
-        81..end of the column entries (columns, time mode, end mode, a series grid and scale, the column
-        entries), then the payload's BLAKE3 hash
-record: 02, ticks i64 (0 without a time), item length u64, the item's bytes
-```
+| Field | Encoding | Meaning |
+|---|---|---|
+| *a chunk:* | | |
+| chunk | u8 | 01, the tag of a chunk unit |
+| kind | u8 | the block kind |
+| count | u32 | the header's count |
+| head's bytes 48..80 | [32] | first item, first tick, last tick, latest end |
+| 81..end of the column entries | bytes | the head's bytes from 81: columns, time mode, end mode, a series grid and scale, the column entries |
+| BLAKE3 hash | [32] | the payload's |
+| *a record:* | | |
+| record | u8 | 02, the tag of a record unit |
+| ticks | i64 | 0 without a time |
+| item length | u64 | |
+| item's bytes | bytes | |
 
 Only counted blocks are units: chunk blocks and the records of records blocks. Puts and copies (blocks marked
 `FLAG_REPEAT`), summaries, definitions and the blocks of the file structure are not.
@@ -2372,12 +2478,12 @@ A sample may carry a u32 flags word: an overrange, a dropout, a marker. A series
 `Flags` column in codec `FLAG_RUNS` (5), as runs of consecutive samples sharing a word ([series module
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/series/mod.rs)):
 
-```text
-n × run, n from 1 to FLAG_RUNS_MAX, ascending:
-  u32  first: the run's first sample, counted from the chunk's first
-  u32  count: samples in the run, 1 and up
-  u32  flags: their flags word, not 0
-```
+| Field | Encoding | Meaning |
+|---|---|---|
+| *per run, n runs from 1 to `FLAG_RUNS_MAX`, ascending:* | | |
+| first | u32 | the run's first sample, counted from the chunk's first |
+| count | u32 | samples in the run, 1 and up |
+| flags | u32 | their flags word, not 0 |
 
 A sample in no run has the word 0. A chunk with no flagged sample has no such column. An unflagged series therefore
 costs no byte.

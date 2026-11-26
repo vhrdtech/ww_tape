@@ -497,6 +497,7 @@ The pages in `docs/`.
   - Every `rust` block includes a section of a test that runs.
   - Tests write every program output a page shows into `docs/generated/`.
   - The pages meet spl's reading lints, apart from a snippet include that spl counts as prose.
+  - The format reference shows each byte layout as a table, which a test holds to the module docs.
 
   Read more: [For writers](docs/writers.md).
 

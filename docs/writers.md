@@ -168,6 +168,11 @@ What a program prints comes from a test too. The test passes the output to `ww_t
 fails when the file under `docs/generated/` holds something else. `just book-outputs` writes the files again, and the
 page includes one in a `text` block, as [A first tape](first_tape.md) does.
 
+A byte layout in the [format reference](format.md) is a table, never a `text` block. A fixed layout has the columns
+Offset, Size, Field and Meaning. A variable one has Field, Encoding and Meaning in byte order, and a row with no
+encoding marks the part that repeats. A meaning takes one short line, and a longer explanation goes into the prose
+under the table. A test holds each table to a layout of the module docs.
+
 ## Figures
 
 A figure stands right after the sentence that needs it. Its caption states what the reader should take from it.

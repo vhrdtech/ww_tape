@@ -14,6 +14,7 @@ benchmarks, golden files and book pages.
 - Book: every `rust` block is a section of a test that runs; the page doctests are gone (BOOK-8).
 - Book: the program outputs a page shows live in `docs/generated/`, written by tests; a stale one fails (BOOK-8).
 - Book: smaller pages with a figure for each mechanism, to spl's reading lints (BOOK-8).
+- Book: the format reference's byte layouts are tables, held to the module docs' layouts by a test (BOOK-8).
 - Example `example_settings`: parameters on a keyed state track, a group of puts, a firmware image on a bytes track (BOOK-8).
 
 ## [0.16.0] - 2026-11-26
