@@ -284,9 +284,9 @@ The writer thread is busy the whole run and sustains 19 million samples a second
 
 One recipe reruns every number on this page:
 
-```sh
-just jobs=4 bench-book   # every bench at release, into docs/bench/*.json
-just book-figures        # the charts and tables of this page, from those files
+```console
+$ just jobs=4 bench-book   # every bench at release, into docs/bench/*.json
+$ just book-figures        # the charts and tables of this page, from those files
 ```
 
 The run has a few conditions:

@@ -118,6 +118,10 @@ the deletion is a record too, so older values stay in the file:
 Each put prints whether it wrote. The same value of `pid/kp` a second later lies close behind, so that put writes
 nothing:
 
+```console
+$ cargo run -p example_settings
+```
+
 ```text
 --8<-- "docs/generated/settings_puts.txt"
 ```
@@ -128,6 +132,10 @@ live key into the new piece, so the last piece read alone still lists all of the
 
 ```rust
 --8<-- "examples/example_settings/src/lib.rs:read_keys"
+```
+
+```console
+$ cargo run -p example_settings
 ```
 
 ```text

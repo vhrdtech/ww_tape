@@ -16,6 +16,10 @@ runs each step on that recording and counts the bytes it reads. `cargo run -p ex
 
 ??? example "What `cargo run -p example_drive` prints for the query"
 
+    ```console
+    $ cargo run -p example_drive
+    ```
+
     ```text
     --8<-- "docs/generated/fault.txt"
     ```

@@ -71,6 +71,10 @@ current. The mux turns each into one call of the writer, and adds the [[summary]
 
 ??? example "What `cargo run -p example_drive` prints for the writing chapters"
 
+    ```console
+    $ cargo run -p example_drive
+    ```
+
     ```text
     --8<-- "docs/generated/writing.txt"
     ```

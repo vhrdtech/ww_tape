@@ -13,8 +13,8 @@ recorder makes and what the file holds afterwards. The program here writes the d
 The program of this chapter lives in the crate `example_drive`, beside the drive's recording. Run it from a
 checkout of ww_tape:
 
-```sh
-cargo run --release -p example_drive --bin first_tape
+```console
+$ cargo run --release -p example_drive --bin first_tape
 ```
 
 It writes the drive's first minute into a file `drive.wwt` in a directory of the system's temporary directory, and

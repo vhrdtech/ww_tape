@@ -75,6 +75,10 @@ length, kind and count, and the names of the header bits set. The program reads 
 --8<-- "examples/example_settings/src/lib.rs:blocks"
 ```
 
+```console
+$ cargo run -p example_settings
+```
+
 ```text
 --8<-- "docs/generated/settings_blocks.txt"
 ```

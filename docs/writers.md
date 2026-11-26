@@ -166,7 +166,8 @@ the file or the marked section is gone, and `vz check` fails a `rust` block that
 
 What a program prints comes from a test too. The test passes the output to `ww_tape_book_outputs::check`, which
 fails when the file under `docs/generated/` holds something else. `just book-outputs` writes the files again, and the
-page includes one in a `text` block, as [A first tape](first_tape.md) does.
+page includes one in a `text` block, as [A first tape](first_tape.md) does. A `console` block above it shows the
+command that prints it, each line after a `$ ` prompt. Every command a reader runs takes such a block.
 
 A byte layout in the [format reference](format.md) is a table, never a `text` block. A fixed layout has the columns
 Offset, Size, Field and Meaning. A variable one has Field, Encoding and Meaning in byte order, and a row with no

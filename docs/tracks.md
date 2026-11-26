@@ -165,6 +165,10 @@ each piece's index, reads them in order and checks the hash against the seal:
 The image of 200 000 bytes takes three parts of 64 KiB, a short last part and the seal. `cargo run -p example_settings`
 prints both sides:
 
+```console
+$ cargo run -p example_settings
+```
+
 ```text
 --8<-- "docs/generated/settings_firmware.txt"
 ```
