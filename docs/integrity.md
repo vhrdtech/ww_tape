@@ -25,7 +25,7 @@ proves. The bench `levels` writes chunks into a memory tape at each level:
 
 --8<-- "docs/plots/bench_levels_write.txt"
 
-A 1 MiB series chunk takes 34 % of the time of `Full` at `CrcOnly` and 25 % at `None`. What is left at `None` is mostly
+A 1 MiB series chunk takes 35 % of the time of `Full` at `CrcOnly` and 26 % at `None`. What is left at `None` is mostly
 the copy into memory.
 
 ## The seal
@@ -47,7 +47,7 @@ at zero and changes no offset, so the sealed piece reads as one written at <code
 
 --8<-- "docs/plots/bench_levels_seal.txt"
 
-Sealing a 1 MiB series chunk of `None` takes about as long as writing it at `Full`: 100 % of that time. The seal reads
+Sealing a 1 MiB series chunk of `None` takes about as long as writing it at `Full`: 110 % of that time. The seal reads
 the piece, checks it and hashes it, and copies it into memory again.
 
 --8<-- "docs/plots/bench_levels_machine.txt"

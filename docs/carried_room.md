@@ -36,8 +36,9 @@ its keys too many for a piece ([Keyed state tracks](format.md#keyed-state-tracks
 tracks alone may take more blocks than the run keeps. The writer then refuses the cut before it writes anything
 (`InputError::CarryTooLong`), and deleting keys makes room.
 
-The room is counted in entries, not bytes, so a label's length changes it little. `just bench-carried` measures how
-many tracks a cut carries whole, each with its own definition and no bundle:
+The room is counted in entries, so a label's length changes it little. Under the default policy the run's blocks bound
+the carry first, and they count bytes. `just bench-carried` measures how many tracks a cut carries whole, each with its
+own definition and no bundle:
 
 --8<-- "docs/plots/bench_carried_room.txt"
 

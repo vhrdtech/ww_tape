@@ -92,7 +92,8 @@ A piece holds less data, and its final index grows past the cut's bound, which c
 --8<-- "docs/plots/bench_carried_pieces.txt"
 
 Each definition costs its record and its index entries, in the checkpoint that lists it and in the final index. At the
-track caps, a piece of one records block grows by the bytes of the next table:
+track caps, the run's blocks bound the carry ([When carried definitions don't fit](carried_room.md)), so both caps carry
+the same bytes. A piece of one records block grows by the bytes of the next table:
 
 --8<-- "docs/plots/bench_carried_caps.txt"
 

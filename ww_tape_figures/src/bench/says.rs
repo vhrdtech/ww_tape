@@ -564,9 +564,9 @@ pub fn handles(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
     let many = at_tracks(events, "mux", tracks_max, "vs direct")?;
     let iq_many = at_tracks(iq, "mux", tracks_max, "vs direct")?;
     ensure!(
-        one < 1.0 && one_by_one < one && many > 1.0 && iq_many > 1.0,
-        "the page says one track through the mux is slower than direct, one by one slower still, and many tracks \
-         faster: {one}, {one_by_one}, {many}, {iq_many}"
+        (0.9..=1.1).contains(&one) && one_by_one < one && many > 1.0 && iq_many > 1.0,
+        "the page says one track through the mux keeps the direct writer's pace, one by one is slower, and many \
+         tracks faster: {one}, {one_by_one}, {many}, {iq_many}"
     );
     Ok(vec![
         (

@@ -117,16 +117,16 @@ payload and their summaries:
 
 --8<-- "docs/plots/bench_handles_events.txt"
 
-With one track, the mux reaches 88 % of the direct writer's rate: the queue and the second thread cost a little. A
-producer that pushes events one by one reaches only 23 %, which is why a batch is worth making. With 16 tracks, the
-producers encode in parallel, and the mux writes 4.6 times as many events a second as the direct writer.
+With one track, the mux reaches 100 % of the direct writer's rate: the queue and the second thread cost nothing that
+shows. A producer that pushes events one by one reaches only 42 %, which is why a batch is worth making. With 16 tracks, the
+producers encode in parallel, and the mux writes 2.9 times as many events a second as the direct writer.
 
 The second table writes a radio capture, 20 million IQ samples a second, packed to 12 bits with summaries:
 
 --8<-- "docs/plots/bench_handles_iq.txt"
 
-With 16 tracks, the mux writes 4.1 times as many samples as the direct writer, 3.2 GB/s. There the writing thread
-becomes the limit: 1 400 sends waited for room in the queue. A source faster than one writing thread gets a chain of
+With 16 tracks, the mux writes 3.7 times as many samples as the direct writer, 2.6 GB/s. There the writing thread
+becomes the limit: 1 212 sends waited for room in the queue. A source faster than one writing thread gets a chain of
 its own, and the chains are merged when they are read.
 
 --8<-- "docs/plots/bench_handles_machine.txt"
