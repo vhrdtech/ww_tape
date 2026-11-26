@@ -1523,13 +1523,14 @@ impl<S: TapeSink> TapeWriter<S> {
     /// most `room` state entries ([carried::fit]), and the numbers of the tracks left out: of each row whose track
     /// `defs` holds under the row's number with the row's id and owner and that isn't marked
     /// [TrackStart::not_carried]; another is passed over. The tracks [Self::want] named come first, then those with
-    /// data in this piece, newest first.
+    /// data in this piece, newest first. Refused ([InputError::CarryTooLong]) when the keyed tracks and those
+    /// [Self::want] named alone take more blocks of puts than their run holds ([carried::RUN_BLOCKS]).
     fn carried(
         &self,
         defs: &Definitions,
         rows: &[TrackStart],
         room: usize,
-    ) -> (Vec<Vec<Candidate<'static>>>, Vec<TrackNum>) {
+    ) -> Result<Carry, WriteError<S::Error>> {
         let rows: Vec<TrackStart> = rows.iter().filter(|r| !r.not_carried).copied().collect();
         let numbers = carried::numbers(defs, &rows);
         let states = self.carried_states(defs, &rows);
@@ -1574,6 +1575,13 @@ impl<S: TapeSink> TapeWriter<S> {
             &self.ranked(&rows, &numbers),
             room,
         );
+        let run = carried::run_blocks(defs, &blocks);
+        if run > carried::RUN_BLOCKS {
+            return Err(WriteError::Input(InputError::CarryTooLong {
+                blocks: run,
+                max: carried::RUN_BLOCKS,
+            }));
+        }
         let blocks = blocks
             .iter()
             .map(|b| {
@@ -1608,7 +1616,7 @@ impl<S: TapeSink> TapeWriter<S> {
                     .collect()
             })
             .collect();
-        (blocks, dropped)
+        Ok((blocks, dropped))
     }
 
     /// The newest item the writer keeps ([kept]) of each state track of head rows `rows` that `defs` holds as a state
@@ -1957,7 +1965,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let room = crate::cap_usize(room)
             .saturating_sub(self.indexer.states())
             .saturating_sub(head);
-        let (blocks, _) = self.carried(defs, &rows, room);
+        let (blocks, _) = self.carried(defs, &rows, room)?;
         self.put_carried(&blocks)
     }
 
@@ -4227,7 +4235,10 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut tracks = self.indexer.next_starts(starts);
         let room = self.indexer.policy().state_entries_max.get();
         let room = crate::cap_usize(room).saturating_sub(HEAD_ENTRIES);
-        let (carried, dropped) = self.carried(defs, &tracks, room);
+        let (carried, dropped) = match self.carried(defs, &tracks, room) {
+            Ok(c) => c,
+            Err(e) => return Err(self.refuse(e)),
+        };
         let dropped: BTreeSet<TrackNum> = dropped.into_iter().collect();
         for t in &mut tracks {
             t.not_carried = dropped.contains(&t.track_number);
@@ -4751,6 +4762,9 @@ impl Candidate<'static> {
 
 /// A record to put, and whether it is a keyed state record ([Slot::Keyed]).
 type PutRef<'c> = (RecordRef<'c>, bool);
+
+/// The blocks of candidates a piece carries and the numbers of the tracks left out ([TapeWriter::carried]).
+type Carry = (Vec<Vec<Candidate<'static>>>, Vec<TrackNum>);
 
 impl Candidate<'_> {
     /// The candidate with its item's bytes its own.

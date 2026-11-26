@@ -1360,3 +1360,115 @@ fn first_copies_of_a_carry_filling_its_run_come_in_the_next_run() {
         assert!(offsets[1] > offsets[0], "{slot:?}: copied after its record");
     }
 }
+
+/// Tracks of [wide_defs]: more than one run's blocks of carried definitions hold, one track a block.
+const WIDE: u32 = 4200;
+
+/// [WIDE] tracks on [CLOCK], each labeled with 3000 bytes, so its definition takes a block of carried definitions
+/// ([CARRIED_BLOCK_LEN](ww_tape::CARRIED_BLOCK_LEN)) of its own.
+fn wide_defs() -> Definitions {
+    let label: &'static str = Box::leak("w".repeat(3000).into_boxed_str());
+    let mut batch = vec![crate::definitions::clock(CLOCK)];
+    batch.extend((1..=WIDE).map(|n| crate::definitions::labeled(n, CLOCK, label)));
+    crate::definitions::held(&batch)
+}
+
+/// A records block of one record on each of `tracks`, at tick `t`.
+fn records_on(id: ww_tape::BlockId, tracks: &[u32], t: i64) -> Vec<u8> {
+    let clock = ClockNum::new(CLOCK);
+    let mut buf = vec![0u8; 64 + tracks.len() * 64];
+    let mut b =
+        ww_tape::BlockWriter::new(&mut buf, ww_tape::BlockKind::Records, id, &[clock]).unwrap();
+    for n in tracks {
+        b.push(
+            TrackNum::new(*n),
+            ww_tape::ClockTime::new(clock, t),
+            &[&[*n as u8; 8]],
+        )
+        .unwrap();
+    }
+    let len = b.finish();
+    buf.truncate(len);
+    buf
+}
+
+/// A writer on a piece that gave data on every track of [wide_defs], then on track 1 alone.
+fn wide_piece(defs: &Definitions) -> TapeWriter<MemSink> {
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    w.set_session(SessionTag::writable(0x7769_6465)).unwrap();
+    let owner = OwnerId([0x57; 32]);
+    let head = ww_tape::PieceHead {
+        ident: ww_tape::PieceIdent {
+            id: ww_tape::piece::PieceId::first(&owner),
+            owner,
+            seq: 0,
+        },
+        prev: None,
+        prev_session: SessionTag::NONE,
+        integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
+    };
+    w.begin_piece(&head, &[]).unwrap();
+    let all: Vec<u32> = (1..=WIDE).collect();
+    w.write_block(defs, &records_on(w.next_id(), &all, 0))
+        .unwrap();
+    w.write_block(defs, &records_on(w.next_id(), &[1], 1))
+        .unwrap();
+    w
+}
+
+/// A cut is never refused for the run its carried definitions open: with more tracks than the run's blocks hold, it
+/// carries those that fit, the newest data first, and marks the rest in the next head. The next piece takes its
+/// first block, and a reader of it alone names the tracks left out.
+#[test]
+fn a_cut_past_a_runs_blocks_carries_what_fits_and_names_the_rest() {
+    let defs = wide_defs();
+    let w = wide_piece(&defs);
+    let (closed, mut next) = w.cut_on(&defs, MemSink::new()).unwrap();
+    let left = closed.not_carried();
+    assert!(left > 0 && left < WIDE as usize, "{left}");
+    assert!(
+        !closed
+            .tracks
+            .iter()
+            .any(|t| t.track_number.get() == 1 && t.not_carried),
+        "track 1 has the newest data"
+    );
+    let tape = next.sink().tape();
+    next.write_block(&defs, &records_on(next.next_id(), &[1], 2))
+        .unwrap();
+    next.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert!(r.verify(0).unwrap().holds);
+    let at = r.definitions_at(0, u64::MAX).unwrap();
+    assert_eq!(at.not_carried.len(), left);
+    assert!(at.items.contains_key(&Slot::Track {
+        number: TrackNum::new(1)
+    }));
+}
+
+/// A cut whose call wants more tracks than the run's blocks hold carried is refused before anything is written, with
+/// the blocks they take: the writer comes back whole and closes its piece.
+#[test]
+fn a_cut_whose_wanted_tracks_pass_a_runs_blocks_is_refused() {
+    let defs = wide_defs();
+    let mut w = wide_piece(&defs);
+    let all: Vec<TrackNum> = (1..=WIDE).map(TrackNum::new).collect();
+    w.want(&all);
+    let len = w.sink().tape().to_vec().unwrap().len();
+    let e = w.cut_on(&defs, MemSink::new()).err().unwrap();
+    let WriteError::Input(InputError::CarryTooLong { blocks, max }) = e.error else {
+        panic!("{:?}", e.error)
+    };
+    assert!(blocks > max, "{blocks} {max}");
+    assert!(max < ww_tape::RUN_BLOCKS_MAX);
+    let mut w = *e.writer.unwrap();
+    assert_eq!(
+        w.sink().tape().to_vec().unwrap().len(),
+        len,
+        "nothing written"
+    );
+    w.want(&[]);
+    w.close().unwrap();
+}

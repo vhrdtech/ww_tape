@@ -18,6 +18,10 @@ benchmarks, golden files and book pages.
 - Book: commands are `console` blocks, and each program output shows the command that prints it (BOOK-8).
 - Example `example_settings`: parameters on a keyed state track, a group of puts, a firmware image on a bytes track (BOOK-8).
 
+### Fixes
+
+- A cut past one run's carried blocks leaves out the oldest tracks; keyed and wanted alone get `CarryTooLong` (WRITE-17).
+
 ## [0.16.0] - 2026-11-26
 
 ### Breaking

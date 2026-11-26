@@ -18,9 +18,10 @@
 //! its block of carried definitions is preceded by a block of its own holding those records again, and each record
 //! takes its state entry ([weight]).
 //!
-//! A piece carries every definition while the chain's tracks fit the index policy's state entries. A cut is never
-//! refused for them: past that room, [fit] carries what fits, by priority, and the next head names each track left
-//! out, those with the oldest data. A keyed track is never left out: it comes first, with every key, and the writer
+//! A piece carries every definition while the chain's tracks fit the index policy's state entries and their blocks fit
+//! the run they open ([RUN_BLOCKS]). Past that room, [fit] carries what fits, by priority, and the next head names
+//! each track left out, those with the oldest data. A cut is refused only when the keyed tracks and the call's tracks
+//! alone pass [RUN_BLOCKS] ([InputError::CarryTooLong](super::InputError::CarryTooLong)). A keyed track is never left out: it comes first, with every key, and the writer
 //! refuses a put that would make its keys too many for a piece ([CarryLimit](super::CarryLimit)). The tracks of the
 //! call the cut is made for come next, so a call the writer admitted ([entries]) always fits the piece a cut made
 //! for it.
@@ -37,6 +38,30 @@ use crate::state::Slot;
 
 /// Most bytes of a block of carried definitions, but for a bundle or a track whose definitions alone are longer.
 pub const CARRIED_BLOCK_LEN: usize = 4 << 10;
+
+/// Most blocks of puts the carried definitions take. They belong with the first block of data, in one run of at most
+/// [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks: before them the layout and the producer, a block of each of
+/// [PARTS] at most, after them the call's own puts and block
+/// ([FIRST_COPY_RUN_RESERVE](super::FIRST_COPY_RUN_RESERVE)).
+pub(crate) const RUN_BLOCKS: usize = crate::RUN_BLOCKS_MAX - super::FIRST_COPY_RUN_RESERVE - PARTS;
+
+/// The kinds of blocks of puts the records of one block of carried definitions go into, at most: those written twice
+/// at once, those of a bundle and the others.
+const PARTS: usize = 3;
+
+/// The blocks of puts that carried blocks `out` take, at most: one of each of [PARTS] their records go into.
+pub(crate) fn run_blocks(defs: &Definitions, out: &[Vec<Slot>]) -> usize {
+    out.iter()
+        .map(|b| {
+            let twice = b.iter().any(|s| defs.defined_twice(s));
+            let own = b.iter().any(|s| matches!(s, Slot::Own { .. }));
+            let rest = b.iter().any(|s| !matches!(s, Slot::Own { .. }));
+            usize::from(twice)
+                .saturating_add(usize::from(own))
+                .saturating_add(usize::from(rest))
+        })
+        .fold(0usize, usize::saturating_add)
+}
 
 /// Bytes the record of `item_len` bytes takes in a block, at most.
 fn record_len(item_len: usize) -> usize {
@@ -181,6 +206,14 @@ pub(crate) fn entries(defs: &Definitions, tracks: &[TrackNum]) -> usize {
 /// A track that doesn't fit is left out. Bundles, chains, tracks in the order of the head rows, then the keys,
 /// packed into blocks of at most [CARRIED_BLOCK_LEN]. A call admitted by the writer so fits the piece a cut made for
 /// it.
+///
+/// The blocks take at most [RUN_BLOCKS] blocks of puts ([run_blocks]): 2 and 3 take a clock, a map or a track only
+/// while the blocks of what is taken stay within it, counted as they are taken ([Packed]). The keyed tracks and those
+/// of `wanted` are taken all the same; the caller refuses a carry of them alone past the bound. One pass over the
+/// tracks: no fit is made twice.
+///
+/// When the bound leaves a track out, the bundles and the tracks are packed in the order taken, as counted, not in the
+/// order of the head rows.
 pub(crate) fn fit(
     from: Source<'_>,
     numbers: &[TrackNum],
@@ -190,44 +223,182 @@ pub(crate) fn fit(
 ) -> (Vec<Vec<Slot>>, Vec<TrackNum>) {
     let reserve = entries(from.defs, wanted).saturating_add(1);
     let all = blocks(from, numbers);
-    if weights(from.defs, all.iter().flatten()).saturating_add(reserve) <= room {
+    if weights(from.defs, all.iter().flatten()).saturating_add(reserve) <= room
+        && run_blocks(from.defs, &all) <= RUN_BLOCKS
+    {
         return (all, Vec::new());
     }
+    choose(from, numbers, wanted, ranked, room)
+}
+
+/// One stream of items packed into blocks as [pack] packs them, counted as items are added: the blocks of puts the
+/// stream's blocks take ([run_blocks]).
+#[derive(Copy, Clone)]
+struct Packed {
+    /// Blocks of puts of the blocks closed
+    closed: usize,
+    /// Bytes of the open block
+    len: usize,
+    /// Whether the open block holds an item, one written twice at once, a bundle and another record
+    any: bool,
+    twice: bool,
+    own: bool,
+    rest: bool,
+}
+
+impl Packed {
+    const EMPTY: Self = Self {
+        closed: 0,
+        len: EMPTY_LEN,
+        any: false,
+        twice: false,
+        own: false,
+        rest: false,
+    };
+
+    /// The blocks of puts of the open block.
+    fn open(&self) -> usize {
+        usize::from(self.twice)
+            .saturating_add(usize::from(self.own))
+            .saturating_add(usize::from(self.rest))
+    }
+
+    /// The blocks of puts of the stream.
+    fn run(&self) -> usize {
+        self.closed.saturating_add(self.open())
+    }
+
+    /// The stream with `item` added after what it holds.
+    fn with(self, from: Source<'_>, item: &[Slot]) -> Self {
+        let l = item
+            .iter()
+            .fold(0usize, |n, s| n.saturating_add(from.slot_len(s)));
+        let mut p = self;
+        if p.any && p.len.saturating_add(l) > CARRIED_BLOCK_LEN {
+            p = Self {
+                closed: p.run(),
+                ..Self::EMPTY
+            };
+        }
+        p.len = p.len.saturating_add(l);
+        p.any = true;
+        p.twice |= item.iter().any(|s| from.defs.defined_twice(s));
+        p.own |= item.iter().any(|s| matches!(s, Slot::Own { .. }));
+        p.rest |= item.iter().any(|s| !matches!(s, Slot::Own { .. }));
+        p
+    }
+
+    /// The stream with each of `items` added, in order.
+    fn with_all(self, from: Source<'_>, items: &[Vec<Slot>]) -> Self {
+        items.iter().fold(self, |p, i| p.with(from, i))
+    }
+}
+
+/// What [choose] has taken: the bundles, the chains and the tracks in the order taken, and the blocks of puts of each
+/// stream as [pack] makes them in that order.
+struct Taken {
+    bundles: (Vec<Vec<Slot>>, Packed),
+    chains: (Vec<Vec<Slot>>, Packed),
+    tracks: (Vec<Vec<Slot>>, Packed),
+    keys: Packed,
+}
+
+impl Taken {
+    /// The blocks of puts of all the streams.
+    fn run(&self) -> usize {
+        self.bundles
+            .1
+            .run()
+            .saturating_add(self.chains.1.run())
+            .saturating_add(self.tracks.1.run())
+            .saturating_add(self.keys.run())
+    }
+}
+
+/// [fit] past its room: the tracks taken in its order of priority while the state entries of `room` and
+/// [RUN_BLOCKS] last, the rest left out.
+fn choose(
+    from: Source<'_>,
+    numbers: &[TrackNum],
+    wanted: &[TrackNum],
+    ranked: &[TrackNum],
+    room: usize,
+) -> (Vec<Vec<Slot>>, Vec<TrackNum>) {
+    let reserve = entries(from.defs, wanted).saturating_add(1);
     let needs: BTreeMap<TrackNum, Needs> = numbers
         .iter()
         .filter_map(|n| Some((*n, from.split(*n)?)))
         .collect();
     let mut left = room.saturating_sub(reserve);
     let mut held: BTreeSet<Slot> = BTreeSet::new();
-    let mut chains = Vec::new();
     let mut taken = BTreeSet::new();
-    // 0. the keyed tracks whole, with their keys
     let keyed: Vec<TrackNum> = numbers
         .iter()
         .filter(|n| from.keys.contains_key(n))
         .copied()
         .collect();
+    let mut t = Taken {
+        bundles: (Vec::new(), Packed::EMPTY),
+        chains: (Vec::new(), Packed::EMPTY),
+        tracks: (Vec::new(), Packed::EMPTY),
+        keys: Packed::EMPTY.with_all(from, &from.key_items(&keyed)),
+    };
+    // the streams of `t` with a track and what it needs that isn't held yet: its bundles, its chain, its own
+    // records; nothing is copied
+    let grow = |t: &Taken, held: &BTreeSet<Slot>, (b, chain, own): &Needs| -> [Packed; 3] {
+        let new = |s: &&Slot| !held.contains(*s);
+        [
+            b.iter()
+                .filter(new)
+                .fold(t.bundles.1, |p, s| p.with(from, &[*s])),
+            chain
+                .iter()
+                .filter(new)
+                .fold(t.chains.1, |p, s| p.with(from, &[*s])),
+            t.tracks.1.with(from, own),
+        ]
+    };
+    // take a track into `t` with the streams [grow] counted for it, then hold what it needs
+    let take =
+        |t: &mut Taken, held: &mut BTreeSet<Slot>, (b, chain, own): &Needs, packs: [Packed; 3]| {
+            t.bundles
+                .0
+                .extend(b.iter().filter(|s| !held.contains(*s)).map(|s| vec![*s]));
+            t.chains.0.extend(
+                chain
+                    .iter()
+                    .filter(|s| !held.contains(*s))
+                    .map(|s| vec![*s]),
+            );
+            t.tracks.0.push(own.clone());
+            let [bundles, chains, tracks] = packs;
+            (t.bundles.1, t.chains.1, t.tracks.1) = (bundles, chains, tracks);
+            held.extend(b.iter().chain(chain).chain(own).copied());
+        };
+    // 0. the keyed tracks whole, with their keys
     for n in &keyed {
-        let Some((b, chain, own)) = needs.get(n) else {
+        let Some(need) = needs.get(n) else {
             continue;
         };
+        let (b, chain, own) = need;
         let new = b
             .iter()
             .chain(chain)
             .filter(|s| !held.contains(*s))
             .count()
             .saturating_add(own.len());
-        chains.extend(chain.iter().filter(|s| !held.contains(*s)).copied());
-        held.extend(b.iter().chain(chain).chain(own).copied());
+        let packs = grow(&t, &held, need);
+        take(&mut t, &mut held, need, packs);
         taken.insert(*n);
         left = left.saturating_sub(new);
     }
     left = left.saturating_sub(key_entries(from, &keyed));
     // 1. the wanted tracks whole
     for n in wanted {
-        let Some((b, chain, own)) = needs.get(n) else {
+        let Some(need) = needs.get(n) else {
             continue;
         };
+        let (b, chain, own) = need;
         let new = weights(
             from.defs,
             b.iter().chain(chain).filter(|s| !held.contains(*s)),
@@ -236,8 +407,8 @@ pub(crate) fn fit(
         if taken.contains(n) || new > left {
             continue;
         }
-        chains.extend(chain.iter().filter(|s| !held.contains(*s)).copied());
-        held.extend(b.iter().chain(chain).chain(own).copied());
+        let packs = grow(&t, &held, need);
+        take(&mut t, &mut held, need, packs);
         taken.insert(*n);
         left = left.saturating_sub(new);
     }
@@ -248,27 +419,46 @@ pub(crate) fn fit(
         .flat_map(|(_, chain, _)| chain);
     for s in ranked_chains {
         let w = weight(from.defs, s);
-        if left >= w && held.insert(*s) {
-            chains.push(*s);
-            left = left.saturating_sub(w);
+        if left < w || held.contains(s) {
+            continue;
         }
+        let chains = t.chains.1.with(from, &[*s]);
+        let run = t.run().saturating_sub(t.chains.1.run());
+        if run.saturating_add(chains.run()) > RUN_BLOCKS {
+            continue;
+        }
+        held.insert(*s);
+        t.chains.0.push(vec![*s]);
+        t.chains.1 = chains;
+        left = left.saturating_sub(w);
     }
     // 3. the tracks by rank, with their bundles
     for n in ranked {
-        let Some((b, chain, own)) = needs.get(n) else {
+        let Some(need) = needs.get(n) else {
             continue;
         };
+        let (b, chain, own) = need;
         if taken.contains(n) {
             continue;
         }
         let new = weights(from.defs, b.iter().filter(|s| !held.contains(*s)))
             .saturating_add(weights(from.defs, own));
-        if chain.iter().all(|s| held.contains(s)) && new <= left {
-            held.extend(b.iter().chain(own).copied());
-            taken.insert(*n);
-            left = left.saturating_sub(new);
+        if !chain.iter().all(|s| held.contains(s)) || new > left {
+            continue;
         }
+        let packs = grow(&t, &held, need);
+        let run = packs
+            .iter()
+            .map(Packed::run)
+            .fold(t.keys.run(), usize::saturating_add);
+        if run > RUN_BLOCKS {
+            continue;
+        }
+        take(&mut t, &mut held, need, packs);
+        taken.insert(*n);
+        left = left.saturating_sub(new);
     }
+    // in the order of the head rows, as before the bound, when that packing fits it too
     let mut bundles = Vec::new();
     let mut seen = BTreeSet::new();
     let mut tracks = Vec::new();
@@ -284,12 +474,19 @@ pub(crate) fn fit(
             dropped.push(*n);
         }
     }
-    let chains: Vec<Vec<Slot>> = chains.into_iter().map(|s| vec![s]).collect();
+    let keys = from.key_items(&keyed);
     let mut out = Vec::new();
     pack(from, &[], &bundles, &mut out);
-    pack(from, &[], &chains, &mut out);
+    pack(from, &[], &t.chains.0, &mut out);
     pack(from, &[], &tracks, &mut out);
-    pack(from, &[], &from.key_items(&keyed), &mut out);
+    pack(from, &[], &keys, &mut out);
+    if run_blocks(from.defs, &out) > RUN_BLOCKS {
+        out.clear();
+        pack(from, &[], &t.bundles.0, &mut out);
+        pack(from, &[], &t.chains.0, &mut out);
+        pack(from, &[], &t.tracks.0, &mut out);
+        pack(from, &[], &keys, &mut out);
+    }
     (out, dropped)
 }
 

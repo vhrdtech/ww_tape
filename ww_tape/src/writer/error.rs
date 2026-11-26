@@ -92,6 +92,13 @@ pub enum InputError {
     /// A call that would make a run of blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) and the block they
     /// belong with longer than `max` blocks ([RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX)). Nothing is written.
     RunTooLong { max: usize },
+    /// A cut, or the first call of a piece whose head carries tracks, whose carried definitions of the keyed tracks
+    /// and the call's tracks alone take `blocks` blocks of puts, more than the `max` their run keeps for them
+    /// ([RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) less the layout, the producer and
+    /// [FIRST_COPY_RUN_RESERVE](super::FIRST_COPY_RUN_RESERVE)). Nothing is written and no piece is cut; deleting
+    /// keys makes room. Other tracks past that room are left out instead
+    /// ([TrackStart::not_carried](crate::piece::TrackStart::not_carried)).
+    CarryTooLong { blocks: usize, max: usize },
     /// A put behind a group of puts waiting for a caller's open unit to end
     /// ([TapeWriter::puts_waiting](super::TapeWriter::puts_waiting)) that would bring what waits to `len` bytes, each
     /// record its bytes and [RELAY_RECORD_OVERHEAD](super::RELAY_RECORD_OVERHEAD), more than `max`
@@ -346,6 +353,10 @@ impl core::fmt::Display for InputError {
             Self::CarryFull { needed, max, limit } => write!(
                 f,
                 "the live keys a cut carries would take {needed}, more than {limit} ({max}): delete keys first"
+            ),
+            Self::CarryTooLong { blocks, max } => write!(
+                f,
+                "the keyed tracks' and the call's carried definitions take {blocks} blocks of puts, more than the {max} their run keeps: delete keys first"
             ),
             Self::UnitTracks => f.write_str("a unit of chunks of more than one track"),
             Self::UnitTooLong { max } => write!(f, "a unit of more than {max} chunks"),

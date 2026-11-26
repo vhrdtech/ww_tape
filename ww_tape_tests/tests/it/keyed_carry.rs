@@ -1180,3 +1180,24 @@ fn a_torn_end_leaves_no_doubt() {
     assert!(keyed_row(&next).unwrap().keys_carried);
     assert_eq!(keys_of(&next, 0), (model, true));
 }
+
+/// A cut whose live keys take more blocks of carried keys than their run holds, one key a block, is refused before
+/// the piece ends, with the blocks they take; the chain keeps its piece and closes it whole.
+#[test]
+fn a_cut_whose_keys_pass_a_runs_blocks_is_refused() {
+    let defs = defs();
+    let (_, mut chain) = chain_with(wide_options());
+    let value = vec![0x6b; 3000];
+    for n in 0..4100 {
+        chain
+            .put_key(&defs, KEYED, i64::from(n), &key(n), &value)
+            .unwrap();
+    }
+    let Err(WriteError::Input(InputError::CarryTooLong { blocks, max })) = chain.cut_now(&defs)
+    else {
+        panic!("the cut is refused")
+    };
+    assert!(blocks > max, "{blocks} {max}");
+    let pieces = chain.close().unwrap();
+    assert_eq!(pieces.len(), 1);
+}

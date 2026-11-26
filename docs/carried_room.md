@@ -26,8 +26,15 @@ Past that room, the tracks with the oldest data are left out. Three places name 
 - the close counts them (`Closed::not_carried`);
 - a reader of the piece names them (`DefinitionsAt::not_carried`).
 
+The carry has a second bound: its blocks. The carry belongs with the first block of data, in one run of at most
+`RUN_BLOCKS_MAX` blocks of up to `CARRIED_BLOCK_LEN` (4 KiB). The run keeps some blocks for the layout, the producer
+and the call's own puts (`FIRST_COPY_RUN_RESERVE`). Past the rest, the writer leaves out the tracks with the oldest
+data the same way.
+
 A keyed state track is never left out. It goes first, with every live key. The writer refuses a put that would make
-its keys too many for a piece ([Keyed state tracks](format.md#keyed-state-tracks)).
+its keys too many for a piece ([Keyed state tracks](format.md#keyed-state-tracks)). The keyed tracks and the call's
+tracks alone may take more blocks than the run keeps. The writer then refuses the cut before it writes anything
+(`InputError::CarryTooLong`), and deleting keys makes room.
 
 The room is counted in entries, not bytes, so a label's length changes it little. `just bench-carried` measures how
 many tracks a cut carries whole, each with its own definition and no bundle:
