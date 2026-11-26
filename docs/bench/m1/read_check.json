@@ -1,0 +1,128 @@
+{
+  "format": 1,
+  "bench": "read_check",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 10
+  },
+  "settings": [
+    [
+      "chunk KiB",
+      "1024"
+    ],
+    [
+      "blocks",
+      "256"
+    ],
+    [
+      "rounds",
+      "5"
+    ]
+  ],
+  "machine": {
+    "host": "omarchy-m1",
+    "virtual_machine": false,
+    "cpu": "unknown CPU",
+    "cpus": 10,
+    "arch": "aarch64",
+    "extensions": [
+      "neon",
+      "crc"
+    ],
+    "memory_bytes": 33160609792
+  },
+  "tables": [
+    {
+      "id": "read",
+      "title": "`TapeReader::read_block` of 256 chunks and 256 records blocks in memory, payload CRCs checked and not.",
+      "columns": [
+        "Block",
+        "Payload CRCs",
+        "Bytes per block",
+        "ns per block",
+        "GB/s"
+      ],
+      "rows": [
+        [
+          "chunk",
+          "checked",
+          {
+            "value": 1048775.0,
+            "digits": 0
+          },
+          {
+            "value": 74779.32421875,
+            "digits": 0
+          },
+          {
+            "value": 14.024932840153062,
+            "digits": 2
+          }
+        ],
+        [
+          "records",
+          "checked",
+          {
+            "value": 4042.75,
+            "digits": 0
+          },
+          {
+            "value": 509.1171875,
+            "digits": 0
+          },
+          {
+            "value": 7.94070618564611,
+            "digits": 2
+          }
+        ],
+        [
+          "chunk",
+          "not checked",
+          {
+            "value": 1048775.0,
+            "digits": 0
+          },
+          {
+            "value": 40040.23046875,
+            "digits": 0
+          },
+          {
+            "value": 26.1930310520698,
+            "digits": 2
+          }
+        ],
+        [
+          "records",
+          "not checked",
+          {
+            "value": 4042.75,
+            "digits": 0
+          },
+          {
+            "value": 171.875,
+            "digits": 0
+          },
+          {
+            "value": 23.521454545454546,
+            "digits": 2
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 4.36,
+        "five": 3.45,
+        "fifteen": 2.65
+      },
+      "load_after": {
+        "one": 4.36,
+        "five": 3.45,
+        "fifteen": 2.65
+      },
+      "seconds": 0.590164104
+    }
+  ]
+}

@@ -1,0 +1,313 @@
+{
+  "format": 1,
+  "bench": "chunks",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 10
+  },
+  "settings": [
+    [
+      "chunk KiB",
+      "1024"
+    ],
+    [
+      "chunks",
+      "256"
+    ],
+    [
+      "rounds",
+      "5"
+    ]
+  ],
+  "machine": {
+    "host": "omarchy-m1",
+    "virtual_machine": false,
+    "cpu": "unknown CPU",
+    "cpus": 10,
+    "arch": "aarch64",
+    "extensions": [
+      "neon",
+      "crc"
+    ],
+    "memory_bytes": 33160609792
+  },
+  "tables": [
+    {
+      "id": "writer",
+      "title": "Series chunks of 1024 KiB (524288 i16 samples), best of 5 rounds of 256.",
+      "columns": [
+        "What",
+        "ns per chunk",
+        "GB/s"
+      ],
+      "rows": [
+        [
+          "`chunk::write_chunk`: copy and CRCs",
+          {
+            "value": 68765.08984375,
+            "digits": 0
+          },
+          {
+            "value": 15.251561546462842,
+            "digits": 2
+          }
+        ],
+        [
+          "`Block::read`: the CRCs checked",
+          {
+            "value": 48685.1875,
+            "digits": 0
+          },
+          {
+            "value": 21.541973110404474,
+            "digits": 2
+          }
+        ],
+        [
+          "`ItemHash::of`: BLAKE3",
+          {
+            "value": 1359696.1640625,
+            "digits": 0
+          },
+          {
+            "value": 0.7713304102193466,
+            "digits": 2
+          }
+        ],
+        [
+          "`TrackHash::chunk_unit`: the unit hash",
+          {
+            "value": 176.7578125,
+            "digits": 0
+          },
+          {
+            "value": 5933.401104972376,
+            "digits": 2
+          }
+        ],
+        [
+          "`TapeWriter::write_chunk` (columns)",
+          {
+            "value": 1454205.8828125,
+            "digits": 0
+          },
+          {
+            "value": 0.7212011809301869,
+            "digits": 2
+          }
+        ],
+        [
+          "`TapeWriter::write_chunk` into a `MemSink`",
+          {
+            "value": 1539752.21875,
+            "digits": 0
+          },
+          {
+            "value": 0.6811323193620175,
+            "digits": 2
+          }
+        ],
+        [
+          "`PieceChain::write_chunk` into one memory tape, a cut per 16 chunks",
+          {
+            "value": 1542219.0234375,
+            "digits": 0
+          },
+          {
+            "value": 0.680042837016984,
+            "digits": 2
+          }
+        ],
+        [
+          "`chunk::write_chunk` + `TapeWriter::write_block`",
+          {
+            "value": 1485296.375,
+            "digits": 0
+          },
+          {
+            "value": 0.7061048674544836,
+            "digits": 2
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.11,
+        "five": 2.53,
+        "fifteen": 2.17
+      },
+      "load_after": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "seconds": 9.696565912
+    },
+    {
+      "id": "timeline-0",
+      "title": "Timeline of a track of 256 chunks, aligned to 0 bytes (0: not aligned), in memory.",
+      "columns": [
+        "Read",
+        "Bytes read per chunk",
+        "ns per chunk"
+      ],
+      "rows": [
+        [
+          "`TapeReader::series_timeline`: the index",
+          {
+            "value": 129.0,
+            "digits": 0
+          },
+          {
+            "value": 100.09765625,
+            "digits": 0
+          }
+        ],
+        [
+          "`TapeReader::read_block` of every chunk",
+          {
+            "value": 1048903.0,
+            "digits": 0
+          },
+          {
+            "value": 75284.78125,
+            "digits": 0
+          }
+        ],
+        [
+          "`TapeReader::range_hash`: unit hashes from the index",
+          {
+            "value": 128.0,
+            "digits": 0
+          },
+          {
+            "value": 154.625,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "load_after": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "seconds": 0.542581476
+    },
+    {
+      "id": "timeline-4096",
+      "title": "Timeline of a track of 256 chunks, aligned to 4096 bytes (0: not aligned), in memory.",
+      "columns": [
+        "Read",
+        "Bytes read per chunk",
+        "ns per chunk"
+      ],
+      "rows": [
+        [
+          "`TapeReader::series_timeline`: the index",
+          {
+            "value": 143.0,
+            "digits": 0
+          },
+          {
+            "value": 105.79296875,
+            "digits": 0
+          }
+        ],
+        [
+          "`TapeReader::read_block` of every chunk",
+          {
+            "value": 1052641.0,
+            "digits": 0
+          },
+          {
+            "value": 78469.18359375,
+            "digits": 0
+          }
+        ],
+        [
+          "`TapeReader::range_hash`: unit hashes from the index",
+          {
+            "value": 128.0,
+            "digits": 0
+          },
+          {
+            "value": 148.6015625,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "load_after": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "seconds": 0.550007638
+    },
+    {
+      "id": "long-timeline",
+      "title": "Timeline of a series of 10000 chunks in 10 stretches, from a file, best of 5 rounds.",
+      "columns": [
+        "Read",
+        "Reads",
+        "ms",
+        "ns per chunk"
+      ],
+      "rows": [
+        [
+          "`TapeReader::series_timeline`",
+          {
+            "value": 23.0,
+            "digits": 0
+          },
+          {
+            "value": 1.030999,
+            "digits": 2
+          },
+          {
+            "value": 103.0999,
+            "digits": 0
+          }
+        ],
+        [
+          "every chunk head (`TapeReader::read_chunk_head`)",
+          {
+            "value": 20003.0,
+            "digits": 0
+          },
+          {
+            "value": 7.236829,
+            "digits": 2
+          },
+          {
+            "value": 723.6829,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "load_after": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "seconds": 0.087584401
+    }
+  ]
+}

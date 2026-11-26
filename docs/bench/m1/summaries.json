@@ -1,0 +1,397 @@
+{
+  "format": 1,
+  "bench": "summaries",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 10
+  },
+  "settings": [
+    [
+      "frames a push",
+      "16384"
+    ],
+    [
+      "MiB a pass",
+      "256"
+    ],
+    [
+      "best of",
+      "5"
+    ],
+    [
+      "node",
+      "2^10 samples"
+    ]
+  ],
+  "machine": {
+    "host": "omarchy-m1",
+    "virtual_machine": false,
+    "cpu": "unknown CPU",
+    "cpus": 10,
+    "arch": "aarch64",
+    "extensions": [
+      "neon",
+      "crc"
+    ],
+    "memory_bytes": 33160609792
+  },
+  "tables": [
+    {
+      "id": "summaries",
+      "title": "Series summaries, every statistic, nodes of 2^10 samples, 16384 frames a push, 256 MiB a pass, best of 5.",
+      "columns": [
+        "Element",
+        "Channels",
+        "RAW MB/s",
+        "Summaries MB/s",
+        "RAW and summaries MB/s"
+      ],
+      "rows": [
+        [
+          "I8",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 69125.06946357894,
+            "digits": 0
+          },
+          {
+            "value": 1933.360437617536,
+            "digits": 0
+          },
+          {
+            "value": 1884.4047500636027,
+            "digits": 0
+          }
+        ],
+        [
+          "U8",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 68743.72732320035,
+            "digits": 0
+          },
+          {
+            "value": 1923.5006458497055,
+            "digits": 0
+          },
+          {
+            "value": 1856.7064543747474,
+            "digits": 0
+          }
+        ],
+        [
+          "I16",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 59993.996028939924,
+            "digits": 0
+          },
+          {
+            "value": 3397.04713348542,
+            "digits": 0
+          },
+          {
+            "value": 3244.5905080148505,
+            "digits": 0
+          }
+        ],
+        [
+          "I16",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 60231.25297442283,
+            "digits": 0
+          },
+          {
+            "value": 2375.495592440391,
+            "digits": 0
+          },
+          {
+            "value": 2256.3108639105308,
+            "digits": 0
+          }
+        ],
+        [
+          "U16",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 61527.82849664095,
+            "digits": 0
+          },
+          {
+            "value": 3449.2786261081483,
+            "digits": 0
+          },
+          {
+            "value": 3264.394543611518,
+            "digits": 0
+          }
+        ],
+        [
+          "I32",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 75368.8574001235,
+            "digits": 0
+          },
+          {
+            "value": 5428.585769608489,
+            "digits": 0
+          },
+          {
+            "value": 5062.543021924272,
+            "digits": 0
+          }
+        ],
+        [
+          "U32",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 71968.26950969915,
+            "digits": 0
+          },
+          {
+            "value": 5396.265473415927,
+            "digits": 0
+          },
+          {
+            "value": 4981.10040835546,
+            "digits": 0
+          }
+        ],
+        [
+          "I64",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 67873.20108572664,
+            "digits": 0
+          },
+          {
+            "value": 4495.515327682459,
+            "digits": 0
+          },
+          {
+            "value": 4117.811153959257,
+            "digits": 0
+          }
+        ],
+        [
+          "U64",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 68153.93646170378,
+            "digits": 0
+          },
+          {
+            "value": 4596.195948238465,
+            "digits": 0
+          },
+          {
+            "value": 4150.975854593759,
+            "digits": 0
+          }
+        ],
+        [
+          "F32",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 79810.41168289125,
+            "digits": 0
+          },
+          {
+            "value": 1916.5059930772295,
+            "digits": 0
+          },
+          {
+            "value": 1861.1116060631998,
+            "digits": 0
+          }
+        ],
+        [
+          "F64",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 67729.75963905109,
+            "digits": 0
+          },
+          {
+            "value": 3813.8438196562365,
+            "digits": 0
+          },
+          {
+            "value": 3498.7523134301177,
+            "digits": 0
+          }
+        ],
+        [
+          "ComplexI16",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 62546.29911822298,
+            "digits": 0
+          },
+          {
+            "value": 4404.043835120203,
+            "digits": 0
+          },
+          {
+            "value": 4114.4370551210695,
+            "digits": 0
+          }
+        ],
+        [
+          "ComplexI16",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 44845.78129442846,
+            "digits": 0
+          },
+          {
+            "value": 3291.18019153659,
+            "digits": 0
+          },
+          {
+            "value": 3062.649889152194,
+            "digits": 0
+          }
+        ],
+        [
+          "ComplexF32",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 69032.47106432519,
+            "digits": 0
+          },
+          {
+            "value": 1643.1289399318414,
+            "digits": 0
+          },
+          {
+            "value": 1586.3736915881677,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 2.85,
+        "five": 2.43,
+        "fifteen": 2.13
+      },
+      "load_after": {
+        "one": 3.31,
+        "five": 2.54,
+        "fifteen": 2.17
+      },
+      "seconds": 13.542448373
+    },
+    {
+      "id": "kernels",
+      "title": "Every statistic of a node of 2^10 frames: one at a time, one pass each, against the single-pass kernel, 256 MiB a pass, best of 5.",
+      "columns": [
+        "Element",
+        "One at a time MB/s",
+        "Portable kernel MB/s",
+        "AVX2 kernel MB/s",
+        "AVX-512 kernel MB/s"
+      ],
+      "rows": [
+        [
+          "I16",
+          {
+            "value": 1700.845422683526,
+            "digits": 0
+          },
+          {
+            "value": 7836.078741605572,
+            "digits": 0
+          },
+          "not on this CPU",
+          "not on this CPU"
+        ],
+        [
+          "ComplexI16",
+          {
+            "value": 785.4141615391027,
+            "digits": 0
+          },
+          {
+            "value": 7193.459832714123,
+            "digits": 0
+          },
+          "not on this CPU",
+          "not on this CPU"
+        ],
+        [
+          "I32",
+          {
+            "value": 3501.570430832072,
+            "digits": 0
+          },
+          {
+            "value": 9444.684592191466,
+            "digits": 0
+          },
+          "not on this CPU",
+          "not on this CPU"
+        ]
+      ],
+      "load_before": {
+        "one": 3.31,
+        "five": 2.54,
+        "fifteen": 2.17
+      },
+      "load_after": {
+        "one": 3.12,
+        "five": 2.52,
+        "fifteen": 2.17
+      },
+      "seconds": 3.395799318
+    }
+  ]
+}

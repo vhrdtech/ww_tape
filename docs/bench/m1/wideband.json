@@ -1,0 +1,1124 @@
+{
+  "format": 1,
+  "bench": "wideband",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 10
+  },
+  "settings": [
+    [
+      "ms",
+      "1000"
+    ],
+    [
+      "replay chunks",
+      "16"
+    ],
+    [
+      "live ms",
+      "60000"
+    ]
+  ],
+  "machine": {
+    "host": "omarchy-m1",
+    "virtual_machine": false,
+    "cpu": "unknown CPU",
+    "cpus": 10,
+    "arch": "aarch64",
+    "extensions": [
+      "neon",
+      "crc"
+    ],
+    "memory_bytes": 33160609792
+  },
+  "tables": [
+    {
+      "id": "writer",
+      "title": "1000 ms of 1 GS/s of IQ in channels, a producer thread each, over one or several muxes. The samples come as fast as the threads take them.",
+      "columns": [
+        "Store",
+        "Channels",
+        "Muxes",
+        "Codec",
+        "Wall ms",
+        "MS/s",
+        "Of 1 GS/s",
+        "MB/s written",
+        "Bytes per sample",
+        "CPU ns per sample",
+        "Waits"
+      ],
+      "rows": [
+        [
+          "no bytes kept",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 1977.760536,
+            "digits": 0
+          },
+          {
+            "value": 505.6223854190607,
+            "digits": 0
+          },
+          {
+            "value": 0.5056223854190607,
+            "digits": 2
+          },
+          {
+            "value": 1544.8035292377783,
+            "digits": 0
+          },
+          {
+            "value": 3.055251456,
+            "digits": 2
+          },
+          {
+            "value": 8.57,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 1975.0152939999998,
+            "digits": 0
+          },
+          {
+            "value": 506.3251930443026,
+            "digits": 0
+          },
+          {
+            "value": 0.5063251930443026,
+            "digits": 2
+          },
+          {
+            "value": 1546.919674638226,
+            "digits": 0
+          },
+          {
+            "value": 3.055190016,
+            "digits": 2
+          },
+          {
+            "value": 9.22,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 2007.022746,
+            "digits": 0
+          },
+          {
+            "value": 498.25045679875916,
+            "digits": 0
+          },
+          {
+            "value": 0.4982504567987592,
+            "digits": 2
+          },
+          {
+            "value": 1522.241657743524,
+            "digits": 0
+          },
+          {
+            "value": 3.055173632,
+            "digits": 2
+          },
+          {
+            "value": 9.03,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          "`RAW`",
+          {
+            "value": 1558.93655,
+            "digits": 0
+          },
+          {
+            "value": 641.4629254795522,
+            "digits": 0
+          },
+          {
+            "value": 0.6414629254795522,
+            "digits": 2
+          },
+          {
+            "value": 2601.3864079330233,
+            "digits": 0
+          },
+          {
+            "value": 4.055396352,
+            "digits": 2
+          },
+          {
+            "value": 6.88,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          "`RAW`",
+          {
+            "value": 1597.785582,
+            "digits": 0
+          },
+          {
+            "value": 625.8662058699189,
+            "digits": 0
+          },
+          {
+            "value": 0.6258662058699188,
+            "digits": 2
+          },
+          {
+            "value": 2538.076566521427,
+            "digits": 0
+          },
+          {
+            "value": 4.055302144,
+            "digits": 2
+          },
+          {
+            "value": 7.689999999999999,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          "`RAW`",
+          {
+            "value": 1628.1964090000001,
+            "digits": 0
+          },
+          {
+            "value": 614.1765173245755,
+            "digits": 0
+          },
+          {
+            "value": 0.6141765173245755,
+            "digits": 2
+          },
+          {
+            "value": 2490.6512221646844,
+            "digits": 0
+          },
+          {
+            "value": 4.055269376,
+            "digits": 2
+          },
+          {
+            "value": 7.32,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 1138.0030539999998,
+            "digits": 0
+          },
+          {
+            "value": 878.7322639294077,
+            "digits": 0
+          },
+          {
+            "value": 0.8787322639294077,
+            "digits": 2
+          },
+          {
+            "value": 2684.8308124136197,
+            "digits": 0
+          },
+          {
+            "value": 3.055345664,
+            "digits": 2
+          },
+          {
+            "value": 8.63,
+            "digits": 1
+          },
+          {
+            "value": 142.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 1160.4759769999998,
+            "digits": 0
+          },
+          {
+            "value": 861.7153821530595,
+            "digits": 0
+          },
+          {
+            "value": 0.8617153821530594,
+            "digits": 2
+          },
+          {
+            "value": 2632.7571759807315,
+            "digits": 0
+          },
+          {
+            "value": 3.055251456,
+            "digits": 2
+          },
+          {
+            "value": 8.82,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 1200.567352,
+            "digits": 0
+          },
+          {
+            "value": 832.9395250788062,
+            "digits": 0
+          },
+          {
+            "value": 0.8329395250788063,
+            "digits": 2
+          },
+          {
+            "value": 2544.802167833729,
+            "digits": 0
+          },
+          {
+            "value": 3.0552064,
+            "digits": 2
+          },
+          {
+            "value": 9.03,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          "`RAW`",
+          {
+            "value": 978.836216,
+            "digits": 0
+          },
+          {
+            "value": 1021.621374091046,
+            "digits": 0
+          },
+          {
+            "value": 1.021621374091046,
+            "digits": 2
+          },
+          {
+            "value": 4143.23860693769,
+            "digits": 0
+          },
+          {
+            "value": 4.055552,
+            "digits": 2
+          },
+          {
+            "value": 7.19,
+            "digits": 1
+          },
+          {
+            "value": 833.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          "`RAW`",
+          {
+            "value": 1078.86185,
+            "digits": 0
+          },
+          {
+            "value": 926.9027355077947,
+            "digits": 0
+          },
+          {
+            "value": 0.9269027355077947,
+            "digits": 2
+          },
+          {
+            "value": 3758.9541756435265,
+            "digits": 0
+          },
+          {
+            "value": 4.055392256,
+            "digits": 2
+          },
+          {
+            "value": 7.14,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          "`RAW`",
+          {
+            "value": 933.490844,
+            "digits": 0
+          },
+          {
+            "value": 1071.2477861218315,
+            "digits": 0
+          },
+          {
+            "value": 1.0712477861218315,
+            "digits": 2
+          },
+          {
+            "value": 4344.250995138845,
+            "digits": 0
+          },
+          {
+            "value": 4.055318528,
+            "digits": 2
+          },
+          {
+            "value": 7.42,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 1201.054397,
+            "digits": 0
+          },
+          {
+            "value": 832.6017560052278,
+            "digits": 0
+          },
+          {
+            "value": 0.8326017560052278,
+            "digits": 2
+          },
+          {
+            "value": 2544.1282989616334,
+            "digits": 0
+          },
+          {
+            "value": 3.05563648,
+            "digits": 2
+          },
+          {
+            "value": 9.06,
+            "digits": 1
+          },
+          {
+            "value": 3432.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 1103.25768,
+            "digits": 0
+          },
+          {
+            "value": 906.4065613393237,
+            "digits": 0
+          },
+          {
+            "value": 0.9064065613393237,
+            "digits": 2
+          },
+          {
+            "value": 2769.4261960632807,
+            "digits": 0
+          },
+          {
+            "value": 3.05539072,
+            "digits": 2
+          },
+          {
+            "value": 9.36,
+            "digits": 1
+          },
+          {
+            "value": 144.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 1151.3049609999998,
+            "digits": 0
+          },
+          {
+            "value": 868.5795978256017,
+            "digits": 0
+          },
+          {
+            "value": 0.8685795978256017,
+            "digits": 2
+          },
+          {
+            "value": 2653.7433117166947,
+            "digits": 0
+          },
+          {
+            "value": 3.05526784,
+            "digits": 2
+          },
+          {
+            "value": 9.42,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          "`RAW`",
+          {
+            "value": 956.48766,
+            "digits": 0
+          },
+          {
+            "value": 1045.4917944262868,
+            "digits": 0
+          },
+          {
+            "value": 1.045491794426287,
+            "digits": 2
+          },
+          {
+            "value": 4240.406053957873,
+            "digits": 0
+          },
+          {
+            "value": 4.055896064,
+            "digits": 2
+          },
+          {
+            "value": 7.39,
+            "digits": 1
+          },
+          {
+            "value": 3372.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          "`RAW`",
+          {
+            "value": 988.819084,
+            "digits": 0
+          },
+          {
+            "value": 1011.3073424460728,
+            "digits": 0
+          },
+          {
+            "value": 1.0113073424460728,
+            "digits": 2
+          },
+          {
+            "value": 4101.401230642106,
+            "digits": 0
+          },
+          {
+            "value": 4.055543808,
+            "digits": 2
+          },
+          {
+            "value": 7.64,
+            "digits": 1
+          },
+          {
+            "value": 547.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          "`RAW`",
+          {
+            "value": 980.902629,
+            "digits": 0
+          },
+          {
+            "value": 1019.4691811759839,
+            "digits": 0
+          },
+          {
+            "value": 1.019469181175984,
+            "digits": 2
+          },
+          {
+            "value": 4134.364125554811,
+            "digits": 0
+          },
+          {
+            "value": 4.05540864,
+            "digits": 2
+          },
+          {
+            "value": 7.73,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "piece files",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          "`PACKED12_LSB`",
+          {
+            "value": 1257.781958,
+            "digits": 0
+          },
+          {
+            "value": 795.0503611850982,
+            "digits": 0
+          },
+          {
+            "value": 0.7950503611850982,
+            "digits": 2
+          },
+          {
+            "value": 2429.088543182935,
+            "digits": 0
+          },
+          {
+            "value": 3.055263744,
+            "digits": 2
+          },
+          {
+            "value": 10.0,
+            "digits": 1
+          },
+          {
+            "value": 114.0,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 6.78,
+        "five": 4.24,
+        "fifteen": 2.97
+      },
+      "load_after": {
+        "one": 9.01,
+        "five": 4.97,
+        "fifteen": 3.25
+      },
+      "seconds": 32.590461558
+    },
+    {
+      "id": "overview",
+      "title": "Channel 0's overview from its chain of piece files: every piece opened and one level of summary nodes read, 1000 ms of 62 MS/s.",
+      "columns": [
+        "Level",
+        "Samples a node",
+        "Nodes",
+        "ms",
+        "Bytes read",
+        "Reads",
+        "Chain bytes"
+      ],
+      "rows": [
+        [
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          {
+            "value": 262144.0,
+            "digits": 0
+          },
+          {
+            "value": 239.0,
+            "digits": 0
+          },
+          {
+            "value": 0.645211,
+            "digits": 1
+          },
+          {
+            "value": 306725.0,
+            "digits": 0
+          },
+          {
+            "value": 18.0,
+            "digits": 0
+          },
+          {
+            "value": 763817984.0,
+            "digits": 0
+          }
+        ],
+        [
+          {
+            "value": 3.0,
+            "digits": 0
+          },
+          {
+            "value": 4194304.0,
+            "digits": 0
+          },
+          {
+            "value": 15.0,
+            "digits": 0
+          },
+          {
+            "value": 0.322002,
+            "digits": 1
+          },
+          {
+            "value": 297051.0,
+            "digits": 0
+          },
+          {
+            "value": 11.0,
+            "digits": 0
+          },
+          {
+            "value": 763817984.0,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 9.01,
+        "five": 4.97,
+        "fifteen": 3.25
+      },
+      "load_after": {
+        "one": 9.01,
+        "five": 4.97,
+        "fifteen": 3.25
+      },
+      "seconds": 0.000989504
+    },
+    {
+      "id": "window",
+      "title": "250 MS/s of IQ in 2 channels, `PACKED12_LSB`, into a window in memory, pieces of 64 MiB; the triage keeps the piece before and after each burst. The samples come as fast as the threads take them; a window takes half the machine's memory.",
+      "columns": [
+        "Kept to",
+        "Source",
+        "Signal ms",
+        "Capture ms",
+        "Of the pace",
+        "Wall ms",
+        "Pieces",
+        "Overrun",
+        "Held max MB",
+        "Tape MB per s",
+        "Window s"
+      ],
+      "rows": [
+        [
+          "memory",
+          "replayed",
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          {
+            "value": 994.193624,
+            "digits": 0
+          },
+          {
+            "value": 1.0058402869016991,
+            "digits": 2
+          },
+          {
+            "value": 995.643255,
+            "digits": 0
+          },
+          {
+            "value": 12.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 135.360998,
+            "digits": 0
+          },
+          {
+            "value": 763.86304,
+            "digits": 0
+          },
+          {
+            "value": 21.705860904069922,
+            "digits": 1
+          }
+        ],
+        [
+          "piece files",
+          "live",
+          {
+            "value": 60000.0,
+            "digits": 0
+          },
+          {
+            "value": 104437.52900699999,
+            "digits": 0
+          },
+          {
+            "value": 0.574506124096238,
+            "digits": 2
+          },
+          {
+            "value": 104448.25379799999,
+            "digits": 0
+          },
+          {
+            "value": 682.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 136.151818,
+            "digits": 0
+          },
+          {
+            "value": 763.8639274666667,
+            "digits": 0
+          },
+          {
+            "value": 21.70583568592919,
+            "digits": 1
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 9.01,
+        "five": 4.97,
+        "fifteen": 3.25
+      },
+      "load_after": {
+        "one": 3.69,
+        "five": 4.27,
+        "fifteen": 3.18
+      },
+      "seconds": 105.790953479
+    },
+    {
+      "id": "triage",
+      "title": "250 MS/s of IQ in 2 channels, `PACKED12_LSB`, into a window in memory, pieces of 64 MiB; the triage keeps the piece before and after each burst. The analyser reads the level-0 summary nodes of each piece on one thread.",
+      "columns": [
+        "Kept to",
+        "Source",
+        "Signal ms",
+        "Triage MB/s",
+        "Of the pace",
+        "Kept pieces",
+        "Kept %",
+        "Results KB",
+        "To disk MB per s",
+        "Copy MB/s"
+      ],
+      "rows": [
+        [
+          "memory",
+          "replayed",
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          {
+            "value": 26747.039825359534,
+            "digits": 0
+          },
+          {
+            "value": 35.01549155377322,
+            "digits": 1
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 1
+          },
+          {
+            "value": 4.096,
+            "digits": 0
+          },
+          {
+            "value": 0.004096,
+            "digits": 1
+          },
+          "none kept"
+        ],
+        [
+          "piece files",
+          "live",
+          {
+            "value": 60000.0,
+            "digits": 0
+          },
+          {
+            "value": 15684.97165468335,
+            "digits": 0
+          },
+          {
+            "value": 20.533724778315058,
+            "digits": 1
+          },
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 2.3487916658362686,
+            "digits": 1
+          },
+          {
+            "value": 8.192,
+            "digits": 0
+          },
+          {
+            "value": 17.9417088,
+            "digits": 1
+          },
+          {
+            "value": 1662.1108008508547,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 9.01,
+        "five": 4.97,
+        "fifteen": 3.25
+      },
+      "load_after": {
+        "one": 3.69,
+        "five": 4.27,
+        "fifteen": 3.18
+      },
+      "seconds": 105.790979479
+    }
+  ]
+}

@@ -1,0 +1,423 @@
+{
+  "format": 1,
+  "bench": "carried",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 10
+  },
+  "settings": [
+    [
+      "item bytes",
+      "4000"
+    ]
+  ],
+  "machine": {
+    "host": "omarchy-m1",
+    "virtual_machine": false,
+    "cpu": "unknown CPU",
+    "cpus": 10,
+    "arch": "aarch64",
+    "extensions": [
+      "neon",
+      "crc"
+    ],
+    "memory_bytes": 33160609792
+  },
+  "tables": [
+    {
+      "id": "pieces",
+      "title": "Pieces cut by bytes whose heads carry the tracks, with their definitions and without, records blocks of 4000 bytes on one of them.",
+      "columns": [
+        "Tracks",
+        "Cut at",
+        "Records blocks",
+        "Records blocks without carried",
+        "Data less (%)",
+        "Piece (bytes)",
+        "Piece without carried (bytes)",
+        "Piece more (%)"
+      ],
+      "rows": [
+        [
+          {
+            "value": 100.0,
+            "digits": 0
+          },
+          "1 MiB",
+          {
+            "value": 253.0,
+            "digits": 0
+          },
+          {
+            "value": 257.0,
+            "digits": 0
+          },
+          {
+            "value": 1.5810276679841897,
+            "digits": 1
+          },
+          {
+            "value": 1114112.0,
+            "digits": 0
+          },
+          {
+            "value": 1085440.0,
+            "digits": 0
+          },
+          {
+            "value": 2.641509433962264,
+            "digits": 1
+          }
+        ],
+        [
+          {
+            "value": 100.0,
+            "digits": 0
+          },
+          "8 MiB",
+          {
+            "value": 2029.0,
+            "digits": 0
+          },
+          {
+            "value": 2040.0,
+            "digits": 0
+          },
+          {
+            "value": 0.5421389847215377,
+            "digits": 1
+          },
+          {
+            "value": 8679424.0,
+            "digits": 0
+          },
+          {
+            "value": 8785920.0,
+            "digits": 0
+          },
+          {
+            "value": -1.2121212121212122,
+            "digits": 1
+          }
+        ],
+        [
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          "1 MiB",
+          {
+            "value": 192.0,
+            "digits": 0
+          },
+          {
+            "value": 236.0,
+            "digits": 0
+          },
+          {
+            "value": 22.916666666666668,
+            "digits": 1
+          },
+          {
+            "value": 1339392.0,
+            "digits": 0
+          },
+          {
+            "value": 1085440.0,
+            "digits": 0
+          },
+          {
+            "value": 23.39622641509434,
+            "digits": 1
+          }
+        ],
+        [
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          "8 MiB",
+          {
+            "value": 1912.0,
+            "digits": 0
+          },
+          {
+            "value": 2019.0,
+            "digits": 0
+          },
+          {
+            "value": 5.596234309623431,
+            "digits": 1
+          },
+          {
+            "value": 8900608.0,
+            "digits": 0
+          },
+          {
+            "value": 8781824.0,
+            "digits": 0
+          },
+          {
+            "value": 1.3526119402985075,
+            "digits": 1
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.59,
+        "five": 2.67,
+        "fifteen": 2.23
+      },
+      "load_after": {
+        "one": 3.59,
+        "five": 2.67,
+        "fifteen": 2.23
+      },
+      "seconds": 0.143589078
+    },
+    {
+      "id": "caps",
+      "title": "A piece of one records block at the track caps, the bytes its carried definitions add, and the time the writer takes for that block with them: it fits the carry to its run once.",
+      "columns": [
+        "Cap",
+        "Tracks",
+        "Carried (bytes)",
+        "Per track (bytes)",
+        "First block (ms)"
+      ],
+      "rows": [
+        [
+          "`TRACKS_PER_PIECE_MAX`",
+          {
+            "value": 466430.0,
+            "digits": 0
+          },
+          {
+            "value": 48701440.0,
+            "digits": 0
+          },
+          {
+            "value": 104.0,
+            "digits": 0
+          },
+          {
+            "value": 1760.806176,
+            "digits": 0
+          }
+        ],
+        [
+          "`HEAD_TRACKS_MAX`",
+          {
+            "value": 699006.0,
+            "digits": 0
+          },
+          {
+            "value": 48701440.0,
+            "digits": 0
+          },
+          {
+            "value": 69.0,
+            "digits": 0
+          },
+          {
+            "value": 2455.902071,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.59,
+        "five": 2.67,
+        "fifteen": 2.23
+      },
+      "load_after": {
+        "one": 3.46,
+        "five": 2.66,
+        "fifteen": 2.22
+      },
+      "seconds": 7.38354532
+    },
+    {
+      "id": "room",
+      "title": "The most tracks a cut carries whole (none left out), by the index policy's state entries, the tracks on one clock or each on its own.",
+      "columns": [
+        "State entries",
+        "Tracks on one clock",
+        "Tracks on their own clocks"
+      ],
+      "rows": [
+        [
+          "1048576 (default)",
+          {
+            "value": 140980.0,
+            "digits": 0
+          },
+          {
+            "value": 96471.0,
+            "digits": 0
+          }
+        ],
+        [
+          "65536",
+          {
+            "value": 65530.0,
+            "digits": 0
+          },
+          {
+            "value": 32765.0,
+            "digits": 0
+          }
+        ],
+        [
+          "4096",
+          {
+            "value": 4090.0,
+            "digits": 0
+          },
+          {
+            "value": 2045.0,
+            "digits": 0
+          }
+        ],
+        [
+          "256",
+          {
+            "value": 250.0,
+            "digits": 0
+          },
+          {
+            "value": 125.0,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.46,
+        "five": 2.66,
+        "fifteen": 2.22
+      },
+      "load_after": {
+        "one": 2.19,
+        "five": 2.42,
+        "fifteen": 2.18
+      },
+      "seconds": 101.782174787
+    },
+    {
+      "id": "state",
+      "title": "The piece after a cut, one records block, when the piece before put each state track once (its newest item carried) or gave each stream track data (its definition alone carried).",
+      "columns": [
+        "Tracks",
+        "Item (bytes)",
+        "State tracks (bytes)",
+        "Stream tracks (bytes)",
+        "Per state (bytes)"
+      ],
+      "rows": [
+        [
+          {
+            "value": 100.0,
+            "digits": 0
+          },
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 94208.0,
+            "digits": 0
+          },
+          {
+            "value": 53248.0,
+            "digits": 0
+          },
+          {
+            "value": 409.6,
+            "digits": 1
+          }
+        ],
+        [
+          {
+            "value": 100.0,
+            "digits": 0
+          },
+          {
+            "value": 64.0,
+            "digits": 0
+          },
+          {
+            "value": 106496.0,
+            "digits": 0
+          },
+          {
+            "value": 53248.0,
+            "digits": 0
+          },
+          {
+            "value": 532.48,
+            "digits": 1
+          }
+        ],
+        [
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 966656.0,
+            "digits": 0
+          },
+          {
+            "value": 540672.0,
+            "digits": 0
+          },
+          {
+            "value": 425.984,
+            "digits": 1
+          }
+        ],
+        [
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          {
+            "value": 64.0,
+            "digits": 0
+          },
+          {
+            "value": 1081344.0,
+            "digits": 0
+          },
+          {
+            "value": 540672.0,
+            "digits": 0
+          },
+          {
+            "value": 540.672,
+            "digits": 1
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 2.19,
+        "five": 2.42,
+        "fifteen": 2.18
+      },
+      "load_after": {
+        "one": 2.19,
+        "five": 2.42,
+        "fifteen": 2.18
+      },
+      "seconds": 0.10191775
+    }
+  ]
+}

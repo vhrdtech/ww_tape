@@ -1,0 +1,175 @@
+{
+  "format": 1,
+  "bench": "tracks",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 10
+  },
+  "settings": [
+    [
+      "tracks",
+      "10000"
+    ],
+    [
+      "piece MiB",
+      "256"
+    ],
+    [
+      "block KiB",
+      "4"
+    ]
+  ],
+  "machine": {
+    "host": "omarchy-m1",
+    "virtual_machine": false,
+    "cpu": "unknown CPU",
+    "cpus": 10,
+    "arch": "aarch64",
+    "extensions": [
+      "neon",
+      "crc"
+    ],
+    "memory_bytes": 33160609792
+  },
+  "tables": [
+    {
+      "id": "add",
+      "title": "10000 tracks added one by one, a records block each, into a piece in memory of 10727424 bytes.",
+      "columns": [
+        "What",
+        "s"
+      ],
+      "rows": [
+        [
+          "add 1000 tracks",
+          {
+            "value": 0.025488691,
+            "digits": 3
+          }
+        ],
+        [
+          "add 5000 tracks",
+          {
+            "value": 0.088325775,
+            "digits": 3
+          }
+        ],
+        [
+          "add 10000 tracks",
+          {
+            "value": 0.144320322,
+            "digits": 3
+          }
+        ],
+        [
+          "close the piece",
+          {
+            "value": 0.021384486,
+            "digits": 3
+          }
+        ],
+        [
+          "open it and read the definitions",
+          {
+            "value": 0.030605272,
+            "digits": 3
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "load_after": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "seconds": 0.197156205
+    },
+    {
+      "id": "puts",
+      "title": "Put and copied bytes in a piece of 256 MiB, 10000 tracks defined, records blocks of 4 KiB on the tracks in use in turn; the default policies: a near of 32 MiB, 2 copies, the first 4 KiB after the first record, the next 1 MiB after it.",
+      "columns": [
+        "Tracks in use",
+        "Put and copied bytes",
+        "Of the piece, %"
+      ],
+      "rows": [
+        [
+          "10000",
+          {
+            "value": 7713437.0,
+            "digits": 0
+          },
+          {
+            "value": 2.8734706173709217,
+            "digits": 3
+          }
+        ],
+        [
+          "100",
+          {
+            "value": 111550.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0415551640350892,
+            "digits": 3
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.02,
+        "five": 2.53,
+        "fifteen": 2.18
+      },
+      "load_after": {
+        "one": 2.93,
+        "five": 2.52,
+        "fifteen": 2.17
+      },
+      "seconds": 2.000151164
+    },
+    {
+      "id": "idle",
+      "title": "Work per records block when nothing needs writing: 10000 blocks on a track whose definition is 60 KiB.",
+      "columns": [
+        "What",
+        "Bytes per block"
+      ],
+      "rows": [
+        [
+          "hashed",
+          {
+            "value": 0.0,
+            "digits": 1
+          }
+        ],
+        [
+          "copied",
+          {
+            "value": 12.3095,
+            "digits": 1
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 2.93,
+        "five": 2.52,
+        "fifteen": 2.17
+      },
+      "load_after": {
+        "one": 2.93,
+        "five": 2.52,
+        "fifteen": 2.17
+      },
+      "seconds": 0.016359115
+    }
+  ]
+}

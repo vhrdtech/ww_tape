@@ -1,0 +1,329 @@
+{
+  "format": 1,
+  "bench": "drive",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 10
+  },
+  "settings": [
+    [
+      "rounds",
+      "3"
+    ]
+  ],
+  "machine": {
+    "host": "omarchy-m1",
+    "virtual_machine": false,
+    "cpu": "unknown CPU",
+    "cpus": 10,
+    "arch": "aarch64",
+    "extensions": [
+      "neon",
+      "crc"
+    ],
+    "memory_bytes": 33160609792
+  },
+  "tables": [
+    {
+      "id": "write",
+      "title": "The drive's hour recorded into memory, its signals made by the example as it goes, the best of 3 rounds.",
+      "columns": [
+        "Recording",
+        "Seconds",
+        "MB/s of the recording",
+        "Times faster than the run"
+      ],
+      "rows": [
+        [
+          "with summaries of `phase_a`",
+          {
+            "value": 0.836693638,
+            "digits": 2
+          },
+          {
+            "value": 138.07154584818298,
+            "digits": 0
+          },
+          {
+            "value": 4302.650141580257,
+            "digits": 0
+          }
+        ],
+        [
+          "without summaries",
+          {
+            "value": 0.751245991,
+            "digits": 2
+          },
+          {
+            "value": 148.48726693571135,
+            "digits": 0
+          },
+          {
+            "value": 4792.038883572558,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 2.93,
+        "five": 2.52,
+        "fifteen": 2.17
+      },
+      "load_after": {
+        "one": 2.86,
+        "five": 2.51,
+        "fifteen": 2.17
+      },
+      "seconds": 7.277661568
+    },
+    {
+      "id": "sizes",
+      "title": "The drive's hour at full scale: 4 pieces, 115523584 bytes.",
+      "columns": [
+        "Part",
+        "Bytes",
+        "Of the recording, %",
+        "Bytes per second of the run"
+      ],
+      "rows": [
+        [
+          "series chunks of `phase_a`",
+          {
+            "value": 99617283.0,
+            "digits": 0
+          },
+          {
+            "value": 86.23112229620577,
+            "digits": 2
+          },
+          {
+            "value": 27671.4675,
+            "digits": 0
+          }
+        ],
+        [
+          "events chunks of `can0`",
+          {
+            "value": 8400924.0,
+            "digits": 0
+          },
+          {
+            "value": 7.272042390928592,
+            "digits": 2
+          },
+          {
+            "value": 2333.59,
+            "digits": 0
+          }
+        ],
+        [
+          "summaries of `phase_a`",
+          {
+            "value": 3301304.0,
+            "digits": 0
+          },
+          {
+            "value": 2.8576883487271307,
+            "digits": 2
+          },
+          {
+            "value": 917.0288888888889,
+            "digits": 0
+          }
+        ],
+        [
+          "records blocks of `log`, `temp` and `mode`",
+          {
+            "value": 811071.0,
+            "digits": 0
+          },
+          {
+            "value": 0.7020826154424018,
+            "digits": 2
+          },
+          {
+            "value": 225.2975,
+            "digits": 0
+          }
+        ],
+        [
+          "puts and copies",
+          {
+            "value": 8306.0,
+            "digits": 0
+          },
+          {
+            "value": 0.007189873887569139,
+            "digits": 2
+          },
+          {
+            "value": 2.3072222222222223,
+            "digits": 0
+          }
+        ],
+        [
+          "checkpoints and final indexes",
+          {
+            "value": 3368448.0,
+            "digits": 0
+          },
+          {
+            "value": 2.9158098142107503,
+            "digits": 2
+          },
+          {
+            "value": 935.68,
+            "digits": 0
+          }
+        ],
+        [
+          "piece heads, closes and tails",
+          {
+            "value": 16248.0,
+            "digits": 0
+          },
+          {
+            "value": 0.014064660597787548,
+            "digits": 2
+          },
+          {
+            "value": 4.513333333333334,
+            "digits": 0
+          }
+        ],
+        [
+          "other blocks",
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "zeros between blocks",
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "the recording",
+          {
+            "value": 115523584.0,
+            "digits": 0
+          },
+          {
+            "value": 100.0,
+            "digits": 2
+          },
+          {
+            "value": 32089.884444444444,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 2.86,
+        "five": 2.51,
+        "fifteen": 2.17
+      },
+      "load_after": {
+        "one": 2.86,
+        "five": 2.51,
+        "fifteen": 2.17
+      },
+      "seconds": 0.016193031
+    },
+    {
+      "id": "items",
+      "title": "Bytes per item of the drive's streams, their chunks whole.",
+      "columns": [
+        "Stream",
+        "Items",
+        "Items per second",
+        "Chunk bytes",
+        "Bytes per item",
+        "Raw bytes per item"
+      ],
+      "rows": [
+        [
+          "`can0` frames",
+          {
+            "value": 3600000.0,
+            "digits": 0
+          },
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          {
+            "value": 8400924.0,
+            "digits": 0
+          },
+          {
+            "value": 2.33359,
+            "digits": 3
+          },
+          {
+            "value": 20.0,
+            "digits": 3
+          }
+        ],
+        [
+          "`phase_a` samples",
+          {
+            "value": 90000000.0,
+            "digits": 0
+          },
+          {
+            "value": 25000.0,
+            "digits": 0
+          },
+          {
+            "value": 99617283.0,
+            "digits": 0
+          },
+          {
+            "value": 1.1068587,
+            "digits": 3
+          },
+          {
+            "value": 2.0,
+            "digits": 3
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 2.86,
+        "five": 2.51,
+        "fifteen": 2.17
+      },
+      "load_after": {
+        "one": 2.86,
+        "five": 2.51,
+        "fifteen": 2.17
+      },
+      "seconds": 0.19631267
+    }
+  ]
+}
