@@ -21,6 +21,7 @@ benchmarks, golden files and book pages.
 ### Fixes
 
 - A cut past one run's carried blocks leaves out the oldest tracks; keyed and wanted alone get `CarryTooLong` (WRITE-17).
+- Defining a track or clock no longer walks every number taken: 100k tracks take 0.19 s (TRACK-7).
 
 ## [0.16.0] - 2026-11-26
 

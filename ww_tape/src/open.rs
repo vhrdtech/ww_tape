@@ -558,6 +558,10 @@ pub struct Numbers {
     track_keys: BTreeMap<TrackNum, (TrackId, [u8; 32])>,
     clocks: BTreeMap<ClockKey, ClockNum>,
     clock_keys: BTreeMap<ClockNum, ClockKey>,
+    /// The track numbers not in `track_keys`
+    tracks_free: Free,
+    /// The clock numbers not in `clock_keys`
+    clocks_free: Free,
 }
 
 impl Numbers {
@@ -581,10 +585,12 @@ impl Numbers {
         if let Some(old) = self.track_keys.insert(number, (id, owner)) {
             self.tracks.remove(&old);
         }
+        self.tracks_free.take(number.get());
         if let Some(old) = self.tracks.insert((id, owner), number)
             && old != number
+            && self.track_keys.remove(&old).is_some()
         {
-            self.track_keys.remove(&old);
+            self.tracks_free.give_back(old.get());
         }
     }
 
@@ -593,10 +599,12 @@ impl Numbers {
         if let Some(old) = self.clock_keys.insert(number, key) {
             self.clocks.remove(&old);
         }
+        self.clocks_free.take(number.get());
         if let Some(old) = self.clocks.insert(key, number)
             && old != number
+            && self.clock_keys.remove(&old).is_some()
         {
-            self.clock_keys.remove(&old);
+            self.clocks_free.give_back(old.get());
         }
     }
 
@@ -616,7 +624,8 @@ impl Numbers {
         if let Some(n) = self.track(id, owner) {
             return Ok(n);
         }
-        lowest_free(self.track_keys.keys().map(|n| n.get()))
+        self.tracks_free
+            .lowest()
             .and_then(TrackNum::try_new)
             .ok_or(DescribeError::NumbersSpent)
     }
@@ -626,22 +635,98 @@ impl Numbers {
         if let Some(n) = self.clock(key) {
             return Ok(n);
         }
-        lowest_free(self.clock_keys.keys().map(|n| n.get()))
+        self.clocks_free
+            .lowest()
             .and_then(ClockNum::try_new)
             .ok_or(DescribeError::NumbersSpent)
     }
 }
 
-/// The lowest number from 1 up that `taken`, ascending, doesn't hold; None when all are.
-fn lowest_free(taken: impl Iterator<Item = u32>) -> Option<u32> {
-    let mut next = 1u32;
-    for n in taken {
-        if n != next {
-            break;
+/// The numbers from 1 up that a set of [Numbers] doesn't take, as runs below the highest it takes: the lowest of them
+/// without a walk over those taken. The runs follow from the numbers taken alone, so two sets taking the same numbers
+/// are equal.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Free {
+    /// The highest number taken; 0 when none is
+    top: u32,
+    /// The runs of numbers not taken below `top`, by their first number: their last number
+    gaps: BTreeMap<u32, u32>,
+}
+
+impl Free {
+    /// The lowest number from 1 up not taken; None when all are.
+    fn lowest(&self) -> Option<u32> {
+        match self.gaps.first_key_value() {
+            Some((first, _)) => Some(*first),
+            None => self.top.checked_add(1),
         }
-        next = next.checked_add(1)?;
     }
-    Some(next)
+
+    /// Number `n` (1 and up) is taken.
+    fn take(&mut self, n: u32) {
+        if n == 0 {
+            return;
+        }
+        if n > self.top {
+            // the numbers between the old top and `n` are a new run
+            if let (Some(first), Some(last)) = (self.top.checked_add(1), n.checked_sub(1))
+                && first <= last
+            {
+                self.gaps.insert(first, last);
+            }
+            self.top = n;
+            return;
+        }
+        let Some((&first, &last)) = self.gaps.range(..=n).next_back() else {
+            return;
+        };
+        if n > last {
+            return;
+        }
+        self.gaps.remove(&first);
+        if let Some(before) = n.checked_sub(1)
+            && first <= before
+        {
+            self.gaps.insert(first, before);
+        }
+        if let Some(after) = n.checked_add(1)
+            && after <= last
+        {
+            self.gaps.insert(after, last);
+        }
+    }
+
+    /// Number `n`, taken, is not taken any more.
+    fn give_back(&mut self, n: u32) {
+        let Some(below) = n.checked_sub(1) else {
+            return;
+        };
+        if n == self.top {
+            // the top falls below the run that ends right under it
+            self.top = below;
+            if let Some((&first, &last)) = self.gaps.last_key_value()
+                && last == below
+            {
+                self.gaps.remove(&first);
+                self.top = first.saturating_sub(1);
+            }
+            return;
+        }
+        let mut first = n;
+        let mut last = n;
+        if let Some((&f, &l)) = self.gaps.range(..n).next_back()
+            && l == below
+        {
+            self.gaps.remove(&f);
+            first = f;
+        }
+        if let Some(after) = n.checked_add(1)
+            && let Some(l) = self.gaps.remove(&after)
+        {
+            last = l;
+        }
+        self.gaps.insert(first, last);
+    }
 }
 
 /// The definitions an application works with, see the [module docs](self).
@@ -1479,4 +1564,90 @@ pub(crate) fn is_held(d: &Describe<'_>) -> bool {
             | DefinitionKind::Producer
             | DefinitionKind::Layout
     )
+}
+
+#[cfg(test)]
+mod numbers_tests {
+    use super::*;
+
+    /// The lowest number from 1 up that `taken`, ascending, doesn't hold, by a walk over them all: what [Free] stands
+    /// for.
+    fn walk(taken: impl Iterator<Item = u32>) -> Option<u32> {
+        let mut next = 1u32;
+        for n in taken {
+            if n != next {
+                break;
+            }
+            next = next.checked_add(1)?;
+        }
+        Some(next)
+    }
+
+    /// Tracks and clocks taken, moved to other numbers and their numbers reused in a mixed order, high numbers among
+    /// them: after each step the next free number is the walk's, and the set equals one built from scratch with the
+    /// same numbers.
+    #[test]
+    fn the_lowest_free_number_matches_the_walk() {
+        let mut numbers = Numbers::new();
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        let mut rand = move |m: u64| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x % m
+        };
+        let pick = |r: u64| -> u32 {
+            match r % 10 {
+                0 => 1000 + (r / 10 % 3) as u32,
+                1 => u32::MAX - (r / 10 % 2) as u32,
+                _ => 1 + (r / 10 % 40) as u32,
+            }
+        };
+        for step in 0..20_000 {
+            // an identity of 24, so a take often moves one to another number and frees its old one
+            let who = rand(24);
+            let number = pick(rand(1 << 20));
+            if rand(2) == 0 {
+                numbers.take_track(TrackNum::new(number), TrackId::new(who), [0; 32]);
+            } else {
+                numbers.take_clock(ClockNum::new(number), ClockKey::new(who));
+            }
+            let tracks = walk(numbers.track_keys.keys().map(|n| n.get()));
+            let clocks = walk(numbers.clock_keys.keys().map(|n| n.get()));
+            assert_eq!(numbers.tracks_free.lowest(), tracks, "step {step}");
+            assert_eq!(numbers.clocks_free.lowest(), clocks, "step {step}");
+            let mut fresh = Numbers::new();
+            for (n, (id, owner)) in &numbers.track_keys {
+                fresh.take_track(*n, *id, *owner);
+            }
+            for (n, key) in &numbers.clock_keys {
+                fresh.take_clock(*n, *key);
+            }
+            assert_eq!(fresh, numbers, "step {step}");
+        }
+        // a new identity gets the lowest free number
+        let free = walk(numbers.track_keys.keys().map(|n| n.get()));
+        assert_eq!(
+            numbers.track_for(TrackId::new(1 << 40), [0; 32]).ok(),
+            free.and_then(TrackNum::try_new)
+        );
+    }
+
+    /// Every number taken: no number is left for a new track.
+    #[test]
+    fn numbers_spent_at_the_top() {
+        let mut free = Free::default();
+        free.take(u32::MAX);
+        assert_eq!(free.lowest(), Some(1));
+        let mut all = Free {
+            top: u32::MAX,
+            gaps: BTreeMap::new(),
+        };
+        assert_eq!(all.lowest(), None);
+        all.give_back(7);
+        assert_eq!(all.lowest(), Some(7));
+        all.give_back(u32::MAX);
+        all.take(7);
+        assert_eq!(all.lowest(), Some(u32::MAX));
+    }
 }
