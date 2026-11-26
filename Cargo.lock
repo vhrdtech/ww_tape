@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "example_capture"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "exact_units",
  "libm",
@@ -517,7 +517,7 @@ dependencies = [
 
 [[package]]
 name = "example_drive"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "exact_units",
  "example_capture",
@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "example_ethernet"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "exact_units",
  "example_capture",
@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "example_images"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "example_capture",
  "shrink_wrap",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "example_rf"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "exact_units",
  "example_capture",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "example_settings"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "shrink_wrap",
  "ww_tape",
@@ -577,7 +577,7 @@ dependencies = [
 
 [[package]]
 name = "example_thermal"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "example_capture",
  "shrink_wrap",
@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "example_wideband"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "exact_units",
  "example_capture",
@@ -1461,7 +1461,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "blake3",
  "exact_units",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_bench"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1487,7 +1487,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_bench_report"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -1496,7 +1496,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_benchmarks"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1522,11 +1522,11 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_book_outputs"
-version = "0.16.0"
+version = "0.16.1"
 
 [[package]]
 name = "ww_tape_codecs"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "crc",
  "lz4_flex",
@@ -1534,7 +1534,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_codecs_benchmarks"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1548,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_figures"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "anyhow",
  "exact_units",
@@ -1564,7 +1564,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_fs"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "libc",
  "rayon",
@@ -1577,7 +1577,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_fuzz"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "blake3",
  "crc",
@@ -1591,7 +1591,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_mux"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "exact_units",
  "shrink_wrap",
@@ -1601,7 +1601,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_summary"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "exact_units",
  "shrink_wrap",
@@ -1612,11 +1612,11 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_testalloc"
-version = "0.16.0"
+version = "0.16.1"
 
 [[package]]
 name = "ww_tape_tests"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "blake3",
  "crc",
