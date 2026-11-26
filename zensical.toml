@@ -119,10 +119,11 @@ nav = [
 # figures.css: the classes of the SVG figures the pages inline from docs/figures and docs/plots, light and dark;
 # shots.css: shows the light or the dark screenshot of a pair per scheme;
 # hero.css: the logo at the top of index.md; vz-refs.css and vz-refs.js: the cards of glossary terms and code links;
-# vz-code.css: the code colours; all three written by `vz prep` (`just book-refs`)
-extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/tables.css", "stylesheets/code.css", "stylesheets/shots.css", "stylesheets/hero.css", "stylesheets/vz-refs.css", "stylesheets/vz-code.css"]
+# vz-code.css: the code colours; vz-review.css and vz-review.js: the read badge and review marks; all written by
+# `vz prep` (`just book-refs`)
+extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/tables.css", "stylesheets/code.css", "stylesheets/shots.css", "stylesheets/hero.css", "stylesheets/vz-refs.css", "stylesheets/vz-code.css", "stylesheets/vz-review.css"]
 # javascripts/vz-stamp-age.js is written by `just book-refs` (`vz prep`), not in git
-extra_javascript = ["javascripts/vz-refs.js", "javascripts/vz-stamp-age.js"]
+extra_javascript = ["javascripts/vz-refs.js", "javascripts/vz-stamp-age.js", "javascripts/vz-review.js"]
 
 [project.theme]
 # overrides/main.html: the reading level badge above a page's title, from its `level:` front matter (docs/levels.md);
@@ -228,6 +229,9 @@ pymdownx.tilde = {}
 "vhrd_zensical.glossary" = {}
 # CAN, SD and every abbreviation of docs/abbreviations.toml: its long form on hover, through `abbr` above
 "vhrd_zensical.abbreviations" = {}
+# A "Read 82%" badge above "On this page" and review marks beside each block (badge or `r`), from
+# target/vz/review.json (`glossator book export`, `just book-refs`); without the file, nothing
+"vhrd_zensical.review" = {}
 # [`Name`], [`file.rs`], [`file.rs:section`]: an item or file of these crates, the format's and the running example's:
 # its code on hover, its lines on GitHub on click; a name that matches nothing fails the build
 "vhrd_zensical.code_refs" = { crates = ["ww_tape", "ww_tape_codecs", "ww_tape_summary", "ww_tape_fs", "ww_tape_mux", "example_capture", "example_drive", "example_ethernet", "example_rf", "example_wideband"] }

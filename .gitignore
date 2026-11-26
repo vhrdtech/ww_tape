@@ -31,3 +31,5 @@ docs/stylesheets/vz-code.css
 docs/javascripts/vz-refs.js
 /overrides/partials/vz-stamp.html
 /docs/javascripts/vz-stamp-age.js
+/docs/javascripts/vz-review.js
+docs/stylesheets/vz-review.css

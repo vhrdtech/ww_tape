@@ -27,7 +27,7 @@ fuzz_host_triple := `rustc -vV | sed -n 's/^host: //p'`
 nightly := "nightly-2026-11-19"
 # The book kit: cards, glossary, abbreviations, lexers, the footer stamp and the `vz` command, with its tested
 # Zensical pinned as an extra, so this one pin covers both
-kit := "vhrd-zensical[zensical]==0.3.1"
+kit := "vhrd-zensical[zensical] @ git+https://github.com/vhrdtech/vhrd_zensical@f00e68d37bf157e198e66ff4f958e855477858a1"
 # The prose lints book-check runs: at deny in spirit_level.toml
 prose_lints := "--only prose-run-words --only page-reading-time --only heading-words --only code-wall --only code-block-language --only passive-voice --only reading-ease --only orphan-pages --only page-title --only abbreviation-first-use --only term-before-definition --only paragraph-sentences --only sentence-words --only emoji --only page-links --only nav-entries"
 
@@ -240,11 +240,13 @@ book-outputs:
     WW_TAPE_BOOK_OUTPUTS=write cargo nextest run --workspace -E 'test(/book_output/)'
 
 # Check the glossary (docs/glossary.toml) and write what the book's references read: the index of the crates' public
-# items (target/vz/code_index.json), the cards' stylesheet and script, and the footer's build stamp and its age
-# script (not in git)
+# items (target/vz/code_index.json), the cards' stylesheet and script, what is proofread (target/vz/review.json),
+# and the footer's build stamp and its age script (not in git)
 [group('book')]
 book-refs:
     uv run --with "{{ kit }}" vz prep --name ww_tape
+    # what is proofread, for the read badge and review marks; without glossator the book shows none
+    if command -v glossator >/dev/null; then mkdir -p target/vz && glossator book export > target/vz/review.json; fi
 
 # The book's prose lints of spirit_level.toml (sentence and paragraph length, reading time, terms). Without spl it fails
 # in CI and is skipped elsewhere
