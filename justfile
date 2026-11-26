@@ -27,7 +27,7 @@ fuzz_host_triple := `rustc -vV | sed -n 's/^host: //p'`
 nightly := "nightly-2026-11-19"
 # The book kit: cards, glossary, abbreviations, lexers, the footer stamp and the `vz` command, with its tested
 # Zensical pinned as an extra, so this one pin covers both
-kit := "vhrd-zensical[zensical] @ git+https://github.com/vhrdtech/vhrd_zensical@f00e68d37bf157e198e66ff4f958e855477858a1"
+kit := "vhrd-zensical[zensical]==0.4.0"
 # The prose lints book-check runs: at deny in spirit_level.toml
 prose_lints := "--only prose-run-words --only page-reading-time --only heading-words --only code-wall --only code-block-language --only passive-voice --only reading-ease --only orphan-pages --only page-title --only abbreviation-first-use --only term-before-definition --only paragraph-sentences --only sentence-words --only emoji --only page-links --only nav-entries"
 
