@@ -869,11 +869,9 @@ fn format_page_integrity_fields_are_the_constants() {
     );
 }
 
-/// The index entry's range pair, flag bit 1 and unit hash, the head and close rows' owner and the piece head's
-/// integrity byte on the page, read from a chain of two pieces of a track with a range relation and an owner.
+/// The rows of the index block, its entries and their flags that the chain test below reads.
 #[test]
-fn format_page_relations_and_owner_read_a_chain() {
-    use ww_tape::{ChainOptions, Describe, MemPieces, OwnerId, PieceChain, TrackDef};
+fn format_page_index_rows_are_the_entries() {
     let entry_flags = table("../docs/format.md", "| Entry bit | Marks |");
     let marks: Vec<&str> = entry_flags.iter().map(|r| r[1].as_str()).collect();
     assert!(marks[0].starts_with("repeat"), "{marks:?}");
@@ -910,6 +908,13 @@ fn format_page_relations_and_owner_read_a_chain() {
     );
     assert_eq!(row(&index, "58", "u16", "entry length").meaning, "128");
     row(&layout("integrity"), "146", "u8", "integrity");
+}
+
+/// The index entry's range pair, flag bit 1 and unit hash, the head and close rows' owner and the piece head's
+/// integrity byte on the page, read from a chain of two pieces of a track with a range relation and an owner.
+#[test]
+fn format_page_relations_and_owner_read_a_chain() {
+    use ww_tape::{ChainOptions, Describe, MemPieces, OwnerId, PieceChain, TrackDef};
     let owner = [9u8; 32];
     let Describe::Track(t) = crate::relations::decoded() else {
         unreachable!("decoded() gives a track")
