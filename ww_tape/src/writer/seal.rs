@@ -62,7 +62,8 @@ pub enum SealError {
     NotClosed,
     /// The piece doesn't start with a piece head: a file without one is of [Integrity::Full].
     NoHead,
-    /// A block at `offset` doesn't read whole, or bytes there start no block: a damaged piece is not sealed.
+    /// A block at `offset` doesn't read whole, bytes there start no block, or the block is of a version or kind this
+    /// build doesn't know: a damaged piece is not sealed.
     Damaged { offset: u64 },
     /// The block or end the writer makes at `offset` has another length than the one there: no writer of this format
     /// wrote the piece.
@@ -93,8 +94,8 @@ struct Src<'s, B> {
 }
 
 impl<B: ByteSource> Src<'_, B> {
-    /// The whole block at `at`, read into `buf`, with its kind: one that doesn't read whole is
-    /// [SealError::Damaged].
+    /// The whole block at `at`, read into `buf`, with its kind: one that doesn't read whole, or of a version or kind
+    /// this build doesn't know, is [SealError::Damaged].
     fn block<E: From<B::Error>>(
         &self,
         at: u64,
@@ -114,8 +115,13 @@ impl<B: ByteSource> Src<'_, B> {
             .ok_or_else(damaged)?;
         buf.resize(len, 0);
         self.read(at, buf)?;
-        let kind = Block::read(buf).map_err(|_bad| damaged())?.kind;
-        Ok(kind)
+        let block = Block::read(buf).map_err(|_bad| damaged())?;
+        // no writer of this format writes such a block; marked FLAG_PAYLOAD_UNCHECKED it reads unchecked, and its
+        // CRCs can't be filled without knowing where they go
+        if block.version != crate::VERSION || matches!(block.kind, BlockKind::Other(_)) {
+            return Err(damaged());
+        }
+        Ok(block.kind)
     }
 
     fn read<E: From<B::Error>>(&self, at: u64, buf: &mut [u8]) -> Result<(), WriteError<E>> {

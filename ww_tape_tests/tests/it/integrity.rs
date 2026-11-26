@@ -257,6 +257,34 @@ fn a_seal_refuses_what_it_cannot_raise_and_leaves_readers_alone() {
     assert!(mem.get(&0).unwrap().unwrap().to_vec().unwrap() != bytes);
 }
 
+/// A seal refuses a chunk of a version or kind it doesn't know, which a piece of None carries unchecked: it can't
+/// tell where the chunk's CRCs go, and no writer of this format wrote it.
+#[test]
+fn a_seal_refuses_a_chunk_it_cannot_read() {
+    use ww_tape::{SealError, WriteError};
+    let bytes = crate::resume::written_on(0, Integrity::None);
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let e = r.entries(0).unwrap();
+    let chunk = e.iter().find(|e| e.kind == BlockKind::Events).unwrap();
+    let at = usize::try_from(chunk.offset).unwrap();
+    // the version byte, then the kind byte, to values this build doesn't know
+    for (byte, value) in [(4, ww_tape::VERSION + 1), (5, 0xee)] {
+        let mut unknown = bytes.clone();
+        unknown[at + byte] = value;
+        let mem = store(std::slice::from_ref(&unknown), false);
+        let Err(WriteError::Seal(e)) = mem.seal(&0, None) else {
+            panic!("refused")
+        };
+        assert_eq!(
+            e,
+            SealError::Damaged {
+                offset: chunk.offset
+            }
+        );
+        assert!(mem.get(&0).unwrap().unwrap().to_vec().unwrap() == unknown);
+    }
+}
+
 /// Files of a chain of each level, sealed in place file by file, hold the bytes of the chain written at Full; a
 /// file whose blocks were sealed but not its head (a crash before the head's write) seals to Full too; a file a
 /// writer holds or with an unclosed piece is refused and left as it is.

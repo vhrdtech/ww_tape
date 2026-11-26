@@ -18,6 +18,10 @@ benchmarks, golden files and book pages.
 - Book: commands are `console` blocks, and each program output shows the command that prints it (BOOK-8).
 - Example `example_settings`: parameters on a keyed state track, a group of puts, a firmware image on a bytes track (BOOK-8).
 
+### Fixes
+
+- Seal refuses a chunk of an unknown version or kind instead of filling its CRCs as version 1 (FMT-14).
+
 ## [0.16.0] - 2026-11-26
 
 ### Breaking

@@ -43,6 +43,11 @@ pub const KNOWN_INPUTS: &[(&str, &str, &str)] = &[];
 
 /// Inputs these tests and the fuzz targets found that failed until a fix: target, name (seed `fixed-<name>`), hex.
 pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
+    (
+        "tape-seal",
+        "chunk-of-an-unknown-version-unsealed",
+        "2a010b2a",
+    ),
     ("tape-index", "empty-index-reads-back", "0a"),
     (
         "tape-index",
