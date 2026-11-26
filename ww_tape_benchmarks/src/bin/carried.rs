@@ -220,12 +220,13 @@ fn displaced(n: u32, fill: u64) -> anyhow::Result<((u64, u64), (u64, u64))> {
 }
 
 /// The bytes of a piece of one records block whose head carries `n` tracks, with the definitions of every track
-/// and without them.
-fn carried(n: u32) -> anyhow::Result<(u64, u64)> {
+/// and without them, and the time the piece with them took.
+fn carried(n: u32) -> anyhow::Result<(u64, u64, std::time::Duration)> {
     let (every, one, rows) = tracks(n)?;
     let (base, _) = piece(&one, &rows, 0, Some(1))?;
+    let start = std::time::Instant::now();
     let (with, _) = piece(&every, &rows, 0, Some(1))?;
-    Ok((with, base))
+    Ok((with, base, start.elapsed()))
 }
 
 /// Whether a cut under `policy` state entries carries the definitions of all `n` tracks (on one clock, or each on
@@ -369,20 +370,28 @@ fn main() -> anyhow::Result<()> {
     println!("{}", bench.push(table));
     let mut table = bench.table(
         "caps",
-        "A piece of one records block at the track caps, the bytes its carried definitions add.",
-        &["Cap", "Tracks", "Carried (bytes)", "Per track (bytes)"],
+        "A piece of one records block at the track caps, the bytes its carried definitions add, and the time the \
+         writer takes for that block with them: it fits the carry to its run once.",
+        &[
+            "Cap",
+            "Tracks",
+            "Carried (bytes)",
+            "Per track (bytes)",
+            "First block (ms)",
+        ],
     );
     for (cap, n) in [
         ("`TRACKS_PER_PIECE_MAX`", TRACKS_PER_PIECE_MAX),
         ("`HEAD_TRACKS_MAX`", HEAD_TRACKS_MAX),
     ] {
-        let (with, base) = carried(u32::try_from(n)?)?;
+        let (with, base, took) = carried(u32::try_from(n)?)?;
         let extra = with - base;
         table.row(vec![
             Cell::text(cap),
             Cell::count(n as u64),
             Cell::count(extra),
             Cell::count(extra / n as u64),
+            Cell::num(took.as_secs_f64() * 1e3, 0),
         ]);
     }
     println!("{}", bench.push(table));
