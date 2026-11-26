@@ -1,13 +1,13 @@
 {
   "format": 1,
   "bench": "read_check",
-  "version": "0.4.0 (026660e71, commit 23 Nov 2026 04:09 UTC)",
-  "commit": "026660e71",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
   "dirty": false,
   "build": {
     "profile": "release",
     "opt_level": "3",
-    "jobs": 24
+    "jobs": 14
   },
   "settings": [
     [
@@ -24,17 +24,17 @@
     ]
   ],
   "machine": {
-    "host": "gpd-omarchy",
-    "virtual_machine": false,
-    "cpu": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
-    "cpus": 24,
+    "host": "build-1",
+    "virtual_machine": true,
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
     "arch": "x86_64",
     "extensions": [
       "sse4.2",
       "avx2",
       "avx512bw+vl"
     ],
-    "memory_bytes": 32704200704
+    "memory_bytes": 37816610816
   },
   "tables": [
     {
@@ -56,11 +56,11 @@
             "digits": 0
           },
           {
-            "value": 57400.90625,
+            "value": 59343.375,
             "digits": 0
           },
           {
-            "value": 18.271052994045718,
+            "value": 17.67299214107725,
             "digits": 2
           }
         ],
@@ -72,11 +72,11 @@
             "digits": 0
           },
           {
-            "value": 294.86328125,
+            "value": 321.5703125,
             "digits": 0
           },
           {
-            "value": 13.710591508246672,
+            "value": 12.571900585505697,
             "digits": 2
           }
         ],
@@ -88,11 +88,11 @@
             "digits": 0
           },
           {
-            "value": 26789.03125,
+            "value": 25779.59375,
             "digits": 0
           },
           {
-            "value": 39.14941866365548,
+            "value": 40.6823711099016,
             "digits": 2
           }
         ],
@@ -104,26 +104,26 @@
             "digits": 0
           },
           {
-            "value": 98.0390625,
+            "value": 115.546875,
             "digits": 0
           },
           {
-            "value": 41.2361144314288,
+            "value": 34.987964841108855,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 3.32,
-        "five": 2.61,
-        "fifteen": 1.77
+        "one": 4.43,
+        "five": 4.65,
+        "fifteen": 4.62
       },
       "load_after": {
-        "one": 3.32,
-        "five": 2.61,
-        "fifteen": 1.77
+        "one": 4.43,
+        "five": 4.65,
+        "fifteen": 4.62
       },
-      "seconds": 0.30614634
+      "seconds": 0.225452315
     }
   ]
 }

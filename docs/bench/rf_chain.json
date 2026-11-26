@@ -1,13 +1,13 @@
 {
   "format": 1,
   "bench": "rf_chain",
-  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
-  "commit": "838fcb1",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
   "dirty": false,
   "build": {
     "profile": "release",
     "opt_level": "3",
-    "jobs": 4
+    "jobs": 14
   },
   "settings": [
     [
@@ -16,7 +16,7 @@
     ],
     [
       "GiB",
-      "50"
+      "100"
     ],
     [
       "workers",
@@ -33,12 +33,13 @@
       "sse4.2",
       "avx2",
       "avx512bw+vl"
-    ]
+    ],
+    "memory_bytes": 37816610816
   },
   "tables": [
     {
       "id": "chain",
-      "title": "IQ at 20 MS/s into a chain of piece files, 8 workers and one writer thread, until it holds 50 GiB.",
+      "title": "IQ at 20 MS/s into a chain of piece files, 8 workers and one writer thread, until it holds 100 GiB.",
       "columns": [
         "What",
         "Value",
@@ -48,7 +49,7 @@
         [
           "Capture recorded",
           {
-            "value": 878.74,
+            "value": 1757.03,
             "digits": 1
           },
           "s"
@@ -56,7 +57,7 @@
         [
           "Wall time",
           {
-            "value": 924.095332481,
+            "value": 1642.373227845,
             "digits": 1
           },
           "s"
@@ -64,7 +65,7 @@
         [
           "Sustained",
           {
-            "value": 19.018384123654634,
+            "value": 21.396232844168367,
             "digits": 1
           },
           "MS/s"
@@ -72,7 +73,7 @@
         [
           "Samples in",
           {
-            "value": 76.07353649461854,
+            "value": 85.58493137667347,
             "digits": 0
           },
           "MB/s"
@@ -80,7 +81,7 @@
         [
           "Written",
           {
-            "value": 50.0037841796875,
+            "value": 100.0018081665039,
             "digits": 2
           },
           "GiB"
@@ -88,7 +89,7 @@
         [
           "Write rate",
           {
-            "value": 58.10131546476989,
+            "value": 65.37863750061913,
             "digits": 0
           },
           "MB/s"
@@ -96,7 +97,7 @@
         [
           "Writer thread busy",
           {
-            "value": 99.81217590090624,
+            "value": 99.92998289405212,
             "digits": 0
           },
           "%"
@@ -104,7 +105,7 @@
         [
           "Pieces",
           {
-            "value": 15.0,
+            "value": 30.0,
             "digits": 0
           },
           ""
@@ -112,7 +113,7 @@
         [
           "Smallest piece",
           {
-            "value": 2.367025152,
+            "value": 1.040748544,
             "digits": 2
           },
           "GB"
@@ -120,7 +121,7 @@
         [
           "Largest piece",
           {
-            "value": 3.666010112,
+            "value": 3.6667392,
             "digits": 2
           },
           "GB"
@@ -128,23 +129,23 @@
         [
           "Bytes per sample",
           {
-            "value": 3.055007990531898,
+            "value": 3.0556144147794857,
             "digits": 3
           },
           ""
         ]
       ],
       "load_before": {
-        "one": 6.3,
-        "five": 6.92,
-        "fifteen": 6.91
+        "one": 3.05,
+        "five": 3.11,
+        "fifteen": 2.32
       },
       "load_after": {
-        "one": 6.01,
-        "five": 8.92,
-        "fifteen": 8.61
+        "one": 4.34,
+        "five": 4.65,
+        "fifteen": 4.61
       },
-      "seconds": 924.188509696
+      "seconds": 1642.422592124
     },
     {
       "id": "read",
@@ -157,28 +158,28 @@
       ],
       "rows": [
         [
-          "Open 15 pieces",
+          "Open 30 pieces",
           {
-            "value": 525.575942,
+            "value": 14.844769000000001,
             "digits": 1
           },
           {
-            "value": 47020.0,
+            "value": 87275.0,
             "digits": 0
           },
           {
-            "value": 105.0,
+            "value": 210.0,
             "digits": 0
           }
         ],
         [
-          "Second 439: 20000000 samples decoded",
+          "Second 878: 20000000 samples decoded",
           {
-            "value": 112.237483,
+            "value": 113.467124,
             "digits": 1
           },
           {
-            "value": 65424804.0,
+            "value": 65785308.0,
             "digits": 0
           },
           {
@@ -188,16 +189,16 @@
         ]
       ],
       "load_before": {
-        "one": 6.01,
-        "five": 8.92,
-        "fifteen": 8.61
+        "one": 4.34,
+        "five": 4.65,
+        "fifteen": 4.61
       },
       "load_after": {
-        "one": 6.01,
-        "five": 8.92,
-        "fifteen": 8.61
+        "one": 4.34,
+        "five": 4.65,
+        "fifteen": 4.61
       },
-      "seconds": 0.637850665
+      "seconds": 0.128339414
     }
   ]
 }

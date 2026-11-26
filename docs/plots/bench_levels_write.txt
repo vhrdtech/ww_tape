@@ -1,13 +1,13 @@
 | Chunk | Level | ns per chunk | ns per byte | GB/s |
 |---|---|---:|---:|---:|
-| series 1 MiB | Full | 396 865 | 0.378 | 2.64 |
-| series 1 MiB | CrcOnly | 133 066 | 0.127 | 7.88 |
-| series 1 MiB | None | 99 634 | 0.095 | 10.52 |
-| series 4 MiB | Full | 1 709 624 | 0.408 | 2.45 |
-| series 4 MiB | CrcOnly | 611 222 | 0.146 | 6.86 |
-| series 4 MiB | None | 454 212 | 0.108 | 9.23 |
-| events 16 KiB | Full | 8034 | 0.490 | 2.04 |
-| events 16 KiB | CrcOnly | 3637 | 0.222 | 4.50 |
-| events 16 KiB | None | 3036 | 0.185 | 5.40 |
+| series 1 MiB | Full | 307 033 | 0.293 | 3.42 |
+| series 1 MiB | CrcOnly | 108 258 | 0.103 | 9.69 |
+| series 1 MiB | None | 80 697 | 0.077 | 12.99 |
+| series 4 MiB | Full | 1 306 663 | 0.312 | 3.21 |
+| series 4 MiB | CrcOnly | 492 929 | 0.118 | 8.51 |
+| series 4 MiB | None | 373 202 | 0.089 | 11.24 |
+| events 16 KiB | Full | 7103 | 0.434 | 2.31 |
+| events 16 KiB | CrcOnly | 3363 | 0.205 | 4.87 |
+| events 16 KiB | None | 2709 | 0.165 | 6.05 |
 
-`just bench-levels` on build-1, load average 5.94 before, 5.94 after.
+`just bench-levels` on build-1, load average 5.04 before, 5.04 after.

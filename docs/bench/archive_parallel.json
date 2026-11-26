@@ -1,13 +1,13 @@
 {
   "format": 1,
   "bench": "archive_parallel",
-  "version": "0.7.0 (60db6275, commit 23 Nov 2026 16:16 UTC)",
-  "commit": "60db6275",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
   "dirty": false,
   "build": {
     "profile": "release",
     "opt_level": "3",
-    "jobs": null
+    "jobs": 14
   },
   "settings": [
     [
@@ -38,7 +38,7 @@
       "avx2",
       "avx512bw+vl"
     ],
-    "memory_bytes": 37816606720
+    "memory_bytes": 37816610816
   },
   "tables": [
     {
@@ -55,7 +55,7 @@
         [
           "verify_chain (Integrity::Full)",
           {
-            "value": 10.000411987304688,
+            "value": 10.000415802001953,
             "digits": 2
           },
           {
@@ -63,18 +63,18 @@
             "digits": 0
           },
           {
-            "value": 185.400768059,
+            "value": 95.832277952,
             "digits": 1
           },
           {
-            "value": 0.05791702332421242,
+            "value": 0.11204851782171273,
             "digits": 2
           }
         ],
         [
           "range_chain (Integrity::CrcOnly)",
           {
-            "value": 6.000358581542969,
+            "value": 6.000362396240234,
             "digits": 2
           },
           {
@@ -82,18 +82,18 @@
             "digits": 0
           },
           {
-            "value": 104.656493234,
+            "value": 92.639539444,
             "digits": 1
           },
           {
-            "value": 0.06156174135889068,
+            "value": 0.06954741034625561,
             "digits": 2
           }
         ],
         [
           "resume_pieces (unclosed)",
           {
-            "value": 4.501769419759512,
+            "value": 4.501777343451977,
             "digits": 2
           },
           {
@@ -101,26 +101,26 @@
             "digits": 0
           },
           {
-            "value": 69.558051286,
+            "value": 55.21459431,
             "digits": 1
           },
           {
-            "value": 0.06949214388030003,
+            "value": 0.08754472755628945,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 24.76,
-        "five": 18.41,
-        "fifteen": 15.05
+        "one": 4.28,
+        "five": 5.3,
+        "fifteen": 4.98
       },
       "load_after": {
-        "one": 14.02,
-        "five": 14.4,
-        "fifteen": 14.05
+        "one": 10.74,
+        "five": 6.34,
+        "fifteen": 5.34
       },
-      "seconds": 359.676702479
+      "seconds": 243.78298177
     },
     {
       "id": "verify",
@@ -137,19 +137,19 @@
         [
           "20 pieces one at a time",
           {
-            "value": 3.257063782,
+            "value": 3.190963365,
             "digits": 2
           },
           {
-            "value": 3.662256335,
+            "value": 3.494304149,
             "digits": 2
           },
           {
-            "value": 28.520350168,
+            "value": 3.612270537,
             "digits": 2
           },
           {
-            "value": 2.9320341411874438,
+            "value": 3.072962239727461,
             "digits": 2
           },
           {
@@ -160,38 +160,38 @@
         [
           "20 pieces in parallel (rayon)",
           {
-            "value": 0.576353927,
+            "value": 0.579754115,
             "digits": 2
           },
           {
-            "value": 0.885298202,
+            "value": 0.646030051,
             "digits": 2
           },
           {
-            "value": 1.41681153,
+            "value": 0.677579099,
             "digits": 2
           },
           {
-            "value": 12.12908891460733,
+            "value": 16.621308385544435,
             "digits": 2
           },
           {
-            "value": 4.136748868038478,
+            "value": 5.408887935771892,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 14.72,
-        "five": 14.68,
-        "fifteen": 14.17
+        "one": 11.72,
+        "five": 7.08,
+        "fifteen": 5.62
       },
       "load_after": {
-        "one": 14.72,
-        "five": 14.68,
-        "fifteen": 14.17
+        "one": 11.72,
+        "five": 7.08,
+        "fifteen": 5.62
       },
-      "seconds": 0.000011731
+      "seconds": 0.000011341
     },
     {
       "id": "range_hash",
@@ -208,19 +208,19 @@
         [
           "12 pieces one at a time",
           {
-            "value": 2.6480029739999997,
+            "value": 1.846457558,
             "digits": 2
           },
           {
-            "value": 2.888253298,
+            "value": 1.93158596,
             "digits": 2
           },
           {
-            "value": 3.112647294,
+            "value": 1.9496665210000002,
             "digits": 2
           },
           {
-            "value": 2.230703232455895,
+            "value": 3.335518168707335,
             "digits": 2
           },
           {
@@ -231,38 +231,38 @@
         [
           "12 pieces in parallel (rayon)",
           {
-            "value": 0.556463921,
+            "value": 0.311017197,
             "digits": 2
           },
           {
-            "value": 0.698962521,
+            "value": 0.351368717,
             "digits": 2
           },
           {
-            "value": 0.732180138,
+            "value": 0.446896415,
             "digits": 2
           },
           {
-            "value": 9.21771307391745,
+            "value": 18.33640774571289,
             "digits": 2
           },
           {
-            "value": 4.132200527530145,
+            "value": 5.497319102542644,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 15.25,
-        "five": 14.84,
-        "fifteen": 14.25
+        "one": 11.97,
+        "five": 7.35,
+        "fifteen": 5.74
       },
       "load_after": {
-        "one": 15.25,
-        "five": 14.84,
-        "fifteen": 14.25
+        "one": 11.97,
+        "five": 7.35,
+        "fifteen": 5.74
       },
-      "seconds": 0.00001308
+      "seconds": 8.66e-6
     },
     {
       "id": "resume",
@@ -279,19 +279,19 @@
         [
           "12 pieces one at a time",
           {
-            "value": 4.35711934,
+            "value": 2.844300076,
             "digits": 2
           },
           {
-            "value": 4.7269014689999995,
+            "value": 2.861491422,
             "digits": 2
           },
           {
-            "value": 7.956123563,
+            "value": 2.947237834,
             "digits": 2
           },
           {
-            "value": 1.0226018332941056,
+            "value": 1.6892402957551136,
             "digits": 2
           },
           {
@@ -302,38 +302,38 @@
         [
           "12 pieces in parallel (rayon)",
           {
-            "value": 0.95663514,
+            "value": 0.456989327,
             "digits": 2
           },
           {
-            "value": 1.003066917,
+            "value": 0.485678231,
             "digits": 2
           },
           {
-            "value": 1.26289638,
+            "value": 0.527827139,
             "digits": 2
           },
           {
-            "value": 4.818958761452204,
+            "value": 9.952570050437364,
             "digits": 2
           },
           {
-            "value": 4.712448779725829,
+            "value": 5.891743214655218,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 15.03,
-        "five": 14.86,
-        "fifteen": 14.28
+        "one": 9.66,
+        "five": 7.15,
+        "fifteen": 5.71
       },
       "load_after": {
-        "one": 15.03,
-        "five": 14.86,
-        "fifteen": 14.28
+        "one": 9.66,
+        "five": 7.15,
+        "fifteen": 5.71
       },
-      "seconds": 0.00001962
+      "seconds": 0.00001829
     },
     {
       "id": "blake3_raw",
@@ -349,72 +349,72 @@
         [
           "verify_chain",
           {
-            "value": 10.000411987304688,
+            "value": 10.000415802001953,
             "digits": 2
           },
           {
-            "value": 2.2860413753223408,
+            "value": 2.531422664324518,
             "digits": 2
           },
           {
-            "value": 5.088923861110928,
+            "value": 5.48398082129584,
             "digits": 2
           },
           {
-            "value": 2.226085632589817,
+            "value": 2.1663631674717503,
             "digits": 2
           }
         ],
         [
           "range_chain",
           {
-            "value": 6.000358581542969,
+            "value": 6.000362396240234,
             "digits": 2
           },
           {
-            "value": 2.4732651001684354,
+            "value": 2.530450947579589,
             "digits": 2
           },
           {
-            "value": 5.497012851176932,
+            "value": 6.104193595567998,
             "digits": 2
           },
           {
-            "value": 2.222573249750935,
+            "value": 2.412294773548858,
             "digits": 2
           }
         ],
         [
           "resume_pieces",
           {
-            "value": 4.501769419759512,
+            "value": 4.501777343451977,
             "digits": 2
           },
           {
-            "value": 2.2457620765966357,
+            "value": 2.5324808764029303,
             "digits": 2
           },
           {
-            "value": 4.876220432834153,
+            "value": 5.537819664097363,
             "digits": 2
           },
           {
-            "value": 2.171298769201711,
+            "value": 2.1867172683108818,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 15.03,
-        "five": 14.86,
-        "fifteen": 14.28
+        "one": 9.66,
+        "five": 7.15,
+        "fifteen": 5.71
       },
       "load_after": {
-        "one": 7.45,
-        "five": 12.66,
-        "fifteen": 13.58
+        "one": 8.78,
+        "five": 7.34,
+        "fifteen": 5.89
       },
-      "seconds": 100.275548545
+      "seconds": 82.8458745
     }
   ]
 }

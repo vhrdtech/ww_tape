@@ -1,13 +1,13 @@
 {
   "format": 1,
   "bench": "drive",
-  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
-  "commit": "838fcb1",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
   "dirty": false,
   "build": {
     "profile": "release",
     "opt_level": "3",
-    "jobs": 4
+    "jobs": 14
   },
   "settings": [
     [
@@ -25,7 +25,8 @@
       "sse4.2",
       "avx2",
       "avx512bw+vl"
-    ]
+    ],
+    "memory_bytes": 37816610816
   },
   "tables": [
     {
@@ -41,49 +42,49 @@
         [
           "with summaries of `phase_a`",
           {
-            "value": 2.8431302880000002,
+            "value": 0.689547455,
             "digits": 2
           },
           {
-            "value": 40.55185528662624,
+            "value": 167.53536419041671,
             "digits": 0
           },
           {
-            "value": 1266.2099993076363,
+            "value": 5220.81544046885,
             "digits": 0
           }
         ],
         [
           "without summaries",
           {
-            "value": 3.086437223,
+            "value": 0.609825396,
             "digits": 2
           },
           {
-            "value": 36.08375351686199,
+            "value": 182.92197198032076,
             "digits": 0
           },
           {
-            "value": 1166.3933979194367,
+            "value": 5903.329089954791,
             "digits": 0
           }
         ]
       ],
       "load_before": {
-        "one": 6.03,
-        "five": 7.58,
-        "fifteen": 6.99
+        "one": 3.46,
+        "five": 3.14,
+        "fifteen": 2.15
       },
       "load_after": {
-        "one": 6.24,
-        "five": 7.53,
-        "fifteen": 6.99
+        "one": 3.43,
+        "five": 3.14,
+        "fifteen": 2.16
       },
-      "seconds": 18.830760175
+      "seconds": 6.290468271
     },
     {
       "id": "sizes",
-      "title": "The drive's hour at full scale: 4 pieces, 115294208 bytes.",
+      "title": "The drive's hour at full scale: 4 pieces, 115523584 bytes.",
       "columns": [
         "Part",
         "Bytes",
@@ -98,7 +99,7 @@
             "digits": 0
           },
           {
-            "value": 86.40267774769744,
+            "value": 86.23112229620577,
             "digits": 2
           },
           {
@@ -113,7 +114,7 @@
             "digits": 0
           },
           {
-            "value": 7.28651000404114,
+            "value": 7.272042390928592,
             "digits": 2
           },
           {
@@ -124,15 +125,15 @@
         [
           "summaries of `phase_a`",
           {
-            "value": 3299294.0,
+            "value": 3301304.0,
             "digits": 0
           },
           {
-            "value": 2.861630308436656,
+            "value": 2.8576883487271307,
             "digits": 2
           },
           {
-            "value": 916.4705555555555,
+            "value": 917.0288888888889,
             "digits": 0
           }
         ],
@@ -143,7 +144,7 @@
             "digits": 0
           },
           {
-            "value": 0.7034793976814516,
+            "value": 0.7020826154424018,
             "digits": 2
           },
           {
@@ -154,45 +155,45 @@
         [
           "puts and copies",
           {
-            "value": 5615.0,
+            "value": 8306.0,
             "digits": 0
           },
           {
-            "value": 0.004870149244617735,
+            "value": 0.007189873887569139,
             "digits": 2
           },
           {
-            "value": 1.5597222222222222,
+            "value": 2.3072222222222223,
             "digits": 0
           }
         ],
         [
           "checkpoints and final indexes",
           {
-            "value": 3145936.0,
+            "value": 3368448.0,
             "digits": 0
           },
           {
-            "value": 2.7286158208398463,
+            "value": 2.9158098142107503,
             "digits": 2
           },
           {
-            "value": 873.8711111111111,
+            "value": 935.68,
             "digits": 0
           }
         ],
         [
           "piece heads, closes and tails",
           {
-            "value": 14085.0,
+            "value": 16248.0,
             "digits": 0
           },
           {
-            "value": 0.012216572058849651,
+            "value": 0.014064660597787548,
             "digits": 2
           },
           {
-            "value": 3.9125,
+            "value": 4.513333333333334,
             "digits": 0
           }
         ],
@@ -229,7 +230,7 @@
         [
           "the recording",
           {
-            "value": 115294208.0,
+            "value": 115523584.0,
             "digits": 0
           },
           {
@@ -237,22 +238,22 @@
             "digits": 2
           },
           {
-            "value": 32026.16888888889,
+            "value": 32089.884444444444,
             "digits": 0
           }
         ]
       ],
       "load_before": {
-        "one": 6.24,
-        "five": 7.53,
-        "fifteen": 6.99
+        "one": 3.43,
+        "five": 3.14,
+        "fifteen": 2.16
       },
       "load_after": {
-        "one": 6.24,
-        "five": 7.53,
-        "fifteen": 6.99
+        "one": 3.43,
+        "five": 3.14,
+        "fifteen": 2.16
       },
-      "seconds": 0.025483692
+      "seconds": 0.014516595
     },
     {
       "id": "items",
@@ -314,16 +315,16 @@
         ]
       ],
       "load_before": {
-        "one": 6.24,
-        "five": 7.53,
-        "fifteen": 6.99
+        "one": 3.43,
+        "five": 3.14,
+        "fifteen": 2.16
       },
       "load_after": {
-        "one": 6.24,
-        "five": 7.53,
-        "fifteen": 6.99
+        "one": 3.43,
+        "five": 3.14,
+        "fifteen": 2.16
       },
-      "seconds": 0.159200123
+      "seconds": 0.148802795
     }
   ]
 }

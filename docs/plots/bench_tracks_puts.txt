@@ -1,6 +1,6 @@
 | Tracks in use | Put and copied bytes | Of the piece, % |
 |---|---:|---:|
-| 10000 | 7 005 520 | 2.610 |
-| 100 | 103 725 | 0.039 |
+| 10000 | 7 713 437 | 2.873 |
+| 100 | 111 550 | 0.042 |
 
-`just bench-tracks` on build-1, load average 6.03 before, 6.03 after.
+`just bench-tracks` on build-1, load average 3.46 before, 3.46 after.

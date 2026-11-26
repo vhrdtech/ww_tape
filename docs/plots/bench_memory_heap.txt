@@ -1,10 +1,10 @@
 | Blocks | Tracks | Blocks in the piece | New writer (bytes) | Peak before the close (bytes) | Peak with the close (bytes) | Before the close, per block (bytes) |
 |---|---:|---:|---:|---:|---:|---:|
-| records, 4 KiB | 1 | 64 002 | 0 | 13 652 824 | 44 221 584 | 213.3 |
-| records, 4 KiB | 10 | 63 997 | 0 | 13 654 088 | 44 220 808 | 213.4 |
-| records, 4 KiB | 100 | 63 952 | 0 | 13 709 248 | 44 257 608 | 214.4 |
-| records, 4 KiB | 1000 | 63 485 | 0 | 27 575 528 | 62 390 632 | 434.4 |
-| records, 4 KiB | 10 000 | 60 609 | 0 | 32 442 143 | 66 086 344 | 535.3 |
-| series chunks, 1024 KiB | 1 | 256 | 0 | 3 166 431 | 3 166 431 | 12368.9 |
+| records, 4 KiB | 1 | 63 882 | 0 | 20 884 616 | 67 562 088 | 326.9 |
+| records, 4 KiB | 10 | 63 877 | 0 | 20 886 152 | 67 560 504 | 327.0 |
+| records, 4 KiB | 100 | 63 826 | 0 | 21 023 608 | 67 666 136 | 329.4 |
+| records, 4 KiB | 1000 | 63 300 | 0 | 43 167 168 | 96 297 216 | 681.9 |
+| records, 4 KiB | 10 000 | 59 931 | 0 | 55 756 260 | 108 869 720 | 930.3 |
+| series chunks, 1024 KiB | 1 | 256 | 0 | 3 177 949 | 3 177 949 | 12413.9 |
 
-`just bench-memory` on build-1, load average 6.49 before, 6.49 after.
+`just bench-memory` on build-1, load average 3.36 before, 3.36 after.

@@ -1,6 +1,6 @@
 | Read | Reads | ms | ns per chunk |
 |---|---:|---:|---:|
-| `TapeReader::series_timeline` | 23 | 3.69 | 369 |
-| every chunk head (`TapeReader::read_chunk_head`) | 20 003 | 15.40 | 1540 |
+| `TapeReader::series_timeline` | 23 | 1.27 | 127 |
+| every chunk head (`TapeReader::read_chunk_head`) | 20 003 | 11.49 | 1149 |
 
-`just bench-chunks` on alma-1b, load average 1.44 before, 1.44 after.
+`just bench-chunks` on build-1, load average 3.33 before, 3.33 after.

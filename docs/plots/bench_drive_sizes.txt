@@ -1,14 +1,14 @@
 | Part | Bytes | Of the recording, % | Bytes per second of the run |
 |---|---:|---:|---:|
-| series chunks of `phase_a` | 99 617 283 | 86.40 | 27 671 |
-| events chunks of `can0` | 8 400 924 | 7.29 | 2334 |
-| summaries of `phase_a` | 3 299 294 | 2.86 | 916 |
+| series chunks of `phase_a` | 99 617 283 | 86.23 | 27 671 |
+| events chunks of `can0` | 8 400 924 | 7.27 | 2334 |
+| summaries of `phase_a` | 3 301 304 | 2.86 | 917 |
 | records blocks of `log`, `temp` and `mode` | 811 071 | 0.70 | 225 |
-| puts and copies | 5615 | 0.00 | 2 |
-| checkpoints and final indexes | 3 145 936 | 2.73 | 874 |
-| piece heads, closes and tails | 14 085 | 0.01 | 4 |
+| puts and copies | 8306 | 0.01 | 2 |
+| checkpoints and final indexes | 3 368 448 | 2.92 | 936 |
+| piece heads, closes and tails | 16 248 | 0.01 | 5 |
 | other blocks | 0 | 0.00 | 0 |
 | zeros between blocks | 0 | 0.00 | 0 |
-| the recording | 115 294 208 | 100.00 | 32 026 |
+| the recording | 115 523 584 | 100.00 | 32 090 |
 
-`just bench-drive` on build-1, load average 6.24 before, 6.24 after.
+`just bench-drive` on build-1, load average 3.43 before, 3.43 after.

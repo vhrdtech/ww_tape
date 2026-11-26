@@ -1,15 +1,15 @@
 | What | Value | Unit |
 |---|---:|---|
-| Capture recorded | 878.7 | s |
-| Wall time | 924.1 | s |
-| Sustained | 19.0 | MS/s |
-| Samples in | 76 | MB/s |
-| Written | 50.00 | GiB |
-| Write rate | 58 | MB/s |
+| Capture recorded | 1757.0 | s |
+| Wall time | 1642.4 | s |
+| Sustained | 21.4 | MS/s |
+| Samples in | 86 | MB/s |
+| Written | 100.00 | GiB |
+| Write rate | 65 | MB/s |
 | Writer thread busy | 100 | % |
-| Pieces | 15 |  |
-| Smallest piece | 2.37 | GB |
+| Pieces | 30 |  |
+| Smallest piece | 1.04 | GB |
 | Largest piece | 3.67 | GB |
-| Bytes per sample | 3.055 |  |
+| Bytes per sample | 3.056 |  |
 
-`just bench-rf-chain` on build-1, load average 6.30 before, 6.01 after.
+`just bench-rf-chain` on build-1, load average 3.05 before, 4.34 after.

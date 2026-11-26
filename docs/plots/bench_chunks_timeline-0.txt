@@ -1,7 +1,7 @@
 | Read | Bytes read per chunk | ns per chunk |
 |---|---:|---:|
-| `TapeReader::series_timeline`: the index | 129 | 278 |
-| `TapeReader::read_block` of every chunk | 1 048 903 | 217 983 |
-| `TapeReader::range_hash`: unit hashes from the index | 128 | 294 |
+| `TapeReader::series_timeline`: the index | 129 | 123 |
+| `TapeReader::read_block` of every chunk | 1 048 903 | 59 722 |
+| `TapeReader::range_hash`: unit hashes from the index | 128 | 163 |
 
-`just bench-chunks` on alma-1b, load average 1.44 before, 1.44 after.
+`just bench-chunks` on build-1, load average 3.33 before, 3.33 after.

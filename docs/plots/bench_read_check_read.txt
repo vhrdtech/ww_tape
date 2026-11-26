@@ -1,8 +1,8 @@
 | Block | Payload CRCs | Bytes per block | ns per block | GB/s |
 |---|---|---:|---:|---:|
-| chunk | checked | 1 048 775 | 57 401 | 18.27 |
-| records | checked | 4043 | 295 | 13.71 |
-| chunk | not checked | 1 048 775 | 26 789 | 39.15 |
-| records | not checked | 4043 | 98 | 41.24 |
+| chunk | checked | 1 048 775 | 59 343 | 17.67 |
+| records | checked | 4043 | 322 | 12.57 |
+| chunk | not checked | 1 048 775 | 25 780 | 40.68 |
+| records | not checked | 4043 | 116 | 34.99 |
 
-`just bench-read-check` on gpd-omarchy, load average 3.32 before, 3.32 after.
+`just bench-read-check` on build-1, load average 4.43 before, 4.43 after.

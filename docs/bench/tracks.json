@@ -1,13 +1,13 @@
 {
   "format": 1,
   "bench": "tracks",
-  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
-  "commit": "838fcb1",
+  "version": "0.16.0 (099be2b0, commit 26 Nov 2026 19:22 UTC)",
+  "commit": "099be2b0",
   "dirty": false,
   "build": {
     "profile": "release",
     "opt_level": "3",
-    "jobs": 4
+    "jobs": 14
   },
   "settings": [
     [
@@ -33,12 +33,13 @@
       "sse4.2",
       "avx2",
       "avx512bw+vl"
-    ]
+    ],
+    "memory_bytes": 37816610816
   },
   "tables": [
     {
       "id": "add",
-      "title": "10000 tracks added one by one, a records block each, into a piece in memory of 7458816 bytes.",
+      "title": "10000 tracks added one by one, a records block each, into a piece in memory of 10727424 bytes.",
       "columns": [
         "What",
         "s"
@@ -47,54 +48,54 @@
         [
           "add 1000 tracks",
           {
-            "value": 0.007430163,
+            "value": 0.011695489,
             "digits": 3
           }
         ],
         [
           "add 5000 tracks",
           {
-            "value": 0.039568955,
+            "value": 0.060566839,
             "digits": 3
           }
         ],
         [
           "add 10000 tracks",
           {
-            "value": 0.084982944,
+            "value": 0.122836625,
             "digits": 3
           }
         ],
         [
           "close the piece",
           {
-            "value": 0.015249452,
+            "value": 0.021384536,
             "digits": 3
           }
         ],
         [
           "open it and read the definitions",
           {
-            "value": 0.022968428,
+            "value": 0.036545751,
             "digits": 3
           }
         ]
       ],
       "load_before": {
-        "one": 6.03,
-        "five": 7.58,
-        "fifteen": 6.99
+        "one": 3.46,
+        "five": 3.14,
+        "fifteen": 2.15
       },
       "load_after": {
-        "one": 6.03,
-        "five": 7.58,
-        "fifteen": 6.99
+        "one": 3.46,
+        "five": 3.14,
+        "fifteen": 2.15
       },
-      "seconds": 0.124505207
+      "seconds": 0.182070824
     },
     {
       "id": "puts",
-      "title": "Put and copied bytes in a piece of 256 MiB, 10000 tracks defined, records blocks of 4 KiB on the tracks in use in turn; the default policies: a near of 32 MiB, a copy 1 MiB after the newest record.",
+      "title": "Put and copied bytes in a piece of 256 MiB, 10000 tracks defined, records blocks of 4 KiB on the tracks in use in turn; the default policies: a near of 32 MiB, 2 copies, the first 4 KiB after the first record, the next 1 MiB after it.",
       "columns": [
         "Tracks in use",
         "Put and copied bytes",
@@ -104,37 +105,37 @@
         [
           "10000",
           {
-            "value": 7005520.0,
+            "value": 7713437.0,
             "digits": 0
           },
           {
-            "value": 2.6097404750798154,
+            "value": 2.8734706173709217,
             "digits": 3
           }
         ],
         [
           "100",
           {
-            "value": 103725.0,
+            "value": 111550.0,
             "digits": 0
           },
           {
-            "value": 0.038640464652956494,
+            "value": 0.0415551640350892,
             "digits": 3
           }
         ]
       ],
       "load_before": {
-        "one": 6.03,
-        "five": 7.58,
-        "fifteen": 6.99
+        "one": 3.46,
+        "five": 3.14,
+        "fifteen": 2.15
       },
       "load_after": {
-        "one": 6.03,
-        "five": 7.58,
-        "fifteen": 6.99
+        "one": 3.46,
+        "five": 3.14,
+        "fifteen": 2.15
       },
-      "seconds": 1.748990102
+      "seconds": 1.5663627359999999
     },
     {
       "id": "idle",
@@ -154,22 +155,22 @@
         [
           "copied",
           {
-            "value": 6.1558,
+            "value": 12.3095,
             "digits": 1
           }
         ]
       ],
       "load_before": {
-        "one": 6.03,
-        "five": 7.58,
-        "fifteen": 6.99
+        "one": 3.46,
+        "five": 3.14,
+        "fifteen": 2.15
       },
       "load_after": {
-        "one": 6.03,
-        "five": 7.58,
-        "fifteen": 6.99
+        "one": 3.46,
+        "five": 3.14,
+        "fifteen": 2.15
       },
-      "seconds": 0.020010067
+      "seconds": 0.014112697
     }
   ]
 }

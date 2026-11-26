@@ -1,6 +1,6 @@
 | Read | ms | Bytes read | Reads |
 |---|---:|---:|---:|
-| Open 15 pieces | 525.6 | 47 020 | 105 |
-| Second 439: 20000000 samples decoded | 112.2 | 65 424 804 | 103 |
+| Open 30 pieces | 14.8 | 87 275 | 210 |
+| Second 878: 20000000 samples decoded | 113.5 | 65 785 308 | 103 |
 
-`just bench-rf-chain` on build-1, load average 6.01 before, 6.01 after.
+`just bench-rf-chain` on build-1, load average 4.34 before, 4.34 after.

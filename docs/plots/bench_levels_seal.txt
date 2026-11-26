@@ -1,10 +1,10 @@
 | Chunk | From | ns per chunk | ns per byte | GB/s |
 |---|---|---:|---:|---:|
-| series 1 MiB | CrcOnly | 442 961 | 0.422 | 2.37 |
-| series 1 MiB | None | 416 531 | 0.397 | 2.52 |
-| series 4 MiB | CrcOnly | 1 776 376 | 0.424 | 2.36 |
-| series 4 MiB | None | 1 588 340 | 0.379 | 2.64 |
-| events 16 KiB | CrcOnly | 8939 | 0.546 | 1.83 |
-| events 16 KiB | None | 8219 | 0.502 | 1.99 |
+| series 1 MiB | CrcOnly | 355 567 | 0.339 | 2.95 |
+| series 1 MiB | None | 325 179 | 0.310 | 3.22 |
+| series 4 MiB | CrcOnly | 1 473 152 | 0.351 | 2.85 |
+| series 4 MiB | None | 1 357 825 | 0.324 | 3.09 |
+| events 16 KiB | CrcOnly | 8001 | 0.488 | 2.05 |
+| events 16 KiB | None | 7413 | 0.452 | 2.21 |
 
-`just bench-levels` on build-1, load average 5.94 before, 5.94 after.
+`just bench-levels` on build-1, load average 5.04 before, 5.04 after.
