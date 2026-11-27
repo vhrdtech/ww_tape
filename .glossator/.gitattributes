@@ -1,0 +1,2 @@
+# Stamps are append-only lines: merging two branches keeps both sides' lines.
+*.jsonl merge=union

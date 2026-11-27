@@ -1,0 +1,3 @@
+# Left out of coverage: data and generated files, not text to review (fuzz corpora, the lock file, drawings,
+# API snapshots)
+ignore = ["ww_tape_fuzz/", "fuzz/", "Cargo.lock", "*.svg", "ww_tape/api_snapshots/"]
